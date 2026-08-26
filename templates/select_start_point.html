@@ -1,0 +1,170 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Waste Route Optimizer - Setup</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="mobile-web-app-capable" content="yes">
+    <meta name="theme-color" content="#2563eb">
+    <link rel="manifest" href="/static/manifest.json">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+    <style>
+        * { box-sizing: border-box; }
+        body { 
+            font-family: 'Inter', sans-serif; 
+            margin: 0; padding: 0;
+            background-color: #f3f4f6; color: #1f2937;
+        }
+        .header {
+            background-color: #ffffff;
+            padding: 24px; text-align: center;
+            border-bottom: 1px solid #e5e7eb;
+            box-shadow: 0 1px 3px rgba(0,0,0,0.05);
+            margin-bottom: 30px;
+        }
+        .header h1 { margin: 0; font-size: 24px; color: #111827; font-weight: 700; display:flex; justify-content:center; align-items:center; gap:10px;}
+        .container { max-width: 850px; margin: 0 auto; padding: 0 20px 40px 20px; }
+        
+        .card {
+            background: #ffffff;
+            border-radius: 12px; padding: 24px;
+            box-shadow: 0 4px 6px -1px rgba(0,0,0,0.05), 0 2px 4px -1px rgba(0,0,0,0.03);
+            margin-bottom: 24px;
+            border: 1px solid #f3f4f6;
+        }
+        .card h2 { margin-top: 0; font-size: 18px; color: #374151; padding-bottom: 12px; border-bottom: 1px solid #f3f4f6; margin-bottom: 20px; display:flex; align-items:center; gap:8px;}
+        
+        #map { height: 400px; width: 100%; border-radius: 8px; border: 1px solid #e5e7eb; z-index: 1;}
+        
+        .form-group { margin-bottom: 20px; }
+        label { display: block; font-weight: 600; font-size: 14px; margin-bottom: 8px; color: #4b5563; }
+        
+        input[type="text"], input[type="number"], input[type="file"] {
+            width: 100%; padding: 12px;
+            background: #f9fafb;
+            border: 1px solid #d1d5db;
+            color: #111827; border-radius: 8px;
+            font-size: 14px; font-family: 'Inter', sans-serif;
+            transition: border-color 0.2s, box-shadow 0.2s;
+        }
+        input[type="text"]:focus, input[type="number"]:focus { border-color: #3b82f6; box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.1); outline: none; }
+        input[readonly] { background-color: #f3f4f6; color: #6b7280; cursor: default; }
+        
+        .grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; }
+        
+        .btn { 
+            display: flex; justify-content: center; align-items: center; gap: 10px;
+            width: 100%; padding: 16px; 
+            background: #2563eb; color: #ffffff; 
+            border: none; border-radius: 8px; 
+            font-size: 16px; font-weight: 600; cursor: pointer; 
+            box-shadow: 0 4px 6px -1px rgba(37, 99, 235, 0.2);
+            transition: all 0.2s;
+        }
+        .btn:hover { background: #1d4ed8; transform: translateY(-1px); box-shadow: 0 6px 8px -1px rgba(37, 99, 235, 0.3); }
+        .btn:active { transform: translateY(0); }
+        
+        .custom-div-icon { background: none; border: none; }
+    </style>
+</head>
+<body>
+    <div class="header">
+        <h1><i class="fa-solid fa-truck-fast" style="color: #2563eb;"></i> Route Optimizer</h1>
+    </div>
+    
+    <div class="container">
+        <form id="setupForm" action="/upload" method="post" enctype="multipart/form-data">
+            
+            <div class="card">
+                <h2><i class="fa-solid fa-map-location-dot" style="color: #2563eb;"></i> 1. Select Start Location</h2>
+                <p style="font-size: 14px; color: #6b7280; margin-top: -5px; margin-bottom: 15px;">Click anywhere on the map to set where the drivers will start their route.</p>
+                <div id="map" style="margin-bottom: 15px;"></div>
+                <div class="grid-2">
+                    <div class="form-group">
+                        <label>Start Latitude</label>
+                        <input type="text" id="start_lat" name="start_lat" placeholder="Click on map..." required readonly>
+                    </div>
+                    <div class="form-group">
+                        <label>Start Longitude</label>
+                        <input type="text" id="start_lng" name="start_lng" placeholder="Click on map..." required readonly>
+                    </div>
+                </div>
+            </div>
+
+            <div class="card">
+                <h2><i class="fa-solid fa-flag-checkered" style="color: #059669;"></i> 2. End Location <span style="font-size:12px; font-weight:normal; color:#9ca3af; float:right;">(Pre-set)</span></h2>
+                <div class="grid-2">
+                    <div class="form-group">
+                        <label>End Latitude</label>
+                        <input type="text" id="end_lat" name="end_lat" value="23.277034" required readonly>
+                    </div>
+                    <div class="form-group">
+                        <label>End Longitude</label>
+                        <input type="text" id="end_lng" name="end_lng" value="72.436150" required readonly>
+                    </div>
+                </div>
+            </div>
+
+            <div class="card">
+                <h2><i class="fa-solid fa-file-excel" style="color: #10b981;"></i> 3. Upload Stops</h2>
+                <div class="form-group">
+                    <label>How many trucks are available?</label>
+                    <input type="number" name="num_trucks" value="3" min="1" max="50" required>
+                </div>
+                <div class="form-group" style="margin-top: 20px;">
+                    <label>Customer Route Data (.xlsx / .docx)</label>
+                    <input type="file" name="file" accept=".xlsx, .docx" required style="padding: 12px; border: 2px dashed #d1d5db; background: #f9fafb; cursor: pointer;">
+                </div>
+            </div>
+            
+            <button type="submit" class="btn" id="submitBtn"><i class="fa-solid fa-wand-magic-sparkles"></i> Generate Best Routes</button>
+        </form>
+    </div>
+
+    <script>
+        var map = L.map('map').setView([23.0225, 72.5714], 11);
+        
+        // Google Maps Tiles
+        var googleStreets = L.tileLayer('http://{s}.google.com/vt/lyrs=m&x={x}&y={y}&z={z}', {
+            maxZoom: 20,
+            subdomains:['mt0','mt1','mt2','mt3']
+        });
+        
+        var googleSat = L.tileLayer('http://{s}.google.com/vt/lyrs=s&x={x}&y={y}&z={z}', {
+            maxZoom: 20,
+            subdomains:['mt0','mt1','mt2','mt3']
+        });
+        
+        googleStreets.addTo(map);
+
+        L.control.layers({
+            "Google Maps": googleStreets,
+            "Google Satellite": googleSat
+        }).addTo(map);
+
+        var startMarker = null;
+        var endMarker = L.marker([23.277034, 72.436150], {
+            icon: L.divIcon({className: 'custom-div-icon', html: '<div style="background-color:#059669; width:16px; height:16px; border-radius:50%; border:3px solid #fff; box-shadow:0 2px 4px rgba(0,0,0,0.3);"></div>'})
+        }).addTo(map).bindPopup("<b>End Location</b>");
+
+        map.on('click', function(e) {
+            if (startMarker) map.removeLayer(startMarker);
+            startMarker = L.marker(e.latlng, {
+                icon: L.divIcon({className: 'custom-div-icon', html: '<div style="background-color:#2563eb; width:16px; height:16px; border-radius:50%; border:3px solid #fff; box-shadow:0 2px 4px rgba(0,0,0,0.3);"></div>'})
+            }).addTo(map).bindPopup("<b>Start Location</b>").openPopup();
+            document.getElementById('start_lat').value = e.latlng.lat;
+            document.getElementById('start_lng').value = e.latlng.lng;
+        });
+
+        document.getElementById('setupForm').addEventListener('submit', function(e) {
+            if (!document.getElementById('start_lat').value) {
+                e.preventDefault();
+                alert("Please click on the map to select the START Depot!");
+            }
+        });
+    </script>
+</body>
+</html>

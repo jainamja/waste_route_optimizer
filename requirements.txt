@@ -1,0 +1,11 @@
+pandas
+openpyxl
+numpy
+folium
+python-docx
+flask
+pytest
+geopy
+requests
+ortools
+gunicorn

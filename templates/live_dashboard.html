@@ -1,0 +1,286 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Live Route Dashboard</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="mobile-web-app-capable" content="yes">
+    <meta name="theme-color" content="#2563eb">
+    <link rel="manifest" href="/static/manifest.json">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+    <style>
+        * { box-sizing: border-box; }
+        body { font-family: 'Inter', sans-serif; margin: 0; padding: 0; display: flex; height: 100vh; flex-direction: column; background: #f8fafc; color: #1e293b;}
+        .topbar { background: linear-gradient(135deg, #10b981 0%, #059669 100%); padding: 15px 25px; box-shadow: 0 4px 6px -1px rgba(0,0,0,0.1); display: flex; justify-content: space-between; align-items: center; z-index: 1000; position: relative;}
+        .topbar h2 { margin: 0; font-size: 20px; font-weight: 700; color: #ffffff; display: flex; align-items: center; gap: 10px;}
+        .main-container { display: flex; flex: 1; overflow: hidden; flex-direction: column-reverse; }
+        @media(min-width: 768px) { .main-container { flex-direction: row; } }
+        #sidebar { width: 100%; padding: 20px; background: #ffffff; overflow-y: auto; box-shadow: inset 0 2px 4px rgba(0,0,0,0.02); height: 45vh; }
+        @media(min-width: 768px) { #sidebar { width: 400px; height: auto; border-right: 1px solid #e2e8f0; box-shadow: 4px 0 15px rgba(0,0,0,0.03); z-index: 10;} }
+        #map { flex: 1; height: 55vh; z-index: 1; }
+        @media(min-width: 768px) { #map { height: auto; } }
+        
+        .truck-card { background: #ffffff; border: 1px solid #f1f5f9; padding: 18px; margin-bottom: 20px; border-radius: 12px; box-shadow: 0 4px 6px -1px rgba(0,0,0,0.05), 0 2px 4px -1px rgba(0,0,0,0.03); transition: all 0.2s ease;}
+        .truck-card:hover { transform: translateY(-2px); box-shadow: 0 10px 15px -3px rgba(0,0,0,0.1), 0 4px 6px -2px rgba(0,0,0,0.05); }
+        .truck-card-header { font-size: 16px; font-weight: 700; margin-bottom: 5px; display: flex; align-items: center; justify-content: space-between; }
+        
+        .progress-bar-bg { background-color: #e2e8f0; height: 8px; border-radius: 4px; overflow: hidden; margin: 12px 0;}
+        .progress-bar { background-color: #10b981; height: 100%; width: 0%; transition: width 0.5s ease-out;}
+        .progress-bar-bg { background-color: #f3f4f6; height: 8px; border-radius: 4px; overflow: hidden; margin: 12px 0; border: 1px solid #e5e7eb;}
+        .progress-bar { height: 100%; width: 0%; transition: width 0.5s ease-out;}
+        
+        .btn { padding: 8px 16px; background: #2563eb; color: white; text-decoration: none; border-radius: 6px; font-weight: 600; font-size: 14px; display: inline-flex; align-items: center; gap: 8px; transition: 0.2s; border: none; cursor: pointer; box-shadow: 0 2px 4px rgba(37,99,235,0.2);}
+        .btn:hover { background: #1d4ed8; }
+        
+        .popup-btn { background: #10b981; color: white; border: none; padding: 10px 15px; cursor: pointer; border-radius: 6px; margin-top: 12px; width: 100%; font-weight: 600; font-family: 'Inter', sans-serif; transition: 0.2s; display: flex; justify-content: center; align-items: center; gap: 8px;}
+        .popup-btn:hover { background: #059669; }
+        .popup-btn:disabled { background: #d1d5db; color: #6b7280; cursor: not-allowed; }
+        
+        .route-link { font-size: 14px; color: #2563eb; display: flex; align-items: center; justify-content: center; gap: 8px; margin-top: 15px; text-decoration: none; padding: 12px; background: #eff6ff; border: 1px solid #bfdbfe; border-radius: 8px; font-weight: 600; transition: 0.2s;}
+        .route-link:hover { background: #dbeafe; color: #1d4ed8; border-color: #93c5fd;}
+        
+        .stop-item { padding: 8px 0; border-bottom: 1px dashed #e5e7eb; font-size: 14px; color: #4b5563;}
+        .stop-item:last-child { border-bottom: none; }
+        
+        .custom-div-icon { background: none; border: none; }
+    </style>
+</head>
+<body>
+    <div class="topbar">
+        <h2><i class="fa-solid fa-map" style="color: #2563eb;"></i> Live Dashboard</h2>
+        <a href="/download_excel" class="btn"><i class="fa-solid fa-file-excel"></i> Export Report</a>
+    </div>
+    
+    <div class="main-container">
+        <div id="sidebar">
+            <div id="truck-stats">
+                <!-- Populated by JS -->
+            </div>
+        </div>
+        <div id="map"></div>
+    </div>
+
+    <script>
+        const colors = ['#2563eb', '#10b981', '#f59e0b', '#ef4444', '#8b5cf6', '#ec4899', '#14b8a6', '#f97316'];
+        
+        var map = L.map('map').setView([23.0225, 72.5714], 12);
+        
+        // Google Maps Tiles
+        var googleStreets = L.tileLayer('http://{s}.google.com/vt/lyrs=m&x={x}&y={y}&z={z}', {
+            maxZoom: 20,
+            subdomains:['mt0','mt1','mt2','mt3']
+        });
+        
+        var googleSat = L.tileLayer('http://{s}.google.com/vt/lyrs=s&x={x}&y={y}&z={z}', {
+            maxZoom: 20,
+            subdomains:['mt0','mt1','mt2','mt3']
+        });
+        
+        googleStreets.addTo(map);
+        
+        L.control.layers({
+            "Google Maps": googleStreets,
+            "Google Satellite": googleSat
+        }).addTo(map);
+
+        let data = null;
+        let markers = {};
+
+        function loadData() {
+            fetch('/api/data')
+                .then(r => r.json())
+                .then(d => {
+                    data = d;
+                    renderMap();
+                    renderSidebar();
+                });
+        }
+
+        function markCompleted(customerId) {
+            fetch(`/api/mark_completed/${customerId}`, { method: 'POST' })
+                .then(r => r.json())
+                .then(res => {
+                    if (res.success) {
+                        loadData(); // Re-render to show green
+                    }
+                });
+        }
+
+        function renderMap() {
+            // clear map layers (except base)
+            map.eachLayer(layer => {
+                if (!layer._url) map.removeLayer(layer);
+            });
+
+            if (!data.routes || data.routes.length === 0) return;
+
+            let allLats = [data.start_coord[0], data.end_coord[0]];
+            let allLngs = [data.start_coord[1], data.end_coord[1]];
+
+            data.routes.forEach((route, idx) => {
+                let color = colors[idx % colors.length];
+                let latlngs = [data.start_coord];
+                
+                // Group customers by coordinate
+                let groupedStops = {};
+                
+                route.forEach(customerId => {
+                    let customer = data.customers.find(c => c.id === customerId);
+                    if (customer) {
+                        let coordStr = `${customer.lat},${customer.lng}`;
+                        if (!groupedStops[coordStr]) {
+                            groupedStops[coordStr] = [];
+                        }
+                        groupedStops[coordStr].push(customer);
+                        
+                        latlngs.push([customer.lat, customer.lng]);
+                        allLats.push(customer.lat);
+                        allLngs.push(customer.lng);
+                    }
+                });
+                
+                // Draw grouped markers
+                Object.values(groupedStops).forEach(customersAtCoord => {
+                    let coord = [customersAtCoord[0].lat, customersAtCoord[0].lng];
+                    
+                    let isCompleted = customersAtCoord.every(c => c.status === 'COMPLETED');
+                    let markerColor = isCompleted ? '#10b981' : color;
+                    
+                    let popupHtml = '';
+                    let stopNumbers = customersAtCoord.map(c => c.stop_number).join(', ');
+                    
+                    customersAtCoord.forEach(customer => {
+                        let cIsCompleted = customer.status === 'COMPLETED';
+                        let btnIcon = cIsCompleted ? '<i class="fa-solid fa-check"></i>' : '<i class="fa-solid fa-check"></i>';
+                        popupHtml += `
+                            <div style="margin-bottom: 10px; border-bottom: 1px solid #e5e7eb; padding-bottom: 10px;">
+                                <b style="font-size:15px; color:#111827;">${customer.name}</b> <span style="color:#6b7280; font-size:12px;">(Stop ${customer.stop_number})</span><br>
+                                <div style="font-size:13px; color:#4b5563; margin-top:5px; line-height: 1.5;">
+                                ${customer.phone ? '<i class="fa-solid fa-phone" style="width:16px;"></i> ' + customer.phone + '<br>' : ''}
+                                ${customer.address ? '<i class="fa-solid fa-location-dot" style="width:16px;"></i> ' + customer.address + '<br>' : ''}
+                                </div>
+                                <button class="popup-btn" onclick="markCompleted(${customer.id})" ${cIsCompleted ? 'disabled' : ''}>
+                                    ${btnIcon} ${cIsCompleted ? 'Completed' : 'Mark Completed'}
+                                </button>
+                            </div>
+                        `;
+                    });
+                    
+                    let iconHtml = `
+                        <div style="
+                            background: ${markerColor}; 
+                            color: white; 
+                            border-radius: 6px; 
+                            padding: 3px 8px;
+                            display: flex; 
+                            align-items: center; 
+                            justify-content: center; 
+                            font-weight: 600;
+                            font-size: 12px;
+                            border: 2px solid white;
+                            box-shadow: 0 2px 4px rgba(0,0,0,0.2);
+                            white-space: nowrap;
+                        ">
+                            ${stopNumbers}
+                        </div>
+                    `;
+                    
+                    let customIcon = L.divIcon({
+                        html: iconHtml,
+                        className: 'custom-div-icon',
+                        iconAnchor: [12, 12]
+                    });
+
+                    L.marker(coord, { icon: customIcon }).bindPopup(popupHtml, {maxHeight: 350}).addTo(map);
+                });
+                
+                latlngs.push(data.end_coord);
+                
+                let coordsString = latlngs.map(ll => `${ll[1]},${ll[0]}`).join(';');
+                let url = `https://router.project-osrm.org/route/v1/driving/${coordsString}?overview=full&geometries=geojson`;
+
+                fetch(url)
+                    .then(res => res.json())
+                    .then(routeData => {
+                        if (routeData.routes && routeData.routes.length > 0) {
+                            let geojson = routeData.routes[0].geometry;
+                            L.geoJSON(geojson, {
+                                style: { color: color, weight: 5, opacity: 0.8 }
+                            }).addTo(map);
+                        } else {
+                            L.polyline(latlngs, {color: color, weight: 4, opacity: 0.8}).addTo(map);
+                        }
+                    })
+                    .catch(e => {
+                        console.error('OSRM fetch error:', e);
+                        L.polyline(latlngs, {color: color, weight: 4, opacity: 0.8}).addTo(map);
+                    });
+            });
+
+            if (allLats.length > 2) {
+                map.fitBounds([
+                    [Math.min(...allLats), Math.min(...allLngs)],
+                    [Math.max(...allLats), Math.max(...allLngs)]
+                ]);
+            }
+        }
+
+        function renderSidebar() {
+            let html = '';
+            let trucksInfo = {};
+            
+            data.customers.forEach(c => {
+                let t = c.truck;
+                if (!trucksInfo[t]) trucksInfo[t] = { total: 0, completed: 0 };
+                trucksInfo[t].total++;
+                if (c.status === 'COMPLETED') trucksInfo[t].completed++;
+            });
+
+            Object.keys(trucksInfo).sort().forEach((t, i) => {
+                let info = trucksInfo[t];
+                let pct = Math.round((info.completed / info.total) * 100) || 0;
+                let color = colors[i % colors.length];
+                
+                let truckRoute = data.routes[i];
+                let dirUrl = `https://www.google.com/maps/dir/?api=1&origin=${data.start_coord[0]},${data.start_coord[1]}&destination=${data.end_coord[0]},${data.end_coord[1]}&waypoints=`;
+                let waypoints = [];
+                let stopsListHtml = '<div style="margin-top: 15px; margin-bottom: 10px;">';
+                
+                truckRoute.forEach(customerId => {
+                    let customer = data.customers.find(c => c.id === customerId);
+                    if (customer) {
+                        waypoints.push(`${customer.lat},${customer.lng}`);
+                        let isDone = customer.status === 'COMPLETED';
+                        let statusIcon = isDone ? '<i class="fa-solid fa-circle-check"></i>' : '<i class="fa-regular fa-circle"></i>';
+                        let textColor = isDone ? '#10b981' : '#6b7280';
+                        stopsListHtml += `<div class="stop-item" style="color: ${textColor};"><span style="margin-right:8px;">${statusIcon}</span> <b style="font-size:13px;">Stop ${customer.stop_number}:</b> ${customer.name}</div>`;
+                    }
+                });
+                dirUrl += waypoints.join('|');
+                stopsListHtml += '</div>';
+                
+                html += `
+                    <div class="truck-card">
+                        <div class="truck-card-header" style="color: ${color};">
+                            <span><i class="fa-solid fa-truck"></i> Truck ${t}</span>
+                            <span style="font-size:13px; color:#6b7280; font-weight:500;">${info.completed}/${info.total} stops</span>
+                        </div>
+                        <div class="progress-bar-bg">
+                            <div class="progress-bar" style="width: ${pct}%; background-color: ${color};"></div>
+                        </div>
+                        ${stopsListHtml}
+                        <a href="${dirUrl}" target="_blank" class="route-link"><i class="fa-solid fa-location-arrow"></i> Open in Google Maps</a>
+                    </div>
+                `;
+            });
+            
+            document.getElementById('truck-stats').innerHTML = html;
+        }
+
+        window.onload = loadData;
+    </script>
+</body>
+</html>
