@@ -139,9 +139,12 @@ def read_data_file(filepath):
         if lat is None or lng is None:
             address = row.get(address_col) if address_col and not pd.isna(row.get(address_col)) else ""
             if address:
+                search_query = str(address)
+                if "ahmedabad" not in search_query.lower() and "gujarat" not in search_query.lower():
+                    search_query += ", Ahmedabad, Gujarat, India"
                 try:
                     from geopy.geocoders import ArcGIS
-                    location = ArcGIS().geocode(address)
+                    location = ArcGIS().geocode(search_query)
                     if location: lat, lng = location.latitude, location.longitude
                 except: pass
             
