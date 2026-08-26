@@ -3,8 +3,6 @@ import re
 import sqlite3
 import pandas as pd
 from flask import Flask, request, render_template, redirect, url_for, jsonify, send_file, flash
-import folium
-import numpy as np
 from docx import Document
 from aco_vrp import ACO_VRP
 import requests
