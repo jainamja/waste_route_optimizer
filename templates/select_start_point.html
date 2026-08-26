@@ -116,22 +116,22 @@
     <script>
         var map = L.map('map').setView([23.0225, 72.5714], 11);
         
-        var darkTiles = L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', {
-            maxZoom: 20,
-            subdomains: 'abcd',
-            attribution: '&copy; CartoDB'
-        });
-        
-        var darkSat = L.tileLayer('http://{s}.google.com/vt/lyrs=s&x={x}&y={y}&z={z}', {
+        // Google Maps Tiles for Light Mode Map
+        var googleStreets = L.tileLayer('http://{s}.google.com/vt/lyrs=m&x={x}&y={y}&z={z}', {
             maxZoom: 20,
             subdomains:['mt0','mt1','mt2','mt3']
         });
         
-        darkTiles.addTo(map);
+        var googleSat = L.tileLayer('http://{s}.google.com/vt/lyrs=s&x={x}&y={y}&z={z}', {
+            maxZoom: 20,
+            subdomains:['mt0','mt1','mt2','mt3']
+        });
+        
+        googleStreets.addTo(map);
 
         L.control.layers({
-            "Dark Map": darkTiles,
-            "Satellite": darkSat
+            "Google Maps": googleStreets,
+            "Satellite": googleSat
         }).addTo(map);
 
         var startMarker = null;
