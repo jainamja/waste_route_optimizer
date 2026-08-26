@@ -2,7 +2,7 @@ import os
 import re
 import sqlite3
 import pandas as pd
-from flask import Flask, request, render_template, redirect, url_for, jsonify, send_file
+from flask import Flask, request, render_template, redirect, url_for, jsonify, send_file, flash
 import folium
 import numpy as np
 from docx import Document
@@ -10,6 +10,8 @@ from aco_vrp import ACO_VRP
 import requests
 from functools import lru_cache
 import time
+from flask_login import LoginManager, UserMixin, login_user, login_required, logout_user, current_user
+from werkzeug.security import generate_password_hash, check_password_hash
 
 app = Flask(__name__)
 app.config['UPLOAD_FOLDER'] = 'uploads'
@@ -18,6 +20,10 @@ app.secret_key = 'supersecretkey'
 os.makedirs(app.config['UPLOAD_FOLDER'], exist_ok=True)
 
 DB_PATH = 'routes.db'
+
+login_manager = LoginManager()
+login_manager.init_app(app)
+login_manager.login_view = 'login'
 
 def get_db_connection():
     conn = sqlite3.connect(DB_PATH)
@@ -49,12 +55,89 @@ def init_db():
             value TEXT
         )
     ''')
+    # Create users table
+    c.execute('''
+        CREATE TABLE IF NOT EXISTS users (
+            id INTEGER PRIMARY KEY,
+            username TEXT UNIQUE NOT NULL,
+            password_hash TEXT NOT NULL,
+            role TEXT DEFAULT 'user'
+        )
+    ''')
     conn.commit()
     conn.close()
 
 # Run DB Init
 init_db()
 
+class User(UserMixin):
+    def __init__(self, id, username, password_hash, role):
+        self.id = id
+        self.username = username
+        self.password_hash = password_hash
+        self.role = role
+
+@login_manager.user_loader
+def load_user(user_id):
+    conn = get_db_connection()
+    user_row = conn.execute('SELECT * FROM users WHERE id = ?', (user_id,)).fetchone()
+    conn.close()
+    if user_row:
+        return User(id=user_row['id'], username=user_row['username'], password_hash=user_row['password_hash'], role=user_row['role'])
+    return None
+
+@app.route('/login', methods=['GET', 'POST'])
+def login():
+    if current_user.is_authenticated:
+        return redirect(url_for('dashboard'))
+    
+    if request.method == 'POST':
+        username = request.form.get('username')
+        password = request.form.get('password')
+        
+        conn = get_db_connection()
+        user_row = conn.execute('SELECT * FROM users WHERE username = ?', (username,)).fetchone()
+        conn.close()
+        
+        if user_row and check_password_hash(user_row['password_hash'], password):
+            user = User(id=user_row['id'], username=user_row['username'], password_hash=user_row['password_hash'], role=user_row['role'])
+            login_user(user)
+            return redirect(url_for('dashboard'))
+        else:
+            flash('Invalid username or password')
+            
+    return render_template('login.html')
+
+@app.route('/register', methods=['GET', 'POST'])
+def register():
+    if current_user.is_authenticated:
+        return redirect(url_for('dashboard'))
+        
+    if request.method == 'POST':
+        username = request.form.get('username')
+        password = request.form.get('password')
+        
+        conn = get_db_connection()
+        user_row = conn.execute('SELECT * FROM users WHERE username = ?', (username,)).fetchone()
+        
+        if user_row:
+            flash('Username already exists')
+            conn.close()
+        else:
+            hashed_pw = generate_password_hash(password)
+            conn.execute('INSERT INTO users (username, password_hash) VALUES (?, ?)', (username, hashed_pw))
+            conn.commit()
+            conn.close()
+            flash('Registration successful! Please log in.')
+            return redirect(url_for('login'))
+            
+    return render_template('register.html')
+
+@app.route('/logout')
+@login_required
+def logout():
+    logout_user()
+    return redirect(url_for('login'))
 
 @lru_cache(maxsize=100)
 def resolve_gmaps_url(url):
@@ -73,19 +156,18 @@ def resolve_gmaps_url(url):
         if vp_match:
             return float(vp_match.group(1)), float(vp_match.group(2))
             
-        # 2. Try HTML Meta Tags (for places like Dhvani Gandhi)
+        # 2. Try HTML Meta Tags
         meta_match = re.search(r'center=(-?\d+\.\d+)%2C(-?\d+\.\d+)', res.text)
         if meta_match:
             return float(meta_match.group(1)), float(meta_match.group(2))
             
-        # 3. Try Javascript Arrays (look for Ahmedabad coords roughly 22-24, 71-73)
+        # 3. Try Javascript Arrays
         js_match = re.search(r'\[(2[2-4]\.\d+),([7][1-4]\.\d+)\]', res.text)
         if js_match:
             return float(js_match.group(1)), float(js_match.group(2))
             
     except Exception as e:
         print(f"Error resolving {url}: {e}")
-    print(f"Failed to extract coordinates from: {url}")
     return None, None
 
 def extract_lat_lng(coord_str):
@@ -116,12 +198,9 @@ def read_data_file(filepath):
     if df.empty:
         return []
 
-    # Rename columns to standard
     cols = [str(c).lower() for c in df.columns]
     df.columns = cols
-    
     customers = []
-    
     coord_col = None
     lat_col = None
     lng_col = None
@@ -138,11 +217,8 @@ def read_data_file(filepath):
     name_col = next((c for c in cols if 'name' in c), cols[0])
     phone_col = next((c for c in cols if 'phone' in c), cols[1] if len(cols)>1 else None)
     address_col = next((c for c in cols if 'address' in c), cols[2] if len(cols)>2 else None)
-    
-    # Capture the "Location" column for Google Maps URLs
     loc_url_col = next((c for c in cols if 'location' in c and c != coord_col), None)
 
-    # First, collect all URLs that need resolving
     urls_to_resolve = set()
     for idx, row in df.iterrows():
         loc_url_raw = row[loc_url_col] if loc_url_col and not pd.isna(row[loc_url_col]) else ""
@@ -151,7 +227,6 @@ def read_data_file(filepath):
             if url_match:
                 urls_to_resolve.add(url_match.group(1))
                 
-    # Resolve all URLs concurrently to prevent the UI from hanging for a minute!
     resolved_urls = {}
     import concurrent.futures
     if urls_to_resolve:
@@ -166,7 +241,6 @@ def read_data_file(filepath):
 
     for idx, row in df.iterrows():
         lat, lng = None, None
-        
         loc_url_raw = row[loc_url_col] if loc_url_col and not pd.isna(row[loc_url_col]) else ""
         loc_url_clean = ""
         if loc_url_raw:
@@ -174,13 +248,11 @@ def read_data_file(filepath):
             if url_match:
                 loc_url_clean = url_match.group(1)
                 
-        # First priority: Resolve exact pin from the concurrent results
         if loc_url_clean and loc_url_clean in resolved_urls:
             url_lat, url_lng = resolved_urls[loc_url_clean]
             if url_lat and url_lng:
                 lat, lng = url_lat, url_lng
                 
-        # Second priority: Try extracting from the legacy coordinates column (if they didn't delete it)
         if lat is None or lng is None:
             if coord_col:
                 lat, lng = extract_lat_lng(row[coord_col])
@@ -188,7 +260,6 @@ def read_data_file(filepath):
                 lat = row[lat_col]
                 lng = row[lng_col]
                 
-        # Third priority: If everything else fails (no column, bad URL), Geocode the Address string!
         if lat is None or lng is None:
             address = row[address_col] if address_col and not pd.isna(row[address_col]) else ""
             if address:
@@ -198,9 +269,8 @@ def read_data_file(filepath):
                     location = geolocator.geocode(address)
                     if location:
                         lat, lng = location.latitude, location.longitude
-                        print(f"ArcGIS successfully geocoded: {address}")
-                except Exception as e:
-                    print(f"ArcGIS Geocoding failed for {address}: {e}")
+                except Exception:
+                    pass
             
         try:
             lat = float(lat)
@@ -223,10 +293,12 @@ def read_data_file(filepath):
     return customers
 
 @app.route('/')
+@login_required
 def index():
     return render_template('select_start_point.html')
 
 @app.route('/upload', methods=['POST'])
+@login_required
 def upload():
     if 'file' not in request.files:
         return "No file part", 400
@@ -256,7 +328,6 @@ def upload():
     aco = ACO_VRP(start_coord, end_coord, customers, num_trucks=num_trucks)
     routes, best_dist = aco.run()
     
-    # Assign truck and stop numbers to customers
     for truck_idx, route in enumerate(routes):
         for stop_num, customer_id in enumerate(route):
             for c in customers:
@@ -264,17 +335,14 @@ def upload():
                     c['truck'] = truck_idx + 1
                     c['stop_number'] = stop_num + 1
 
-    # OVERWRITE DATABASE
     conn = get_db_connection()
     c = conn.cursor()
     c.execute('DELETE FROM customers')
     c.execute('DELETE FROM metadata')
     
-    # Save Metadata
     c.execute('INSERT INTO metadata (key, value) VALUES (?, ?)', ('start_coord', f"{start_coord[0]},{start_coord[1]}"))
     c.execute('INSERT INTO metadata (key, value) VALUES (?, ?)', ('end_coord', f"{end_coord[0]},{end_coord[1]}"))
     
-    # Save Customers
     for cust in customers:
         c.execute('''
             INSERT INTO customers (id, name, phone, address, location_url, lat, lng, status, truck_id, stop_number)
@@ -285,7 +353,6 @@ def upload():
     conn.commit()
     conn.close()
 
-    # Generate Excel export (optional, since DB holds it now, but good for record)
     timestamp = int(time.time())
     df = pd.DataFrame(customers)
     cols = ['truck', 'stop_number', 'name', 'phone', 'address', 'location_url', 'lat', 'lng', 'status']
@@ -296,15 +363,16 @@ def upload():
     return redirect(url_for('dashboard'))
 
 @app.route('/dashboard')
+@login_required
 def dashboard():
     return render_template('live_dashboard.html')
 
 @app.route('/api/data')
+@login_required
 def get_data():
     conn = get_db_connection()
     c = conn.cursor()
     
-    # Get Metadata
     c.execute('SELECT key, value FROM metadata')
     meta_rows = c.fetchall()
     metadata = {row['key']: row['value'] for row in meta_rows}
@@ -316,7 +384,6 @@ def get_data():
     if 'end_coord' in metadata:
         end_coord = [float(x) for x in metadata['end_coord'].split(',')]
         
-    # Get Customers
     c.execute('SELECT * FROM customers ORDER BY truck_id ASC, stop_number ASC')
     cust_rows = c.fetchall()
     
@@ -343,8 +410,6 @@ def get_data():
         
     conn.close()
     
-    # Reconstruct routes array (list of lists of customer IDs)
-    # E.g. if trucks are 1, 2, 3 -> routes will be [routes_dict[1], routes_dict[2], routes_dict[3]]
     routes = []
     for t_id in sorted(routes_dict.keys()):
         routes.append(routes_dict[t_id])
@@ -357,6 +422,7 @@ def get_data():
     })
 
 @app.route('/api/mark_completed/<int:customer_id>', methods=['POST'])
+@login_required
 def mark_completed(customer_id):
     conn = get_db_connection()
     c = conn.cursor()
@@ -366,6 +432,7 @@ def mark_completed(customer_id):
     return jsonify({'success': True, 'status': 'COMPLETED'})
 
 @app.route('/download_excel')
+@login_required
 def download_excel():
     conn = get_db_connection()
     df = pd.read_sql_query('SELECT * FROM customers ORDER BY truck_id ASC, stop_number ASC', conn)
@@ -374,7 +441,6 @@ def download_excel():
     if df.empty:
         return "No data", 400
         
-    # rename columns to match old format
     df.rename(columns={'truck_id': 'truck'}, inplace=True)
     cols = ['truck', 'stop_number', 'name', 'phone', 'address', 'location_url', 'lat', 'lng', 'status']
     df = df[cols]
