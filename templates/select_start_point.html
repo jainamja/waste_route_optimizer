@@ -8,7 +8,9 @@
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
     <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+    <link rel="stylesheet" href="https://unpkg.com/leaflet-control-geocoder/dist/Control.Geocoder.css" />
     <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+    <script src="https://unpkg.com/leaflet-control-geocoder/dist/Control.Geocoder.js"></script>
     <style>
         * { box-sizing: border-box; }
         body { font-family: 'Inter', sans-serif; margin: 0; padding: 0; background-color: #121212; color: #f3f4f6; }
@@ -138,6 +140,23 @@
         var endMarker = L.marker([23.277034, 72.436150], {
             icon: L.divIcon({className: 'custom-div-icon', html: '<div style="background-color:#10b981; width:16px; height:16px; border-radius:50%; border:3px solid #1c1c1e; box-shadow:0 2px 4px rgba(0,0,0,0.5);"></div>'})
         }).addTo(map).bindPopup("<b>End Location</b>");
+
+        // Add Search Bar to Map
+        var geocoder = L.Control.geocoder({
+            defaultMarkGeocode: false,
+            placeholder: "Search for a starting city or street..."
+        }).on('markgeocode', function(e) {
+            var latlng = e.geocode.center;
+            map.fitBounds(e.geocode.bbox);
+            
+            if (startMarker) map.removeLayer(startMarker);
+            startMarker = L.marker(latlng, {
+                icon: L.divIcon({className: 'custom-div-icon', html: '<div style="background-color:#3b82f6; width:16px; height:16px; border-radius:50%; border:3px solid #1c1c1e; box-shadow:0 2px 4px rgba(0,0,0,0.5);"></div>'})
+            }).addTo(map).bindPopup("<b>Start Location</b>").openPopup();
+            
+            document.getElementById('start_lat').value = latlng.lat;
+            document.getElementById('start_lng').value = latlng.lng;
+        }).addTo(map);
 
         map.on('click', function(e) {
             if (startMarker) map.removeLayer(startMarker);
