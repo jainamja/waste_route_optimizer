@@ -8,3 +8,5 @@ gunicorn
 requests
 flask-login
 werkzeug
+Flask-SQLAlchemy
+psycopg2-binary
