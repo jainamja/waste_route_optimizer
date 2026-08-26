@@ -1,11 +1,10 @@
+Flask
 pandas
-openpyxl
-numpy
-folium
-python-docx
-flask
-pytest
 geopy
-requests
+openpyxl
+python-docx
 ortools
 gunicorn
+requests
+Flask-SQLAlchemy
+psycopg2-binary
