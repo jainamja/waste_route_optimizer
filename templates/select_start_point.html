@@ -142,8 +142,9 @@
 
         // Add Search Bar to Map
         var geocoder = L.Control.geocoder({
+            geocoder: L.Control.Geocoder.arcgis(),
             defaultMarkGeocode: false,
-            placeholder: "Search for a starting city or street..."
+            placeholder: "Search for societies, parks, streets..."
         }).on('markgeocode', function(e) {
             var latlng = e.geocode.center;
             map.fitBounds(e.geocode.bbox);
