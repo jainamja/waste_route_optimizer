@@ -62,6 +62,14 @@ def init_db():
             role TEXT DEFAULT 'user'
         )
     ''')
+    
+    # Auto-create a default admin user so you don't have to re-register on Render
+    from werkzeug.security import generate_password_hash
+    c.execute('SELECT * FROM users WHERE username = ?', ('admin',))
+    if not c.fetchone():
+        c.execute('INSERT INTO users (username, password_hash, role) VALUES (?, ?, ?)', 
+                 ('admin', generate_password_hash('password123'), 'admin'))
+                 
     conn.commit()
     conn.close()
 
