@@ -5,7 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
     <meta name="apple-mobile-web-app-capable" content="yes">
     <meta name="mobile-web-app-capable" content="yes">
-    <meta name="theme-color" content="#2563eb">
+    <meta name="theme-color" content="#121212">
     <link rel="manifest" href="/static/manifest.json">
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
@@ -14,48 +14,48 @@
         body { 
             font-family: 'Inter', sans-serif; 
             margin: 0; padding: 0;
-            background-color: #f3f4f6; color: #1f2937;
+            background-color: #121212; color: #f3f4f6;
             display: flex; align-items: center; justify-content: center; height: 100vh;
         }
         .login-card {
-            background: #ffffff;
+            background: #1c1c1e;
             border-radius: 12px; padding: 40px;
-            box-shadow: 0 10px 15px -3px rgba(0,0,0,0.1);
+            border: 1px solid #2c2c2e;
             width: 100%; max-width: 400px;
             text-align: center;
         }
-        .login-card h2 { margin-top: 0; font-size: 24px; color: #111827; margin-bottom: 25px; display:flex; justify-content:center; align-items:center; gap:10px;}
+        .login-card h2 { margin-top: 0; font-size: 24px; color: #ffffff; margin-bottom: 25px; display:flex; justify-content:center; align-items:center; gap:10px;}
         .form-group { margin-bottom: 20px; text-align: left; }
-        label { display: block; font-weight: 600; font-size: 14px; margin-bottom: 8px; color: #4b5563; }
+        label { display: block; font-weight: 600; font-size: 14px; margin-bottom: 8px; color: #d1d5db; }
         input[type="text"], input[type="password"] {
             width: 100%; padding: 12px;
-            background: #f9fafb; border: 1px solid #d1d5db;
-            color: #111827; border-radius: 8px; font-size: 15px;
+            background: #2c2c2e; border: 1px solid #3f3f46;
+            color: #ffffff; border-radius: 8px; font-size: 15px;
             transition: border-color 0.2s, box-shadow 0.2s;
         }
-        input:focus { border-color: #3b82f6; box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.1); outline: none; }
+        input:focus { border-color: #3b82f6; box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.2); outline: none; }
         
         .btn { 
             display: block; width: 100%; padding: 14px; 
-            background: #2563eb; color: #ffffff; 
+            background: #3b82f6; color: #ffffff; 
             border: none; border-radius: 8px; 
             font-size: 16px; font-weight: 600; cursor: pointer; 
-            box-shadow: 0 4px 6px -1px rgba(37, 99, 235, 0.2);
+            box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.2);
             transition: all 0.2s;
         }
-        .btn:hover { background: #1d4ed8; transform: translateY(-1px); }
+        .btn:hover { background: #2563eb; transform: translateY(-1px); }
         .btn:active { transform: translateY(0); }
         
         .flash { background: #fee2e2; color: #ef4444; padding: 10px; border-radius: 6px; margin-bottom: 20px; font-size: 14px; border: 1px solid #f87171;}
-        .flash-success { background: #d1fae5; color: #10b981; border-color: #34d399; }
+        .flash-success { background: #064e3b; color: #34d399; border-color: #059669; }
         
         .link { display: block; margin-top: 20px; font-size: 14px; color: #3b82f6; text-decoration: none; }
-        .link:hover { text-decoration: underline; }
+        .link:hover { text-decoration: underline; color: #60a5fa; }
     </style>
 </head>
 <body>
     <div class="login-card">
-        <h2><i class="fa-solid fa-truck-fast" style="color: #2563eb;"></i> Route Optimizer</h2>
+        <h2><i class="fa-solid fa-truck-fast" style="color: #3b82f6;"></i> Route Optimizer</h2>
         
         {% with messages = get_flashed_messages() %}
             {% if messages %}
