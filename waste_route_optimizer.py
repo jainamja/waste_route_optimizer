@@ -71,7 +71,8 @@ def load_user(user_id):
 @app.route('/login', methods=['GET', 'POST'])
 def login():
     if current_user.is_authenticated:
-        return redirect(url_for('dashboard'))
+        if Customer.query.first(): return redirect(url_for('dashboard'))
+        else: return redirect(url_for('index'))
     
     if request.method == 'POST':
         username = request.form.get('username')
@@ -80,7 +81,8 @@ def login():
         user = User.query.filter_by(username=username).first()
         if user and check_password_hash(user.password_hash, password):
             login_user(user)
-            return redirect(url_for('dashboard'))
+            if Customer.query.first(): return redirect(url_for('dashboard'))
+            else: return redirect(url_for('index'))
         else:
             flash('Invalid username or password')
             
@@ -89,7 +91,8 @@ def login():
 @app.route('/register', methods=['GET', 'POST'])
 def register():
     if current_user.is_authenticated:
-        return redirect(url_for('dashboard'))
+        if Customer.query.first(): return redirect(url_for('dashboard'))
+        else: return redirect(url_for('index'))
         
     if request.method == 'POST':
         username = request.form.get('username')
@@ -287,6 +290,8 @@ def upload():
 @app.route('/dashboard')
 @login_required
 def dashboard():
+    if not Customer.query.first():
+        return redirect(url_for('index'))
     return render_template('live_dashboard.html')
 
 @app.route('/api/data')
