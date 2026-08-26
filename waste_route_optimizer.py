@@ -8,10 +8,16 @@ from aco_vrp import ACO_VRP
 import requests
 from functools import lru_cache
 import time
+import traceback
 
 app = Flask(__name__)
 app.config['UPLOAD_FOLDER'] = 'uploads'
 app.secret_key = 'supersecretkey'
+
+@app.errorhandler(Exception)
+def handle_exception(e):
+    # Return the traceback so we can debug the 500 error!
+    return f"<h1>Internal Server Error</h1><pre>{traceback.format_exc()}</pre>", 500
 
 os.makedirs(app.config['UPLOAD_FOLDER'], exist_ok=True)
 
