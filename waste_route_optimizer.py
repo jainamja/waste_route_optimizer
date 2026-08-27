@@ -58,18 +58,30 @@ def resolve_gmaps_url(url):
         headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)'}
         res = requests.get(url, allow_redirects=True, headers=headers, timeout=10)
         
+        lat, lng = None, None
         pin_match = re.search(r'!3d(-?\d+\.\d+)!4d(-?\d+\.\d+)', res.url)
-        if pin_match: return float(pin_match.group(1)), float(pin_match.group(2))
-        q_match = re.search(r'q=(-?\d+\.\d+),(-?\d+\.\d+)', res.url)
-        if q_match: return float(q_match.group(1)), float(q_match.group(2))
-        vp_match = re.search(r'@(-?\d+\.\d+),(-?\d+\.\d+)', res.url)
-        if vp_match: return float(vp_match.group(1)), float(vp_match.group(2))
+        if pin_match: lat, lng = float(pin_match.group(1)), float(pin_match.group(2))
+        
+        if not lat or not lng:
+            q_match = re.search(r'q=(-?\d+\.\d+),(-?\d+\.\d+)', res.url)
+            if q_match: lat, lng = float(q_match.group(1)), float(q_match.group(2))
             
-        meta_match = re.search(r'center=(-?\d+\.\d+)%2C(-?\d+\.\d+)', res.text)
-        if meta_match: return float(meta_match.group(1)), float(meta_match.group(2))
+        if not lat or not lng:
+            vp_match = re.search(r'@(-?\d+\.\d+),(-?\d+\.\d+)', res.url)
+            if vp_match: lat, lng = float(vp_match.group(1)), float(vp_match.group(2))
             
-        js_match = re.search(r'\[(2[2-4]\.\d+),([7][1-4]\.\d+)\]', res.text)
-        if js_match: return float(js_match.group(1)), float(js_match.group(2))
+        if not lat or not lng:
+            meta_match = re.search(r'center=(-?\d+\.\d+)%2C(-?\d+\.\d+)', res.text)
+            if meta_match: lat, lng = float(meta_match.group(1)), float(meta_match.group(2))
+            
+        if not lat or not lng:
+            js_match = re.search(r'\[(2[2-4]\.\d+),([7][1-4]\.\d+)\]', res.text)
+            if js_match: lat, lng = float(js_match.group(1)), float(js_match.group(2))
+            
+        # Validate coordinates are within India (Lat 8 to 38, Lng 68 to 98)
+        if lat and lng and (8 <= lat <= 38) and (68 <= lng <= 98):
+            return lat, lng
+            
     except Exception as e:
         print(f"Error resolving {url}: {e}")
     return None, None
