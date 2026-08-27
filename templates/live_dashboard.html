@@ -116,22 +116,6 @@
             });
 
             if (!data.routes || data.routes.length === 0) return;
-            // Apply Truck Filter if present in URL (e.g. /dashboard?truck=1)
-            let urlParams = new URLSearchParams(window.location.search);
-            let truckFilter = urlParams.get('truck');
-            
-            if (truckFilter) {
-                // Filter the routes array
-                let truckIndex = parseInt(truckFilter) - 1;
-                if (truckIndex >= 0 && truckIndex < data.routes.length) {
-                    data.routes = [data.routes[truckIndex]];
-                    // Colors mapping offset so Truck 2 stays the same color
-                    colors = [colors[truckIndex % colors.length]];
-                }
-                
-                // Filter customers to only those in this truck
-                data.customers = data.customers.filter(c => c.truck == truckFilter);
-            }
 
             let allLats = [data.start_coord[0], data.end_coord[0]];
             let allLngs = [data.start_coord[1], data.end_coord[1]];
@@ -285,9 +269,6 @@
                 dirUrl += waypoints.join('|');
                 stopsListHtml += '</div>';
                 
-                let dashboardUrl = `${window.location.origin}/dashboard?truck=${t}`;
-                let waText = encodeURIComponent(`🚛 Hello! Here is your route for today (Truck ${t}). Click the link to view your stops and mark them complete: ${dashboardUrl}`);
-                
                 html += `
                     <div class="truck-card">
                         <div class="truck-card-header" style="color: ${color};">
@@ -299,9 +280,6 @@
                         </div>
                         ${stopsListHtml}
                         <a href="${dirUrl}" target="_blank" class="route-link"><i class="fa-solid fa-location-arrow"></i> Open in Google Maps</a>
-                        <a href="whatsapp://send?text=${waText}" target="_blank" class="route-link" style="background: #ecfdf5; color: #10b981; border-color: #a7f3d0; margin-top: 10px;">
-                            <i class="fa-brands fa-whatsapp"></i> Send Route to Driver
-                        </a>
                     </div>
                 `;
             });
