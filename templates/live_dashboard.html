@@ -261,7 +261,9 @@
                 let color = colors[i % colors.length];
                 
                 let truckRoute = data.routes[i];
-                let dirUrl = `https://www.google.com/maps/dir/?api=1&origin=${data.start_coord[0]},${data.start_coord[1]}&destination=${data.end_coord[0]},${data.end_coord[1]}&waypoints=`;
+                let startCoord = data.start_coords[i] || data.start_coords[0];
+                let endCoord = data.end_coords[i] || data.end_coords[0];
+                let dirUrl = `https://www.google.com/maps/dir/?api=1&origin=${startCoord[0]},${startCoord[1]}&destination=${endCoord[0]},${endCoord[1]}&waypoints=`;
                 let waypoints = [];
                 let stopsListHtml = '<div style="margin-top: 15px; margin-bottom: 10px;">';
                 
