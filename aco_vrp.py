@@ -108,20 +108,20 @@ class ACO_VRP:
         # We use SOFT bounds with a huge penalty to prevent the solver from failing 
         # to find an initial feasible solution, while still strongly forcing it to balance the fleet.
         ideal_stops = len(self.customers) / self.num_trucks
-        max_stops = math.ceil(ideal_stops) + 3
-        min_stops = max(1, math.floor(ideal_stops) - 3)
+        max_stops = math.ceil(ideal_stops) + 4
+        # We enforce a strict minimum of at least 1 customer per truck to ensure no truck is left empty.
+        # If there are lots of customers, we enforce a higher minimum to balance the load.
+        min_stops = max(1, math.floor(ideal_stops) - 4)
         
         for vehicle_id in range(self.num_trucks):
             # We add +1 because the End node itself increments the CumulVar by 1.
-            # So an empty route (Start -> End) has a CumulVar of 1.
-            # To force at least 'min_stops' customers, the End node must be >= min_stops + 1
-            stops_dimension.SetCumulVarSoftUpperBound(routing.End(vehicle_id), max_stops + 1, 10000000)
-            stops_dimension.SetCumulVarSoftLowerBound(routing.End(vehicle_id), min_stops + 1, 10000000)
+            stops_dimension.CumulVar(routing.End(vehicle_id)).SetRange(min_stops + 1, max_stops + 1)
 
         search_parameters = pywrapcp.DefaultRoutingSearchParameters()
-        search_parameters.first_solution_strategy = routing_enums_pb2.FirstSolutionStrategy.PATH_CHEAPEST_ARC
+        # AUTOMATIC strategy is better at handling strict bounds than PATH_CHEAPEST_ARC
+        search_parameters.first_solution_strategy = routing_enums_pb2.FirstSolutionStrategy.AUTOMATIC
         search_parameters.local_search_metaheuristic = routing_enums_pb2.LocalSearchMetaheuristic.GUIDED_LOCAL_SEARCH
-        search_parameters.time_limit.FromSeconds(5) # Allow 5 seconds for deep search
+        search_parameters.time_limit.FromSeconds(5)
 
         solution = routing.SolveWithParameters(search_parameters)
 
