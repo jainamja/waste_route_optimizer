@@ -188,16 +188,18 @@ def upload():
     file = request.files['file']
     if file.filename == '': return "No selected file", 400
         
-    start_lat = request.form.get('start_lat')
-    start_lng = request.form.get('start_lng')
-    end_lat = request.form.get('end_lat')
-    end_lng = request.form.get('end_lng')
+    start_coords_json = request.form.get('start_coords_json')
+    end_coords_json = request.form.get('end_coords_json')
     num_trucks = int(request.form.get('num_trucks', 3))
     
-    if not all([start_lat, start_lng, end_lat, end_lng]): return "Missing coordinates", 400
-        
-    start_coord = (float(start_lat), float(start_lng))
-    end_coord = (float(end_lat), float(end_lng))
+    if not start_coords_json or not end_coords_json: return "Missing coordinates", 400
+    
+    import json
+    starts_str = json.loads(start_coords_json)
+    ends_str = json.loads(end_coords_json)
+    
+    start_coords = [ (float(x.split(',')[0]), float(x.split(',')[1])) for x in starts_str ]
+    end_coords = [ (float(x.split(',')[0]), float(x.split(',')[1])) for x in ends_str ]
     
     filepath = os.path.join(app.config['UPLOAD_FOLDER'], file.filename)
     file.save(filepath)
@@ -205,7 +207,7 @@ def upload():
     customers_data = read_data_file(filepath)
     if not customers_data: return "No valid customer data found", 400
         
-    aco = ACO_VRP(start_coord, end_coord, customers_data, num_trucks=num_trucks)
+    aco = ACO_VRP(start_coords, end_coords, customers_data, num_trucks=num_trucks)
     routes, _ = aco.run()
     
     # Filter out empty routes so truck numbering is always sequential (e.g. 1, 2, 3)
@@ -224,8 +226,8 @@ def upload():
     Metadata.query.delete()
     
     # Insert new data
-    m1 = Metadata(key='start_coord', value=f"{start_coord[0]},{start_coord[1]}")
-    m2 = Metadata(key='end_coord', value=f"{end_coord[0]},{end_coord[1]}")
+    m1 = Metadata(key='start_coords', value=json.dumps(starts_str))
+    m2 = Metadata(key='end_coords', value=json.dumps(ends_str))
     db.session.add_all([m1, m2])
     
     for c in customers_data:
@@ -251,8 +253,22 @@ def get_data():
     metadata_rows = Metadata.query.all()
     metadata = {row.key: row.value for row in metadata_rows}
     
-    start_coord = [float(x) for x in metadata['start_coord'].split(',')] if 'start_coord' in metadata else None
-    end_coord = [float(x) for x in metadata['end_coord'].split(',')] if 'end_coord' in metadata else None
+    import json
+    
+    # Fallback to single string for legacy database compatibility
+    if 'start_coords' in metadata:
+        start_coords = json.loads(metadata['start_coords'])
+    elif 'start_coord' in metadata:
+        start_coords = [metadata['start_coord']]
+    else:
+        start_coords = []
+        
+    if 'end_coords' in metadata:
+        end_coords = json.loads(metadata['end_coords'])
+    elif 'end_coord' in metadata:
+        end_coords = [metadata['end_coord']]
+    else:
+        end_coords = []
         
     customers_db = Customer.query.order_by(Customer.truck_id.asc(), Customer.stop_number.asc()).all()
     
@@ -274,8 +290,8 @@ def get_data():
     return jsonify({
         'customers': customers,
         'routes': routes,
-        'start_coord': start_coord,
-        'end_coord': end_coord
+        'start_coords': start_coords,
+        'end_coords': end_coords
     })
 
 @app.route('/api/mark_completed/<int:customer_id>', methods=['POST'])

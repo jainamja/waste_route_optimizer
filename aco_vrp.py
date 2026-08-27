@@ -4,23 +4,39 @@ from ortools.constraint_solver import routing_enums_pb2
 from ortools.constraint_solver import pywrapcp
 
 class ACO_VRP:
-    def __init__(self, start_coord, end_coord, customers, num_trucks=3, **kwargs):
-        self.start_coord = start_coord
-        self.end_coord = end_coord
+    def __init__(self, start_coords, end_coords, customers, num_trucks=3, **kwargs):
         self.customers = customers
         self.num_trucks = num_trucks
         
-        self.nodes = [self.start_coord]
+        # Support both single-depot (backward compatibility) and multi-depot arrays
+        if isinstance(start_coords, tuple):
+            self.start_coords = [start_coords] * num_trucks
+        else:
+            self.start_coords = start_coords
+            
+        if isinstance(end_coords, tuple):
+            self.end_coords = [end_coords] * num_trucks
+        else:
+            self.end_coords = end_coords
+            
+        self.nodes = []
+        # Inject all start nodes
+        for s in self.start_coords:
+            self.nodes.append(s)
+            
         self.customer_id_map = {}
+        # Inject all customers and map their indices
         for idx, c in enumerate(customers):
             self.nodes.append((c['lat'], c['lng']))
-            self.customer_id_map[idx + 1] = c['id']
+            self.customer_id_map[len(self.start_coords) + idx] = c['id']
             
-        self.nodes.append(self.end_coord)
+        # Inject all end nodes
+        for e in self.end_coords:
+            self.nodes.append(e)
+            
         self.num_nodes = len(self.nodes)
-        
-        self.start_node = 0
-        self.end_node = self.num_nodes - 1
+        self.starts_indices = list(range(self.num_trucks))
+        self.ends_indices = list(range(self.num_nodes - self.num_trucks, self.num_nodes))
         
         # Calculate distance matrix using OSRM True Driving Distances
         import requests
@@ -56,12 +72,7 @@ class ACO_VRP:
                 self.distance_matrix.append(row)
 
     def run(self):
-        manager = pywrapcp.RoutingIndexManager(
-            self.num_nodes, 
-            self.num_trucks, 
-            [self.start_node] * self.num_trucks, 
-            [self.end_node] * self.num_trucks
-        )
+        manager = pywrapcp.RoutingIndexManager(self.num_nodes, self.num_trucks, self.starts_indices, self.ends_indices)
         routing = pywrapcp.RoutingModel(manager)
 
         def distance_callback(from_index, to_index):
@@ -97,12 +108,15 @@ class ACO_VRP:
         # We use SOFT bounds with a huge penalty to prevent the solver from failing 
         # to find an initial feasible solution, while still strongly forcing it to balance the fleet.
         ideal_stops = len(self.customers) / self.num_trucks
-        max_stops = math.ceil(ideal_stops) + 4
-        min_stops = max(1, math.floor(ideal_stops) - 4)
+        max_stops = math.ceil(ideal_stops) + 3
+        min_stops = max(1, math.floor(ideal_stops) - 3)
         
         for vehicle_id in range(self.num_trucks):
-            stops_dimension.SetCumulVarSoftUpperBound(routing.End(vehicle_id), max_stops, 1000000)
-            stops_dimension.SetCumulVarSoftLowerBound(routing.End(vehicle_id), min_stops, 1000000)
+            # We add +1 because the End node itself increments the CumulVar by 1.
+            # So an empty route (Start -> End) has a CumulVar of 1.
+            # To force at least 'min_stops' customers, the End node must be >= min_stops + 1
+            stops_dimension.SetCumulVarSoftUpperBound(routing.End(vehicle_id), max_stops + 1, 10000000)
+            stops_dimension.SetCumulVarSoftLowerBound(routing.End(vehicle_id), min_stops + 1, 10000000)
 
         search_parameters = pywrapcp.DefaultRoutingSearchParameters()
         search_parameters.first_solution_strategy = routing_enums_pb2.FirstSolutionStrategy.PATH_CHEAPEST_ARC
@@ -122,7 +136,7 @@ class ACO_VRP:
             index = routing.Start(vehicle_id)
             while not routing.IsEnd(index):
                 node_index = manager.IndexToNode(index)
-                if node_index not in (self.start_node, self.end_node):
+                if node_index not in self.starts_indices and node_index not in self.ends_indices:
                     route.append(self.customer_id_map[node_index])
                 previous_index = index
                 index = solution.Value(routing.NextVar(index))
