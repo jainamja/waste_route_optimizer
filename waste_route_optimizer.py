@@ -208,7 +208,11 @@ def upload():
     aco = ACO_VRP(start_coord, end_coord, customers_data, num_trucks=num_trucks)
     routes, _ = aco.run()
     
-    for truck_idx, route in enumerate(routes):
+    # Filter out empty routes so truck numbering is always sequential (e.g. 1, 2, 3)
+    # If the AI determines a truck isn't needed, it will drop the last truck instead of the first one.
+    active_routes = [r for r in routes if len(r) > 0]
+    
+    for truck_idx, route in enumerate(active_routes):
         for stop_num, customer_id in enumerate(route):
             for c in customers_data:
                 if c['id'] == customer_id:
