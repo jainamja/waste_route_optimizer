@@ -38,38 +38,79 @@ class ACO_VRP:
         self.starts_indices = list(range(self.num_trucks))
         self.ends_indices = list(range(self.num_nodes - self.num_trucks, self.num_nodes))
         
-        # Calculate distance matrix using OSRM True Driving Distances
+        # Calculate matrix using Time/Duration (Traffic-aware)
+        import os
         import requests
+        from datetime import datetime, timedelta
         
-        coords_str = ";".join([f"{n[1]},{n[0]}" for n in self.nodes])
-        osrm_url = f"https://router.project-osrm.org/table/v1/driving/{coords_str}?annotations=distance"
+        # 1. Fixed departure time: Next 9:00 AM
+        now = datetime.now()
+        target = now.replace(hour=9, minute=0, second=0, microsecond=0)
+        if now > target:
+            target += timedelta(days=1)
+        dt_timestamp = int(target.timestamp())
         
-        osrm_success = False
-        try:
-            res = requests.get(osrm_url, timeout=10)
-            if res.status_code == 200:
-                data = res.json()
-                if data.get('code') == 'Ok' and 'distances' in data:
-                    self.distance_matrix = []
-                    for row in data['distances']:
-                        # distances in meters, fallback to 999999 if null
-                        self.distance_matrix.append([int(d) if d is not None else 999999 for d in row])
-                    osrm_success = True
-        except Exception as e:
-            print("OSRM Matrix Error:", e)
+        self.distance_matrix = []
+        n = self.num_nodes
+        api_key = os.environ.get('GMAPS_API_KEY')
+        
+        if api_key:
+            # Use Google Maps Distance Matrix API (Live/Predictive Traffic)
+            self.distance_matrix = [[0]*n for _ in range(n)]
+            chunk_size = 10
+            for i in range(0, n, chunk_size):
+                origins = "|".join([f"{node[0]},{node[1]}" for node in self.nodes[i:i+chunk_size]])
+                for j in range(0, n, chunk_size):
+                    destinations = "|".join([f"{node[0]},{node[1]}" for node in self.nodes[j:j+chunk_size]])
+                    
+                    url = f"https://maps.googleapis.com/maps/api/distancematrix/json?origins={origins}&destinations={destinations}&mode=driving&departure_time={dt_timestamp}&traffic_model=best_guess&key={api_key}"
+                    try:
+                        res = requests.get(url, timeout=15)
+                        data = res.json()
+                        for r_idx, row in enumerate(data.get('rows', [])):
+                            for c_idx, element in enumerate(row.get('elements', [])):
+                                if element.get('status') == 'OK':
+                                    # Optimize for travel time, using traffic estimates
+                                    duration = element.get('duration_in_traffic', element.get('duration'))['value']
+                                    self.distance_matrix[i + r_idx][j + c_idx] = duration
+                                else:
+                                    self.distance_matrix[i + r_idx][j + c_idx] = 9999999
+                    except Exception as e:
+                        print("GMaps Matrix Error:", e)
+                        for r_idx in range(chunk_size):
+                            for c_idx in range(chunk_size):
+                                if i + r_idx < n and j + c_idx < n:
+                                    self.distance_matrix[i + r_idx][j + c_idx] = 9999999
+        else:
+            # Fallback: OSRM Estimated Travel Time (Duration)
+            coords_str = ";".join([f"{n[1]},{n[0]}" for n in self.nodes])
+            osrm_url = f"https://router.project-osrm.org/table/v1/driving/{coords_str}?annotations=duration"
             
-        if not osrm_success:
-            print("Falling back to geodesic distance matrix")
-            self.distance_matrix = []
-            for i in range(self.num_nodes):
-                row = []
-                for j in range(self.num_nodes):
-                    if i == j:
-                        row.append(0)
-                    else:
-                        dist_km = geodesic(self.nodes[i], self.nodes[j]).kilometers
-                        row.append(int(dist_km * 1000))  # Convert to meters
-                self.distance_matrix.append(row)
+            osrm_success = False
+            try:
+                res = requests.get(osrm_url, timeout=10)
+                if res.status_code == 200:
+                    data = res.json()
+                    if data.get('code') == 'Ok' and 'durations' in data:
+                        for row in data['durations']:
+                            # durations in seconds, fallback to high cost
+                            self.distance_matrix.append([int(d) if d is not None else 9999999 for d in row])
+                        osrm_success = True
+            except Exception as e:
+                print("OSRM Duration Matrix Error:", e)
+                
+            if not osrm_success:
+                print("Falling back to geodesic distance matrix")
+                for i in range(n):
+                    row = []
+                    for j in range(n):
+                        if i == j:
+                            row.append(0)
+                        else:
+                            # Fallback: distance as proxy for time (e.g. assuming 10m/s)
+                            dist_m = geodesic(self.nodes[i], self.nodes[j]).meters
+                            row.append(int(dist_m / 10))
+                    self.distance_matrix.append(row)
 
     def run(self):
         manager = pywrapcp.RoutingIndexManager(self.num_nodes, self.num_trucks, self.starts_indices, self.ends_indices)
