@@ -4,9 +4,11 @@ from ortools.constraint_solver import routing_enums_pb2
 from ortools.constraint_solver import pywrapcp
 
 class ACO_VRP:
-    def __init__(self, start_coords, end_coords, customers, num_trucks=3, **kwargs):
+    def __init__(self, start_coords, end_coords, customers, num_trucks=3, api_key=None, departure_time=None, **kwargs):
         self.customers = customers
         self.num_trucks = num_trucks
+        self.api_key = api_key
+        self.departure_time = departure_time
         
         # Support both single-depot (backward compatibility) and multi-depot arrays
         if isinstance(start_coords, tuple):
@@ -38,38 +40,74 @@ class ACO_VRP:
         self.starts_indices = list(range(self.num_trucks))
         self.ends_indices = list(range(self.num_nodes - self.num_trucks, self.num_nodes))
         
-        # Calculate distance matrix using OSRM True Driving Distances
+        # Calculate distance matrix using OSRM or Google Maps Live Traffic
         import requests
+        self.distance_matrix = []
         
-        coords_str = ";".join([f"{n[1]},{n[0]}" for n in self.nodes])
-        osrm_url = f"https://router.project-osrm.org/table/v1/driving/{coords_str}?annotations=distance"
-        
-        osrm_success = False
-        try:
-            res = requests.get(osrm_url, timeout=10)
-            if res.status_code == 200:
-                data = res.json()
-                if data.get('code') == 'Ok' and 'distances' in data:
-                    self.distance_matrix = []
-                    for row in data['distances']:
-                        # distances in meters, fallback to 999999 if null
-                        self.distance_matrix.append([int(d) if d is not None else 999999 for d in row])
-                    osrm_success = True
-        except Exception as e:
-            print("OSRM Matrix Error:", e)
+        if self.api_key:
+            import time
+            from datetime import datetime
+            dt_timestamp = "now"
+            if self.departure_time:
+                try:
+                    dt_obj = datetime.strptime(self.departure_time, '%Y-%m-%dT%H:%M')
+                    dt_timestamp = int(dt_obj.timestamp())
+                except:
+                    pass
             
-        if not osrm_success:
-            print("Falling back to geodesic distance matrix")
-            self.distance_matrix = []
-            for i in range(self.num_nodes):
-                row = []
-                for j in range(self.num_nodes):
-                    if i == j:
-                        row.append(0)
-                    else:
-                        dist_km = geodesic(self.nodes[i], self.nodes[j]).kilometers
-                        row.append(int(dist_km * 1000))  # Convert to meters
-                self.distance_matrix.append(row)
+            n = self.num_nodes
+            self.distance_matrix = [[0]*n for _ in range(n)]
+            chunk_size = 10
+            for i in range(0, n, chunk_size):
+                origins = "|".join([f"{node[0]},{node[1]}" for node in self.nodes[i:i+chunk_size]])
+                for j in range(0, n, chunk_size):
+                    destinations = "|".join([f"{node[0]},{node[1]}" for node in self.nodes[j:j+chunk_size]])
+                    
+                    url = f"https://maps.googleapis.com/maps/api/distancematrix/json?origins={origins}&destinations={destinations}&mode=driving&departure_time={dt_timestamp}&traffic_model=best_guess&key={self.api_key}"
+                    try:
+                        res = requests.get(url)
+                        data = res.json()
+                        for r_idx, row in enumerate(data.get('rows', [])):
+                            for c_idx, element in enumerate(row.get('elements', [])):
+                                if element.get('status') == 'OK':
+                                    duration = element.get('duration_in_traffic', element.get('duration'))['value']
+                                    self.distance_matrix[i + r_idx][j + c_idx] = duration
+                                else:
+                                    self.distance_matrix[i + r_idx][j + c_idx] = 9999999
+                    except Exception as e:
+                        print("GMaps Matrix Error:", e)
+                        for r_idx in range(chunk_size):
+                            for c_idx in range(chunk_size):
+                                if i + r_idx < n and j + c_idx < n:
+                                    self.distance_matrix[i + r_idx][j + c_idx] = 9999999
+        else:
+            coords_str = ";".join([f"{n[1]},{n[0]}" for n in self.nodes])
+            osrm_url = f"https://router.project-osrm.org/table/v1/driving/{coords_str}?annotations=distance"
+            
+            osrm_success = False
+            try:
+                res = requests.get(osrm_url, timeout=10)
+                if res.status_code == 200:
+                    data = res.json()
+                    if data.get('code') == 'Ok' and 'distances' in data:
+                        for row in data['distances']:
+                            # distances in meters, fallback to 999999 if null
+                            self.distance_matrix.append([int(d) if d is not None else 999999 for d in row])
+                        osrm_success = True
+            except Exception as e:
+                print("OSRM Matrix Error:", e)
+                
+            if not osrm_success:
+                print("Falling back to geodesic distance matrix")
+                for i in range(self.num_nodes):
+                    row = []
+                    for j in range(self.num_nodes):
+                        if i == j:
+                            row.append(0)
+                        else:
+                            dist_km = geodesic(self.nodes[i], self.nodes[j]).kilometers
+                            row.append(int(dist_km * 1000))  # Convert to meters
+                    self.distance_matrix.append(row)
 
     def run(self):
         manager = pywrapcp.RoutingIndexManager(self.num_nodes, self.num_trucks, self.starts_indices, self.ends_indices)
