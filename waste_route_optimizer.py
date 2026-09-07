@@ -191,8 +191,6 @@ def upload():
     start_coords_json = request.form.get('start_coords_json')
     end_coords_json = request.form.get('end_coords_json')
     num_trucks = int(request.form.get('num_trucks', 3))
-    departure_time = request.form.get('departure_time')
-    gmaps_api_key = request.form.get('gmaps_api_key')
     
     if not start_coords_json or not end_coords_json: return "Missing coordinates", 400
     
@@ -209,7 +207,7 @@ def upload():
     customers_data = read_data_file(filepath)
     if not customers_data: return "No valid customer data found", 400
         
-    aco = ACO_VRP(start_coords, end_coords, customers_data, num_trucks=num_trucks, api_key=gmaps_api_key, departure_time=departure_time)
+    aco = ACO_VRP(start_coords, end_coords, customers_data, num_trucks=num_trucks)
     routes, _ = aco.run()
     
     # Filter out empty routes so truck numbering is always sequential (e.g. 1, 2, 3)
