@@ -58,7 +58,7 @@
                     <div class="grid-2">
                         <div class="form-group">
                             <label>Start Location</label>
-                            <input type="text" id="start_coord" class="coord-input active" placeholder="Click map to set..." required readonly>
+                            <input type="text" id="start_coord" class="coord-input active" value="22.967523,72.6205729" required readonly>
                         </div>
                         <div class="form-group">
                             <label>End Location (Pre-set)</label>
@@ -93,6 +93,10 @@
         let activeInput = document.getElementById("start_coord");
         let markers = {};
         
+        markers["start_coord"] = L.marker([22.967523, 72.6205729], {
+            icon: L.divIcon({className: "custom-div-icon", html: "<div style='background-color:#2563eb; width:16px; height:16px; border-radius:50%; border:3px solid #fff; box-shadow:0 2px 4px rgba(0,0,0,0.3);'></div>"})
+        }).addTo(map).bindPopup("<b>Global Start Location</b>");
+        
         markers["end_coord"] = L.marker([23.277034, 72.436150], {
             icon: L.divIcon({className: "custom-div-icon", html: "<div style='background-color:#059669; width:16px; height:16px; border-radius:50%; border:3px solid #fff; box-shadow:0 2px 4px rgba(0,0,0,0.3);'></div>"})
         }).addTo(map).bindPopup("<b>Global End Location</b>");
@@ -118,7 +122,7 @@
                 
                 let html = "";
                 for (let i = 1; i <= num; i++) {
-                    let pre_st = markers[`start_${i}`] ? document.getElementById(`start_${i}`).value : "";
+                    let pre_st = markers[`start_${i}`] ? document.getElementById(`start_${i}`).value : "22.967523,72.6205729";
                     let pre_en = markers[`end_${i}`] ? document.getElementById(`end_${i}`).value : "23.277034,72.436150";
                     html += `
                         <div style="margin-bottom: 20px; padding: 15px; border: 1px solid #e5e7eb; border-radius: 8px; background: #ffffff;">
