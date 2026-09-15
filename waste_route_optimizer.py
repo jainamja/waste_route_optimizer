@@ -219,11 +219,6 @@ def upload():
             active_routes.append(r)
             active_route_times.append(t)
             
-    # Store route times in metadata
-    import json
-    db.session.merge(Metadata(key='route_times', value=json.dumps(active_route_times)))
-
-    
     for truck_idx, route in enumerate(active_routes):
         for stop_num, customer_id in enumerate(route):
             for c in customers_data:
@@ -236,9 +231,11 @@ def upload():
     Metadata.query.delete()
     
     # Insert new data
+    import json
     m1 = Metadata(key='start_coords', value=json.dumps(starts_str))
     m2 = Metadata(key='end_coords', value=json.dumps(ends_str))
-    db.session.add_all([m1, m2])
+    m3 = Metadata(key='route_times', value=json.dumps(active_route_times))
+    db.session.add_all([m1, m2, m3])
     
     for c in customers_data:
         new_cust = Customer(
