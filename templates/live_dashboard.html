@@ -389,7 +389,7 @@
         }
 
         function loadData() {
-            fetch('/api/routes')
+            fetch('/api/data')
                 .then(res => res.json())
                 .then(resData => {
                     if (resData.error || !resData.routes || resData.routes.length === 0) {
@@ -624,7 +624,7 @@
         }
 
         window.markCompleted = function(customerId) {
-            fetch('/api/customers/' + customerId + '/complete', { method: 'POST' })
+            fetch(`/api/mark_completed/${customerId}`, { method: 'POST' })
                 .then(res => res.json())
                 .then(() => loadData());
         };
