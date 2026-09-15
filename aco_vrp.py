@@ -169,8 +169,8 @@ class ACO_VRP:
         # AUTOMATIC strategy is better at handling strict bounds than PATH_CHEAPEST_ARC
         search_parameters.first_solution_strategy = routing_enums_pb2.FirstSolutionStrategy.AUTOMATIC
         search_parameters.local_search_metaheuristic = routing_enums_pb2.LocalSearchMetaheuristic.GUIDED_LOCAL_SEARCH
-        # Time limit of 8s balances finding a solution vs preventing Gunicorn 30-second timeouts on Render
-        search_parameters.time_limit.FromSeconds(8)
+        # Time limit of 3s aggressively guarantees we beat Gunicorn's 30s timeout on Render cold starts
+        search_parameters.time_limit.FromSeconds(3)
 
         solution = routing.SolveWithParameters(search_parameters)
 
