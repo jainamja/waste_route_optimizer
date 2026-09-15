@@ -3,65 +3,140 @@
 <head>
     <title>Waste Route Optimizer - Setup</title>
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <meta name="apple-mobile-web-app-capable" content="yes">
-    <meta name="mobile-web-app-capable" content="yes">
-    <meta name="theme-color" content="#2563eb">
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=Outfit:wght@500;600;700&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
     <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
     <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
     <style>
+        :root {
+            --concrete: #f4f4f5;
+            --concrete-dark: #e4e4e7;
+            --ink: #18181b;
+            --ink-light: #3f3f46;
+            --route-blue: #2563eb;
+            --route-blue-hover: #1d4ed8;
+            --safety-amber: #f59e0b;
+            --safety-amber-hover: #d97706;
+            --border: #d4d4d8;
+            --bg-white: #ffffff;
+        }
+        
         * { box-sizing: border-box; }
-        body { font-family: 'Inter', sans-serif; margin: 0; padding: 0; background-color: #f3f4f6; color: #1f2937; }
-        .header { background-color: #ffffff; padding: 24px; text-align: center; border-bottom: 1px solid #e5e7eb; box-shadow: 0 1px 3px rgba(0,0,0,0.05); margin-bottom: 30px; }
-        .header h1 { margin: 0; font-size: 24px; color: #111827; font-weight: 700; display:flex; justify-content:center; align-items:center; gap:10px;}
-        .container { max-width: 850px; margin: 0 auto; padding: 0 20px 40px 20px; }
-        .card { background: #ffffff; border-radius: 12px; padding: 24px; box-shadow: 0 4px 6px -1px rgba(0,0,0,0.05), 0 2px 4px -1px rgba(0,0,0,0.03); margin-bottom: 24px; border: 1px solid #f3f4f6; }
-        .card h2 { margin-top: 0; font-size: 18px; color: #374151; padding-bottom: 12px; border-bottom: 1px solid #f3f4f6; margin-bottom: 20px; display:flex; align-items:center; gap:8px;}
-        #map { height: 400px; width: 100%; border-radius: 8px; border: 1px solid #e5e7eb; z-index: 1;}
+        body { font-family: 'Inter', sans-serif; margin: 0; padding: 0; background-color: var(--concrete); color: var(--ink); }
+        h1, h2, h3, h4, .step-label { font-family: 'Outfit', sans-serif; color: var(--ink); margin-top: 0; }
+        
+        .header { background-color: var(--bg-white); padding: 24px; text-align: center; border-bottom: 1px solid var(--border); }
+        .header h1 { margin: 0; font-size: 24px; display:flex; justify-content:center; align-items:center; gap:10px;}
+        
+        .container { max-width: 850px; margin: 0 auto; padding: 30px 20px; }
+        
+        /* Stepper */
+        .route-stepper { display: flex; align-items: center; justify-content: space-between; margin-bottom: 40px; position: relative; padding: 0 10px; }
+        .step { display: flex; flex-direction: column; align-items: center; gap: 8px; z-index: 2; background: var(--concrete); }
+        .step-dot { width: 16px; height: 16px; border-radius: 50%; background: var(--concrete-dark); border: 3px solid var(--border); z-index: 2; }
+        .step-dot.active { background: var(--route-blue); border-color: var(--bg-white); box-shadow: 0 0 0 2px var(--route-blue); }
+        .step-dot.cta-dot { background: var(--safety-amber); border-color: var(--bg-white); box-shadow: 0 0 0 2px var(--safety-amber); }
+        .step-label { font-size: 14px; font-weight: 500; color: var(--ink-light); }
+        .step-line { flex: 1; height: 3px; background: var(--border); margin: 0 15px; transform: translateY(-12px); }
+        
+        @media (max-width: 600px) {
+            .step-label { display: none; }
+            .route-stepper { margin-bottom: 30px; }
+            .step-line { transform: translateY(0); }
+        }
+
+        .section { background: var(--bg-white); border-radius: 8px; padding: 24px; margin-bottom: 24px; border: 1px solid var(--border); }
+        .section h2 { font-size: 18px; padding-bottom: 16px; border-bottom: 1px solid var(--concrete-dark); margin-bottom: 24px; display:flex; align-items:center; gap:8px;}
+        
+        /* Stepper input */
+        .stepper-control { display: inline-flex; align-items: center; border: 1px solid var(--border); border-radius: 6px; overflow: hidden; background: var(--bg-white); }
+        .stepper-btn { background: var(--concrete); border: none; padding: 12px 16px; cursor: pointer; font-size: 16px; color: var(--ink); font-weight: 600; transition: background 0.1s; }
+        .stepper-btn:hover { background: var(--concrete-dark); }
+        .stepper-control input { width: 60px; text-align: center; border: none; font-size: 16px; font-family: 'Inter', sans-serif; font-weight: 500; padding: 12px 0; -moz-appearance: textfield; pointer-events: none; color: var(--ink); }
+        .stepper-control input::-webkit-outer-spin-button, .stepper-control input::-webkit-inner-spin-button { -webkit-appearance: none; margin: 0; }
+        
+        /* Toggle Switch */
+        .toggle-container { display: flex; align-items: center; justify-content: space-between; padding: 16px; background: var(--concrete); border-radius: 6px; border: 1px solid var(--border); margin-top: 20px;}
+        .toggle-switch { position: relative; display: inline-block; width: 44px; height: 24px; }
+        .toggle-switch input { opacity: 0; width: 0; height: 0; }
+        .slider { position: absolute; cursor: pointer; top: 0; left: 0; right: 0; bottom: 0; background-color: var(--border); transition: .2s; border-radius: 24px; }
+        .slider:before { position: absolute; content: ""; height: 18px; width: 18px; left: 3px; bottom: 3px; background-color: white; transition: .2s; border-radius: 50%; box-shadow: 0 1px 2px rgba(0,0,0,0.2); }
+        input:checked + .slider { background-color: var(--route-blue); }
+        input:checked + .slider:before { transform: translateX(20px); }
+        
+        #map { height: 400px; width: 100%; border-radius: 6px; border: 1px solid var(--border); z-index: 1;}
         .form-group { margin-bottom: 20px; }
-        label { display: block; font-weight: 600; font-size: 14px; margin-bottom: 8px; color: #4b5563; }
-        input[type="text"], input[type="number"], input[type="file"] { width: 100%; padding: 12px; background: #f9fafb; border: 1px solid #d1d5db; color: #111827; border-radius: 8px; font-size: 14px; transition: border-color 0.2s, box-shadow 0.2s; }
-        input[type="text"]:focus, input[type="number"]:focus { border-color: #3b82f6; box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.1); outline: none; }
-        input[readonly] { background-color: #f3f4f6; color: #6b7280; cursor: pointer; }
-        .coord-input.active { border-color: #3b82f6; background-color: #eff6ff; box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.2); }
+        label { display: block; font-weight: 500; font-size: 14px; margin-bottom: 8px; color: var(--ink-light); }
+        input[type="text"], input[type="file"] { width: 100%; padding: 12px; background: var(--bg-white); border: 1px solid var(--border); color: var(--ink); border-radius: 6px; font-size: 14px; font-family: 'Inter', sans-serif; transition: border-color 0.2s, box-shadow 0.2s; }
+        input[type="text"]:focus { border-color: var(--route-blue); box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.15); outline: none; }
+        input[readonly] { background-color: var(--concrete); color: var(--ink-light); cursor: pointer; }
+        .coord-input.active { border-color: var(--route-blue); background-color: #eff6ff; box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.15); color: var(--ink); }
+        
         .grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; }
-        .btn { display: flex; justify-content: center; align-items: center; gap: 10px; width: 100%; padding: 16px; background: #2563eb; color: #ffffff; border: none; border-radius: 8px; font-size: 16px; font-weight: 600; cursor: pointer; box-shadow: 0 4px 6px -1px rgba(37, 99, 235, 0.2); transition: all 0.2s; }
-        .btn:hover { background: #1d4ed8; transform: translateY(-1px); box-shadow: 0 6px 8px -1px rgba(37, 99, 235, 0.3); }
+        
+        .btn { display: flex; justify-content: center; align-items: center; gap: 10px; width: 100%; padding: 18px; background: var(--safety-amber); color: var(--bg-white); border: none; border-radius: 6px; font-size: 16px; font-family: 'Outfit', sans-serif; font-weight: 600; cursor: pointer; transition: background 0.2s; margin-top: 30px;}
+        .btn:hover { background: var(--safety-amber-hover); }
+        
         .custom-div-icon { background: none; border: none; }
+        
+        .file-upload-wrapper { position: relative; border: 2px dashed var(--border); background: var(--concrete); padding: 30px 20px; text-align: center; border-radius: 6px; cursor: pointer; transition: border-color 0.2s; }
+        .file-upload-wrapper:hover { border-color: var(--route-blue); }
+        .file-upload-wrapper input[type="file"] { position: absolute; top: 0; left: 0; width: 100%; height: 100%; opacity: 0; cursor: pointer; }
+        .file-upload-text { font-size: 14px; color: var(--ink-light); font-weight: 500; }
+        .file-upload-text i { font-size: 24px; color: var(--route-blue); margin-bottom: 10px; display: block; }
     </style>
 </head>
 <body>
-    <div class="header"><h1><i class="fa-solid fa-truck-fast" style="color: #2563eb;"></i> Route Optimizer</h1></div>
+    <div class="header"><h1><i class="fa-solid fa-route" style="color: var(--route-blue);"></i> Route Optimizer</h1></div>
     <div class="container">
+        <div class="route-stepper">
+            <div class="step"><div class="step-dot active"></div><span class="step-label">Fleet</span></div>
+            <div class="step-line"></div>
+            <div class="step"><div class="step-dot active"></div><span class="step-label">Locations</span></div>
+            <div class="step-line"></div>
+            <div class="step"><div class="step-dot active"></div><span class="step-label">Stops</span></div>
+            <div class="step-line"></div>
+            <div class="step"><div class="step-dot cta-dot"></div><span class="step-label">Generate</span></div>
+        </div>
+
         <form id="setupForm" action="/upload" method="post" enctype="multipart/form-data">
-            <div class="card">
-                <h2><i class="fa-solid fa-truck" style="color: #2563eb;"></i> 1. Fleet Details</h2>
-                <div class="form-group">
-                    <label>How many trucks are available?</label>
-                    <input type="number" id="num_trucks" name="num_trucks" value="3" min="1" max="50" required>
+            
+            <div class="section">
+                <h2>1. Fleet details</h2>
+                <div class="form-group" style="margin-bottom: 0;">
+                    <label>Total active trucks</label>
+                    <div class="stepper-control">
+                        <button type="button" class="stepper-btn" id="truck_minus"><i class="fa-solid fa-minus"></i></button>
+                        <input type="number" id="num_trucks" name="num_trucks" value="3" min="1" max="50" required readonly>
+                        <button type="button" class="stepper-btn" id="truck_plus"><i class="fa-solid fa-plus"></i></button>
+                    </div>
                 </div>
-                <div class="form-group" style="margin-top: 20px; display: none;" id="multiDepotContainer">
-                    <label style="display:flex; align-items:center; gap:8px;">
-                        <input type="checkbox" id="multi_depot" name="multi_depot" style="width:16px; height:16px; cursor:pointer;">
-                        Do drivers start from different locations? (Multi-Depot)
+                
+                <div class="toggle-container" id="multiDepotContainer" style="display: none;">
+                    <div>
+                        <div style="font-weight: 500; font-size: 15px;">Multiple Depots</div>
+                        <div style="font-size: 13px; color: var(--ink-light); margin-top: 4px;">Drivers start from different locations</div>
+                    </div>
+                    <label class="toggle-switch">
+                        <input type="checkbox" id="multi_depot" name="multi_depot">
+                        <span class="slider"></span>
                     </label>
                 </div>
             </div>
 
-            <div class="card">
-                <h2><i class="fa-solid fa-map-location-dot" style="color: #10b981;"></i> 2. Set Locations</h2>
-                <p style="font-size: 14px; color: #6b7280; margin-top: -5px; margin-bottom: 15px;" id="mapHelpText">Click on a highlighted input box, then click the map to drop a pin.</p>
-                <div id="map" style="margin-bottom: 15px;"></div>
+            <div class="section">
+                <h2>2. Set locations</h2>
+                <p style="font-size: 14px; color: var(--ink-light); margin-top: -10px; margin-bottom: 20px;" id="mapHelpText">Select an input field, then click on the map to place a pin.</p>
+                <div id="map" style="margin-bottom: 24px;"></div>
                 
                 <div id="singleDepotFields">
                     <div class="grid-2">
                         <div class="form-group">
-                            <label>Start Location</label>
+                            <label>Start location</label>
                             <input type="text" id="start_coord" class="coord-input active" value="22.967523,72.6205729" required readonly>
                         </div>
                         <div class="form-group">
-                            <label>End Location (Pre-set)</label>
+                            <label>End location (Pre-set)</label>
                             <input type="text" id="end_coord" class="coord-input" value="23.277034,72.436150" required readonly>
                         </div>
                     </div>
@@ -73,15 +148,21 @@
                 <input type="hidden" id="end_coords_json" name="end_coords_json">
             </div>
 
-            <div class="card">
-                <h2><i class="fa-solid fa-file-excel" style="color: #059669;"></i> 3. Upload Stops</h2>
-                <div class="form-group">
-                    <label>Customer Route Data (.xlsx / .docx)</label>
-                    <input type="file" name="file" accept=".xlsx, .docx" required style="padding: 12px; border: 2px dashed #d1d5db; background: #f9fafb; cursor: pointer;">
+            <div class="section">
+                <h2>3. Upload stops</h2>
+                <div class="form-group" style="margin-bottom: 0;">
+                    <label>Customer route data (.xlsx / .docx)</label>
+                    <div class="file-upload-wrapper">
+                        <input type="file" id="file_input" name="file" accept=".xlsx, .docx" required>
+                        <div class="file-upload-text">
+                            <i class="fa-solid fa-cloud-arrow-up"></i>
+                            <span id="file_name_display">Click or drag file to upload</span>
+                        </div>
+                    </div>
                 </div>
             </div>
             
-            <button type="submit" class="btn" id="submitBtn"><i class="fa-solid fa-wand-magic-sparkles"></i> Generate Best Routes</button>
+            <button type="submit" class="btn" id="submitBtn">Generate Best Routes <i class="fa-solid fa-arrow-right"></i></button>
         </form>
     </div>
 
@@ -94,23 +175,35 @@
         let markers = {};
         
         markers["start_coord"] = L.marker([22.967523, 72.6205729], {
-            icon: L.divIcon({className: "custom-div-icon", html: "<div style='background-color:#2563eb; width:16px; height:16px; border-radius:50%; border:3px solid #fff; box-shadow:0 2px 4px rgba(0,0,0,0.3);'></div>"})
+            icon: L.divIcon({className: "custom-div-icon", html: "<div style='background-color:var(--route-blue); width:16px; height:16px; border-radius:50%; border:3px solid var(--bg-white); box-shadow:0 2px 4px rgba(0,0,0,0.3);'></div>"})
         }).addTo(map).bindPopup("<b>Global Start Location</b>");
         
         markers["end_coord"] = L.marker([23.277034, 72.436150], {
-            icon: L.divIcon({className: "custom-div-icon", html: "<div style='background-color:#059669; width:16px; height:16px; border-radius:50%; border:3px solid #fff; box-shadow:0 2px 4px rgba(0,0,0,0.3);'></div>"})
+            icon: L.divIcon({className: "custom-div-icon", html: "<div style='background-color:var(--safety-amber); width:16px; height:16px; border-radius:50%; border:3px solid var(--bg-white); box-shadow:0 2px 4px rgba(0,0,0,0.3);'></div>"})
         }).addTo(map).bindPopup("<b>Global End Location</b>");
 
         const numTrucksInput = document.getElementById("num_trucks");
+        const truckMinus = document.getElementById("truck_minus");
+        const truckPlus = document.getElementById("truck_plus");
         const multiDepotCheckbox = document.getElementById("multi_depot");
         const multiDepotContainer = document.getElementById("multiDepotContainer");
         const singleDepotFields = document.getElementById("singleDepotFields");
         const multiDepotFields = document.getElementById("multiDepotFields");
+        
+        truckMinus.addEventListener("click", () => {
+            let v = parseInt(numTrucksInput.value);
+            if(v > 1) { numTrucksInput.value = v - 1; updateDepotUI(); }
+        });
+        
+        truckPlus.addEventListener("click", () => {
+            let v = parseInt(numTrucksInput.value);
+            if(v < 50) { numTrucksInput.value = v + 1; updateDepotUI(); }
+        });
 
         function updateDepotUI() {
             let num = parseInt(numTrucksInput.value) || 1;
             if (num > 1) {
-                multiDepotContainer.style.display = "block";
+                multiDepotContainer.style.display = "flex";
             } else {
                 multiDepotContainer.style.display = "none";
                 multiDepotCheckbox.checked = false;
@@ -125,15 +218,15 @@
                     let pre_st = markers[`start_${i}`] ? document.getElementById(`start_${i}`).value : "22.967523,72.6205729";
                     let pre_en = markers[`end_${i}`] ? document.getElementById(`end_${i}`).value : "23.277034,72.436150";
                     html += `
-                        <div style="margin-bottom: 20px; padding: 15px; border: 1px solid #e5e7eb; border-radius: 8px; background: #ffffff;">
-                            <h3 style="margin-top:0; font-size:15px; margin-bottom:15px; color:#374151;"><i class="fa-solid fa-truck"></i> Truck ${i}</h3>
+                        <div style="margin-bottom: 16px; padding: 20px; border: 1px solid var(--border); border-radius: 6px; background: var(--concrete);">
+                            <h3 style="margin-top:0; font-size:15px; margin-bottom:16px; color:var(--ink);"><i class="fa-solid fa-truck" style="color:var(--route-blue);"></i> Truck ${i}</h3>
                             <div class="grid-2">
                                 <div class="form-group" style="margin-bottom:0;">
-                                    <label>Start Location</label>
+                                    <label>Start location</label>
                                     <input type="text" id="start_${i}" class="coord-input multi-input" placeholder="Click map to set..." value="${pre_st}" required readonly>
                                 </div>
                                 <div class="form-group" style="margin-bottom:0;">
-                                    <label>End Location</label>
+                                    <label>End location</label>
                                     <input type="text" id="end_${i}" class="coord-input multi-input" value="${pre_en}" required readonly>
                                 </div>
                             </div>
@@ -155,9 +248,7 @@
             bindInputClicks();
         }
 
-        numTrucksInput.addEventListener("input", updateDepotUI);
         multiDepotCheckbox.addEventListener("change", updateDepotUI);
-        
         updateDepotUI();
 
         function bindInputClicks() {
@@ -169,24 +260,35 @@
                 });
             });
         }
+        
+        document.getElementById("file_input").addEventListener("change", function(e) {
+            let display = document.getElementById("file_name_display");
+            if (this.files && this.files.length > 0) {
+                display.innerHTML = "<b>" + this.files[0].name + "</b> selected";
+                display.style.color = "var(--ink)";
+            } else {
+                display.innerHTML = "Click or drag file to upload";
+                display.style.color = "var(--ink-light)";
+            }
+        });
 
         map.on("click", function(e) {
             if (!activeInput) return;
             
             let lat = e.latlng.lat.toFixed(6);
             let lng = e.latlng.lng.toFixed(6);
-            let coordStr = `${lat},${lng}`;
+            let coordStr = lat + "," + lng;
             
             activeInput.value = coordStr;
             
             let id = activeInput.id;
-            let color = id.includes("start") ? "#2563eb" : "#059669";
+            let color = id.includes("start") ? "var(--route-blue)" : "var(--safety-amber)";
             let label = id.includes("start") ? "Start Location" : "End Location";
             
             if (markers[id]) map.removeLayer(markers[id]);
             markers[id] = L.marker(e.latlng, {
-                icon: L.divIcon({className: "custom-div-icon", html: `<div style='background-color:${color}; width:16px; height:16px; border-radius:50%; border:3px solid #fff; box-shadow:0 2px 4px rgba(0,0,0,0.3);'></div>`})
-            }).addTo(map).bindPopup(`<b>${label}</b>`).openPopup();
+                icon: L.divIcon({className: "custom-div-icon", html: "<div style='background-color:" + color + "; width:16px; height:16px; border-radius:50%; border:3px solid var(--bg-white); box-shadow:0 2px 4px rgba(0,0,0,0.3);'></div>"})
+            }).addTo(map).bindPopup("<b>" + label + "</b>").openPopup();
             
             let inputs = Array.from(document.querySelectorAll(".coord-input")).filter(el => el.offsetWidth > 0);
             let activeIdx = inputs.indexOf(activeInput);
@@ -211,7 +313,7 @@
                     let en = document.getElementById(`end_${i}`).value;
                     if (!st || !en) {
                         e.preventDefault();
-                        alert(`Please select Start and End locations for Truck ${i}`);
+                        alert("Please select Start and End locations for Truck " + i + " on the map.");
                         return;
                     }
                     startCoords.push(st);
@@ -222,7 +324,7 @@
                 let en = document.getElementById("end_coord").value;
                 if (!st || !en) {
                     e.preventDefault();
-                    alert("Please click on the map to select BOTH the Start and End Locations!");
+                    alert("Please click on the map to select BOTH the start and end locations.");
                     return;
                 }
                 let num = parseInt(numTrucksInput.value) || 1;
