@@ -51,12 +51,14 @@ class ACO_VRP:
         dt_timestamp = int(target.timestamp())
         
         self.distance_matrix = []
+        self.actual_distance_matrix = []
         n = self.num_nodes
         api_key = os.environ.get('GMAPS_API_KEY')
         
         if api_key:
             # Use Google Maps Distance Matrix API (Live/Predictive Traffic)
             self.distance_matrix = [[0]*n for _ in range(n)]
+            self.actual_distance_matrix = [[0]*n for _ in range(n)]
             chunk_size = 10
             for i in range(0, n, chunk_size):
                 origins = "|".join([f"{node[0]},{node[1]}" for node in self.nodes[i:i+chunk_size]])
@@ -72,15 +74,19 @@ class ACO_VRP:
                                 if element.get('status') == 'OK':
                                     # Optimize for travel time, using traffic estimates
                                     duration = element.get('duration_in_traffic', element.get('duration'))['value']
+                                    distance = element.get('distance', {}).get('value', 9999999)
                                     self.distance_matrix[i + r_idx][j + c_idx] = duration
+                                    self.actual_distance_matrix[i + r_idx][j + c_idx] = distance
                                 else:
                                     self.distance_matrix[i + r_idx][j + c_idx] = 9999999
+                                    self.actual_distance_matrix[i + r_idx][j + c_idx] = 9999999
                     except Exception as e:
                         print("GMaps Matrix Error:", e)
                         for r_idx in range(chunk_size):
                             for c_idx in range(chunk_size):
                                 if i + r_idx < n and j + c_idx < n:
                                     self.distance_matrix[i + r_idx][j + c_idx] = 9999999
+                                    self.actual_distance_matrix[i + r_idx][j + c_idx] = 9999999
         else:
             # Fallback: OSRM Estimated Travel Time (Duration)
             coords_str = ";".join([f"{n[1]},{n[0]}" for n in self.nodes])
@@ -172,10 +178,12 @@ class ACO_VRP:
 
         routes = []
         route_times = []
+        route_distances = []
         
         for vehicle_id in range(self.num_trucks):
             route = []
             route_time = 0
+            route_distance = 0
             index = routing.Start(vehicle_id)
             while not routing.IsEnd(index):
                 node_index = manager.IndexToNode(index)
@@ -184,8 +192,17 @@ class ACO_VRP:
                     route_time += 300 # Add 5 minutes (300 seconds) for each stop
                 previous_index = index
                 index = solution.Value(routing.NextVar(index))
+                
+                # Time is optimized by OR-Tools, read it from arc cost
                 route_time += routing.GetArcCostForVehicle(previous_index, index, vehicle_id)
+                
+                # Distance is calculated by looking up the actual distance matrix
+                prev_node_idx = manager.IndexToNode(previous_index)
+                curr_node_idx = manager.IndexToNode(index)
+                route_distance += self.actual_distance_matrix[prev_node_idx][curr_node_idx]
+                
             routes.append(route)
             route_times.append(route_time)
+            route_distances.append(route_distance)
 
-        return routes, route_times
+        return routes, route_times, route_distances

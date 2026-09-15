@@ -291,7 +291,14 @@
                     let hours = Math.floor(durationSeconds / 3600);
                     let minutes = Math.floor((durationSeconds % 3600) / 60);
                     let timeStr = hours > 0 ? `${hours} hr ${minutes} min` : `${minutes} min`;
-                    etaHtml = `<i class="fa-solid fa-clock"></i> Est. Time: <b>${timeStr}</b>`;
+                    
+                    let distStr = "";
+                    if (data.route_distances && data.route_distances.length > i) {
+                        let distanceKm = (data.route_distances[i] / 1000).toFixed(1);
+                        distStr = ` &nbsp;|&nbsp; <i class="fa-solid fa-road"></i> <b>${distanceKm} km</b>`;
+                    }
+                    
+                    etaHtml = `<i class="fa-solid fa-clock"></i> Est. Time: <b>${timeStr}</b>${distStr}`;
                 } else {
                     etaHtml = `<i class="fa-solid fa-circle-info"></i> <b>Please re-upload your Excel file to generate the new ETAs!</b>`;
                 }
