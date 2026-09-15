@@ -1,6 +1,7 @@
 import os
 import re
 import pandas as pd
+from werkzeug.utils import secure_filename
 from flask import Flask, request, render_template, redirect, url_for, jsonify, send_file, flash
 from docx import Document
 from aco_vrp import ACO_VRP
@@ -201,7 +202,8 @@ def upload():
     start_coords = [ (float(x.split(',')[0]), float(x.split(',')[1])) for x in starts_str ]
     end_coords = [ (float(x.split(',')[0]), float(x.split(',')[1])) for x in ends_str ]
     
-    filepath = os.path.join(app.config['UPLOAD_FOLDER'], file.filename)
+    filename = secure_filename(file.filename)
+    filepath = os.path.join(app.config['UPLOAD_FOLDER'], filename)
     file.save(filepath)
     
     customers_data = read_data_file(filepath)
