@@ -90,34 +90,38 @@ class ACO_VRP:
         else:
             # Fallback: OSRM Estimated Travel Time (Duration)
             coords_str = ";".join([f"{n[1]},{n[0]}" for n in self.nodes])
-            osrm_url = f"https://router.project-osrm.org/table/v1/driving/{coords_str}?annotations=duration"
+            osrm_url = f"https://router.project-osrm.org/table/v1/driving/{coords_str}?annotations=duration,distance"
             
             osrm_success = False
             try:
                 res = requests.get(osrm_url, timeout=10)
                 if res.status_code == 200:
                     data = res.json()
-                    if data.get('code') == 'Ok' and 'durations' in data:
+                    if data.get('code') == 'Ok' and 'durations' in data and 'distances' in data:
                         for row in data['durations']:
-                            # durations in seconds, fallback to high cost
                             self.distance_matrix.append([int(d) if d is not None else 9999999 for d in row])
+                        for row in data['distances']:
+                            self.actual_distance_matrix.append([int(d) if d is not None else 9999999 for d in row])
                         osrm_success = True
             except Exception as e:
-                print("OSRM Duration Matrix Error:", e)
+                print("OSRM Matrix Error:", e)
                 
             if not osrm_success:
                 print("Falling back to geodesic distance matrix")
+                from geopy.distance import geodesic
                 for i in range(n):
-                    row = []
+                    time_row = []
+                    dist_row = []
                     for j in range(n):
                         if i == j:
-                            row.append(0)
+                            time_row.append(0)
+                            dist_row.append(0)
                         else:
-                            # Fallback: distance as proxy for time (e.g. assuming 10m/s)
-                            dist_m = geodesic(self.nodes[i], self.nodes[j]).meters
-                            row.append(int(dist_m / 10))
-                    self.distance_matrix.append(row)
-
+                            dist_m = int(geodesic(self.nodes[i], self.nodes[j]).meters)
+                            time_row.append(int(dist_m / 10))
+                            dist_row.append(dist_m)
+                    self.distance_matrix.append(time_row)
+                    self.actual_distance_matrix.append(dist_row)
     def run(self):
         manager = pywrapcp.RoutingIndexManager(self.num_nodes, self.num_trucks, self.starts_indices, self.ends_indices)
         routing = pywrapcp.RoutingModel(manager)
