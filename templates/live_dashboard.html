@@ -231,36 +231,13 @@
                             L.geoJSON(geojson, {
                                 style: { color: color, weight: 5, opacity: 0.8 }
                             }).addTo(map);
-                            
-                            // Update ETA
-                            let timeEl = document.getElementById(`eta-${i}`);
-                            if (timeEl) {
-                                let duration = route.duration;
-                                let distance = route.distance;
-                                let hours = Math.floor(duration / 3600);
-                                let minutes = Math.floor((duration % 3600) / 60);
-                                let timeStr = hours > 0 ? `${hours} hr ${minutes} min` : `${minutes} min`;
-                                let distStr = (distance / 1000).toFixed(1) + ' km';
-                                timeEl.innerHTML = `<i class="fa-solid fa-clock"></i> Est. Time: <b>${timeStr}</b> (${distStr})`;
-                                timeEl.style.color = '#374151';
-                            }
                         } else {
                             if (thisRenderId !== currentRenderId) return;
-                            let timeEl = document.getElementById(`eta-${i}`);
-                            if (timeEl) {
-                                timeEl.innerHTML = `<i class="fa-solid fa-circle-exclamation"></i> ETA Unavailable (Server Busy)`;
-                                timeEl.style.color = '#ef4444';
-                            }
                         }
                     })
                     .catch(e => {
                         console.error('OSRM fetch error:', e);
                         if (thisRenderId !== currentRenderId) return;
-                        let timeEl = document.getElementById(`eta-${i}`);
-                        if (timeEl) {
-                            timeEl.innerHTML = `<i class="fa-solid fa-circle-exclamation"></i> ETA Unavailable (Server Busy)`;
-                            timeEl.style.color = '#ef4444';
-                        }
                     });
             });
 
@@ -308,6 +285,15 @@
                 dirUrl += waypoints.join('|');
                 stopsListHtml += '</div>';
                 
+                let etaHtml = '';
+                if (data.route_times && data.route_times.length > i) {
+                    let durationSeconds = data.route_times[i];
+                    let hours = Math.floor(durationSeconds / 3600);
+                    let minutes = Math.floor((durationSeconds % 3600) / 60);
+                    let timeStr = hours > 0 ? `${hours} hr ${minutes} min` : `${minutes} min`;
+                    etaHtml = `<i class="fa-solid fa-clock"></i> Est. Time: <b>${timeStr}</b>`;
+                }
+
                 html += `
                     <div class="truck-card">
                         <div class="truck-card-header" style="color: ${color};">
@@ -317,8 +303,8 @@
                         <div class="progress-bar-bg">
                             <div class="progress-bar" style="width: ${pct}%; background-color: ${color};"></div>
                         </div>
-                        <div id="eta-${i}" style="font-size:13px; color:#9ca3af; margin-top:12px; margin-bottom:-5px; font-weight:500;">
-                            <i class="fa-solid fa-spinner fa-spin"></i> Calculating ETA...
+                        <div id="eta-${i}" style="font-size:13px; color:#374151; margin-top:12px; margin-bottom:-5px; font-weight:500;">
+                            ${etaHtml}
                         </div>
                         ${stopsListHtml}
                         <a href="${dirUrl}" target="_blank" class="route-link"><i class="fa-solid fa-location-arrow"></i> Open in Google Maps</a>

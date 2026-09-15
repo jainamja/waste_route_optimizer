@@ -208,11 +208,21 @@ def upload():
     if not customers_data: return "No valid customer data found", 400
         
     aco = ACO_VRP(start_coords, end_coords, customers_data, num_trucks=num_trucks)
-    routes, _ = aco.run()
+    routes, route_times = aco.run()
     
     # Filter out empty routes so truck numbering is always sequential (e.g. 1, 2, 3)
     # If the AI determines a truck isn't needed, it will drop the last truck instead of the first one.
-    active_routes = [r for r in routes if len(r) > 0]
+    active_routes = []
+    active_route_times = []
+    for r, t in zip(routes, route_times):
+        if len(r) > 0:
+            active_routes.append(r)
+            active_route_times.append(t)
+            
+    # Store route times in metadata
+    import json
+    db.session.merge(Metadata(key='route_times', value=json.dumps(active_route_times)))
+
     
     for truck_idx, route in enumerate(active_routes):
         for stop_num, customer_id in enumerate(route):
@@ -286,10 +296,15 @@ def get_data():
         routes_dict[t_id].append(r.id)
         
     routes = [routes_dict[t_id] for t_id in sorted(routes_dict.keys())]
+    
+    route_times = []
+    if 'route_times' in metadata:
+        route_times = json.loads(metadata['route_times'])
 
     return jsonify({
         'customers': customers,
         'routes': routes,
+        'route_times': route_times,
         'start_coords': start_coords,
         'end_coords': end_coords
     })

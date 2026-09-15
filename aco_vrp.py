@@ -172,10 +172,11 @@ class ACO_VRP:
             return [], 0
 
         routes = []
-        total_dist_meters = 0
+        route_times = []
         
         for vehicle_id in range(self.num_trucks):
             route = []
+            route_time = 0
             index = routing.Start(vehicle_id)
             while not routing.IsEnd(index):
                 node_index = manager.IndexToNode(index)
@@ -183,8 +184,8 @@ class ACO_VRP:
                     route.append(self.customer_id_map[node_index])
                 previous_index = index
                 index = solution.Value(routing.NextVar(index))
-                total_dist_meters += routing.GetArcCostForVehicle(previous_index, index, vehicle_id)
+                route_time += routing.GetArcCostForVehicle(previous_index, index, vehicle_id)
             routes.append(route)
+            route_times.append(route_time)
 
-        total_distance_km = total_dist_meters / 1000.0
-        return routes, total_distance_km
+        return routes, route_times
