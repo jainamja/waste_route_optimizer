@@ -109,7 +109,10 @@
                 });
         }
 
+        let currentRenderId = 0;
         function renderMap() {
+            currentRenderId++;
+            let thisRenderId = currentRenderId;
             // clear map layers (except base)
             map.eachLayer(layer => {
                 if (!layer._url) map.removeLayer(layer);
@@ -221,6 +224,7 @@
                 fetch(url)
                     .then(res => res.json())
                     .then(routeData => {
+                        if (thisRenderId !== currentRenderId) return; // Prevent old fetch from drawing on new map
                         if (routeData.routes && routeData.routes.length > 0) {
                             let route = routeData.routes[0];
                             let geojson = route.geometry;
@@ -241,6 +245,7 @@
                                 timeEl.style.color = '#374151';
                             }
                         } else {
+                            if (thisRenderId !== currentRenderId) return;
                             L.polyline(latlngs, {color: color, weight: 4, opacity: 0.8}).addTo(map);
                             let timeEl = document.getElementById(`eta-${i}`);
                             if (timeEl) {
@@ -251,6 +256,7 @@
                     })
                     .catch(e => {
                         console.error('OSRM fetch error:', e);
+                        if (thisRenderId !== currentRenderId) return;
                         L.polyline(latlngs, {color: color, weight: 4, opacity: 0.8}).addTo(map);
                         let timeEl = document.getElementById(`eta-${i}`);
                         if (timeEl) {
