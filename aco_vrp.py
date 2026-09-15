@@ -182,6 +182,7 @@ class ACO_VRP:
                 node_index = manager.IndexToNode(index)
                 if node_index not in self.starts_indices and node_index not in self.ends_indices:
                     route.append(self.customer_id_map[node_index])
+                    route_time += 300 # Add 5 minutes (300 seconds) for each stop
                 previous_index = index
                 index = solution.Value(routing.NextVar(index))
                 route_time += routing.GetArcCostForVehicle(previous_index, index, vehicle_id)
