@@ -1,144 +1,459 @@
 <!DOCTYPE html>
-<html>
+<html lang="en">
 <head>
-    <title>Waste Route Optimizer - Setup</title>
+    <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=Outfit:wght@500;600;700&display=swap" rel="stylesheet">
+    <title>Waste Route Optimizer - Setup</title>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=Manrope:wght@600;700;800&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
     <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
     <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
     <style>
+        /* CSS reset & variables */
         :root {
-            --concrete: #f4f4f5;
-            --concrete-dark: #e4e4e7;
-            --ink: #18181b;
-            --ink-light: #3f3f46;
-            --route-blue: #2563eb;
-            --route-blue-hover: #1d4ed8;
-            --safety-amber: #f59e0b;
-            --safety-amber-hover: #d97706;
-            --border: #d4d4d8;
-            --bg-white: #ffffff;
-        }
-        
-        * { box-sizing: border-box; }
-        body { font-family: 'Inter', sans-serif; margin: 0; padding: 0; background-color: var(--concrete); color: var(--ink); }
-        h1, h2, h3, h4, .step-label { font-family: 'Outfit', sans-serif; color: var(--ink); margin-top: 0; }
-        
-        .header { background-color: var(--bg-white); padding: 24px; text-align: center; border-bottom: 1px solid var(--border); }
-        .header h1 { margin: 0; font-size: 24px; display:flex; justify-content:center; align-items:center; gap:10px;}
-        
-        .container { max-width: 850px; margin: 0 auto; padding: 30px 20px; }
-        
-        /* Stepper */
-        .route-stepper { display: flex; align-items: center; justify-content: space-between; margin-bottom: 40px; position: relative; padding: 0 10px; }
-        .step { display: flex; flex-direction: column; align-items: center; gap: 8px; z-index: 2; background: var(--concrete); }
-        .step-dot { width: 16px; height: 16px; border-radius: 50%; background: var(--concrete-dark); border: 3px solid var(--border); z-index: 2; }
-        .step-dot.active { background: var(--route-blue); border-color: var(--bg-white); box-shadow: 0 0 0 2px var(--route-blue); }
-        .step-dot.cta-dot { background: var(--safety-amber); border-color: var(--bg-white); box-shadow: 0 0 0 2px var(--safety-amber); }
-        .step-label { font-size: 14px; font-weight: 500; color: var(--ink-light); }
-        .step-line { flex: 1; height: 3px; background: var(--border); margin: 0 15px; transform: translateY(-12px); }
-        
-        @media (max-width: 600px) {
-            .step-label { display: none; }
-            .route-stepper { margin-bottom: 30px; }
-            .step-line { transform: translateY(0); }
+            --primary: #2F5FFF;
+            --primary-hover: #1e40af;
+            --amber: #FFA93E;
+            --amber-hover: #f59e0b;
+            --green: #10b981;
+            --bg: #f8fafc;
+            --card-bg: #ffffff;
+            --text-main: #0f172a;
+            --text-muted: #64748b;
+            --border: #e2e8f0;
+            --shadow-soft: 0 10px 25px -5px rgba(0,0,0,0.05), 0 8px 10px -6px rgba(0,0,0,0.01);
+            --shadow-glow: 0 8px 16px -4px rgba(47, 95, 255, 0.3);
+            --rad: 24px;
         }
 
-        .section { background: var(--bg-white); border-radius: 8px; padding: 24px; margin-bottom: 24px; border: 1px solid var(--border); }
-        .section h2 { font-size: 18px; padding-bottom: 16px; border-bottom: 1px solid var(--concrete-dark); margin-bottom: 24px; display:flex; align-items:center; gap:8px;}
+        body {
+            margin: 0;
+            padding: 16px;
+            background-color: var(--bg);
+            font-family: 'Inter', sans-serif;
+            color: var(--text-main);
+            height: 100vh;
+            box-sizing: border-box;
+            display: flex;
+            gap: 16px;
+        }
+
+        /* Typography */
+        h1, h2, h3, h4, .heading { font-family: 'Manrope', sans-serif; letter-spacing: -0.02em; margin: 0; }
         
-        /* Stepper input */
-        .stepper-control { display: inline-flex; align-items: center; border: 1px solid var(--border); border-radius: 6px; overflow: hidden; background: var(--bg-white); }
-        .stepper-btn { background: var(--concrete); border: none; padding: 12px 16px; cursor: pointer; font-size: 16px; color: var(--ink); font-weight: 600; transition: background 0.1s; }
-        .stepper-btn:hover { background: var(--concrete-dark); }
-        .stepper-control input { width: 60px; text-align: center; border: none; font-size: 16px; font-family: 'Inter', sans-serif; font-weight: 500; padding: 12px 0; -moz-appearance: textfield; pointer-events: none; color: var(--ink); }
-        .stepper-control input::-webkit-outer-spin-button, .stepper-control input::-webkit-inner-spin-button { -webkit-appearance: none; margin: 0; }
+        /* Layout */
+        .panel {
+            border-radius: var(--rad);
+            overflow: hidden;
+            position: relative;
+        }
         
-        /* Toggle Switch */
-        .toggle-container { display: flex; align-items: center; justify-content: space-between; padding: 16px; background: var(--concrete); border-radius: 6px; border: 1px solid var(--border); margin-top: 20px;}
-        .toggle-switch { position: relative; display: inline-block; width: 44px; height: 24px; }
-        .toggle-switch input { opacity: 0; width: 0; height: 0; }
-        .slider { position: absolute; cursor: pointer; top: 0; left: 0; right: 0; bottom: 0; background-color: var(--border); transition: .2s; border-radius: 24px; }
-        .slider:before { position: absolute; content: ""; height: 18px; width: 18px; left: 3px; bottom: 3px; background-color: white; transition: .2s; border-radius: 50%; box-shadow: 0 1px 2px rgba(0,0,0,0.2); }
-        input:checked + .slider { background-color: var(--route-blue); }
+        .map-panel {
+            flex: 1;
+            background: var(--bg);
+            display: flex;
+            flex-direction: column;
+            box-shadow: var(--shadow-soft);
+            border: 1px solid var(--border);
+        }
+        
+        .form-panel {
+            width: 480px;
+            background: var(--card-bg);
+            box-shadow: var(--shadow-soft);
+            display: flex;
+            flex-direction: column;
+            padding: 32px;
+        }
+
+        /* Map Panel Internals */
+        #map {
+            width: 100%;
+            height: 100%;
+            z-index: 1;
+        }
+
+        .map-overlay {
+            position: absolute;
+            top: 24px;
+            left: 24px;
+            right: 24px;
+            z-index: 10;
+            display: flex;
+            gap: 16px;
+            pointer-events: none;
+        }
+        .stat-card {
+            background: rgba(255, 255, 255, 0.85);
+            backdrop-filter: blur(12px);
+            -webkit-backdrop-filter: blur(12px);
+            border: 1px solid rgba(255, 255, 255, 1);
+            padding: 16px 20px;
+            border-radius: 16px;
+            color: var(--text-main);
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            box-shadow: 0 4px 12px rgba(0,0,0,0.08);
+        }
+        .stat-card i { font-size: 20px; color: var(--primary); }
+        .stat-card div { display: flex; flex-direction: column; }
+        .stat-card span.val { font-family: 'Manrope', sans-serif; font-size: 20px; font-weight: 700; }
+        .stat-card span.lbl { font-size: 12px; color: var(--text-muted); font-weight: 500;}
+
+        /* Progress Rail */
+        .progress-rail {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 32px;
+            position: relative;
+        }
+        .progress-rail::before {
+            content: '';
+            position: absolute;
+            top: 16px;
+            left: 16px;
+            right: 16px;
+            height: 2px;
+            background: var(--border);
+            z-index: 0;
+        }
+        .rail-step {
+            position: relative;
+            z-index: 1;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            gap: 8px;
+            background: var(--card-bg);
+            padding: 0 4px;
+        }
+        .rail-icon {
+            width: 32px;
+            height: 32px;
+            border-radius: 50%;
+            background: var(--bg);
+            border: 2px solid var(--border);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            color: var(--text-muted);
+            font-size: 14px;
+            transition: all 0.3s;
+        }
+        .rail-step.completed .rail-icon {
+            background: #10b981;
+            border-color: #10b981;
+            color: white;
+        }
+        .rail-step.active .rail-icon {
+            background: white;
+            border-color: var(--primary);
+            color: var(--primary);
+            box-shadow: var(--shadow-glow);
+        }
+        .rail-label {
+            font-size: 12px;
+            font-weight: 600;
+            color: var(--text-muted);
+        }
+        .rail-step.active .rail-label { color: var(--text-main); }
+
+        /* Form Content */
+        .step-content {
+            flex: 1;
+            display: none;
+            overflow-y: auto;
+            animation: slideIn 0.3s ease;
+            padding-right: 8px; /* for scrollbar */
+        }
+        .step-content::-webkit-scrollbar { width: 6px; }
+        .step-content::-webkit-scrollbar-thumb { background: var(--border); border-radius: 10px; }
+        .step-content.active { display: block; }
+        @keyframes slideIn {
+            from { opacity: 0; transform: translateX(10px); }
+            to { opacity: 1; transform: translateX(0); }
+        }
+
+        .step-title { font-size: 28px; margin-bottom: 8px; }
+        .step-desc { font-size: 14px; color: var(--text-muted); margin-bottom: 32px; line-height: 1.5; }
+
+        /* Controls */
+        .control-group { margin-bottom: 24px; }
+        label { display: block; font-size: 14px; font-weight: 600; margin-bottom: 8px; color: var(--text-main); }
+        
+        .pill-track {
+            display: inline-flex;
+            background: var(--bg);
+            border: 1px solid var(--border);
+            border-radius: 100px;
+            padding: 4px;
+            align-items: center;
+        }
+        .pill-btn {
+            background: white;
+            border: 1px solid var(--border);
+            width: 36px;
+            height: 36px;
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            cursor: pointer;
+            color: var(--text-main);
+            transition: all 0.2s;
+            box-shadow: 0 1px 3px rgba(0,0,0,0.05);
+        }
+        .pill-btn:hover { background: var(--bg); }
+        .pill-input {
+            width: 60px;
+            text-align: center;
+            border: none;
+            background: transparent;
+            font-family: 'Manrope', sans-serif;
+            font-weight: 700;
+            font-size: 18px;
+            color: var(--text-main);
+            outline: none;
+        }
+
+        /* Toggle */
+        .toggle-row { display: flex; justify-content: space-between; align-items: center; padding: 16px; background: var(--bg); border: 1px solid var(--border); border-radius: 16px; margin-top: 16px; }
+        .toggle-text h4 { font-size: 15px; margin-bottom: 4px; }
+        .toggle-text p { font-size: 13px; color: var(--text-muted); margin: 0; }
+        
+        .switch { position: relative; display: inline-block; width: 44px; height: 24px; }
+        .switch input { opacity: 0; width: 0; height: 0; }
+        .slider { position: absolute; cursor: pointer; top: 0; left: 0; right: 0; bottom: 0; background-color: var(--border); transition: .3s; border-radius: 24px; }
+        .slider:before { position: absolute; content: ""; height: 18px; width: 18px; left: 3px; bottom: 3px; background-color: white; transition: .3s; border-radius: 50%; box-shadow: 0 2px 4px rgba(0,0,0,0.1); }
+        input:checked + .slider { background-color: var(--primary); }
         input:checked + .slider:before { transform: translateX(20px); }
+
+        /* Location Inputs */
+        .loc-input {
+            width: 100%;
+            padding: 14px 16px;
+            background: var(--bg);
+            border: 1px solid var(--border);
+            border-radius: 12px;
+            font-family: 'Inter', sans-serif;
+            font-size: 14px;
+            color: var(--text-main);
+            transition: all 0.2s;
+            box-sizing: border-box;
+            cursor: pointer;
+            margin-bottom: 12px;
+            outline: none;
+        }
+        .loc-input.active {
+            background: white;
+            border-color: var(--primary);
+            box-shadow: 0 0 0 3px rgba(47, 95, 255, 0.1);
+        }
+        .loc-input[readonly].locked {
+            background: var(--bg);
+            color: var(--text-muted);
+            cursor: not-allowed;
+            border-style: dashed;
+        }
+
+        .truck-loc-card {
+            padding: 20px;
+            border: 1px solid var(--border);
+            border-radius: 16px;
+            margin-bottom: 16px;
+            background: white;
+        }
+        .truck-loc-card h4 {
+            margin-bottom: 16px;
+            color: var(--primary);
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        /* File Dropzone */
+        .dropzone {
+            border: 2px dashed var(--border);
+            border-radius: 16px;
+            padding: 40px 20px;
+            text-align: center;
+            background: var(--bg);
+            transition: all 0.2s;
+            cursor: pointer;
+            position: relative;
+        }
+        .dropzone:hover, .dropzone.dragover { border-color: var(--primary); background: rgba(47, 95, 255, 0.02); }
+        .dropzone input[type="file"] { position: absolute; inset: 0; opacity: 0; cursor: pointer; }
+        .dropzone-icon { font-size: 32px; color: var(--primary); margin-bottom: 12px; }
+        .dropzone h4 { font-size: 16px; margin-bottom: 4px; }
+        .dropzone p { font-size: 13px; color: var(--text-muted); margin: 0; }
         
-        #map { height: 400px; width: 100%; border-radius: 6px; border: 1px solid var(--border); z-index: 1;}
-        .form-group { margin-bottom: 20px; }
-        label { display: block; font-weight: 500; font-size: 14px; margin-bottom: 8px; color: var(--ink-light); }
-        input[type="text"], input[type="file"] { width: 100%; padding: 12px; background: var(--bg-white); border: 1px solid var(--border); color: var(--ink); border-radius: 6px; font-size: 14px; font-family: 'Inter', sans-serif; transition: border-color 0.2s, box-shadow 0.2s; }
-        input[type="text"]:focus { border-color: var(--route-blue); box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.15); outline: none; }
-        input[readonly] { background-color: var(--concrete); color: var(--ink-light); cursor: pointer; }
-        .coord-input.active { border-color: var(--route-blue); background-color: #eff6ff; box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.15); color: var(--ink); }
+        .preview-table { width: 100%; border-collapse: collapse; margin-top: 16px; font-size: 13px; display: none; }
+        .preview-table th, .preview-table td { padding: 10px 8px; border-bottom: 1px solid var(--border); text-align: left; }
+        .preview-table th { color: var(--text-muted); font-weight: 600; background: var(--bg); }
+        .preview-table td { color: var(--text-main); }
         
-        .grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; }
+        .template-link { display: inline-block; margin-top: 16px; font-size: 13px; color: var(--primary); text-decoration: none; font-weight: 500; }
+        .template-link:hover { text-decoration: underline; }
+
+        /* Review Grid */
+        .review-grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 16px;
+            margin-bottom: 24px;
+        }
+        .review-card {
+            padding: 16px;
+            background: var(--bg);
+            border-radius: 12px;
+            border: 1px solid var(--border);
+        }
+        .review-card .lbl { font-size: 12px; color: var(--text-muted); margin-bottom: 4px; display: block; font-weight: 500; }
+        .review-card .val { font-size: 18px; font-weight: 700; font-family: 'Manrope', sans-serif; color: var(--text-main); }
         
-        .btn { display: flex; justify-content: center; align-items: center; gap: 10px; width: 100%; padding: 18px; background: var(--safety-amber); color: var(--bg-white); border: none; border-radius: 6px; font-size: 16px; font-family: 'Outfit', sans-serif; font-weight: 600; cursor: pointer; transition: background 0.2s; margin-top: 30px;}
-        .btn:hover { background: var(--safety-amber-hover); }
+        .review-alert {
+            padding: 12px 16px;
+            background: #fffbeb;
+            border: 1px solid #fde68a;
+            border-radius: 8px;
+            color: #b45309;
+            font-size: 13px;
+            display: flex;
+            gap: 12px;
+            align-items: center;
+            margin-top: 16px;
+            display: none;
+        }
+
+        /* Footer */
+        .wizard-footer {
+            display: flex;
+            justify-content: space-between;
+            margin-top: 24px;
+            padding-top: 24px;
+            border-top: 1px solid var(--border);
+        }
+        .btn {
+            padding: 14px 24px;
+            border-radius: 100px;
+            font-family: 'Inter', sans-serif;
+            font-size: 15px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.2s;
+            border: none;
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+        }
+        .btn-outline { background: white; border: 1px solid var(--border); color: var(--text-main); }
+        .btn-outline:hover { background: var(--bg); }
+        .btn-primary { background: var(--primary); color: white; box-shadow: var(--shadow-glow); }
+        .btn-primary:hover:not(:disabled) { transform: translateY(-1px); box-shadow: 0 10px 20px -4px rgba(47, 95, 255, 0.4); }
+        .btn-primary:disabled { background: var(--border); color: var(--text-muted); box-shadow: none; cursor: not-allowed; }
+        
+        .btn-cta { background: var(--amber); color: white; box-shadow: 0 8px 16px -4px rgba(255, 169, 62, 0.4); }
+        .btn-cta:hover:not(:disabled) { transform: translateY(-1px); background: var(--amber-hover); box-shadow: 0 10px 20px -4px rgba(255, 169, 62, 0.5); }
         
         .custom-div-icon { background: none; border: none; }
         
-        .file-upload-wrapper { position: relative; border: 2px dashed var(--border); background: var(--concrete); padding: 30px 20px; text-align: center; border-radius: 6px; cursor: pointer; transition: border-color 0.2s; }
-        .file-upload-wrapper:hover { border-color: var(--route-blue); }
-        .file-upload-wrapper input[type="file"] { position: absolute; top: 0; left: 0; width: 100%; height: 100%; opacity: 0; cursor: pointer; }
-        .file-upload-text { font-size: 14px; color: var(--ink-light); font-weight: 500; }
-        .file-upload-text i { font-size: 24px; color: var(--route-blue); margin-bottom: 10px; display: block; }
+        /* Mobile overrides */
+        @media (max-width: 900px) {
+            .map-panel { display: none; }
+            .form-panel { width: 100%; padding: 24px; border-radius: 0; box-shadow: none; }
+            body { padding: 0; }
+            .rail-label { display: none; }
+        }
     </style>
 </head>
-<body>
-    <div class="header"><h1><i class="fa-solid fa-route" style="color: var(--route-blue);"></i> Route Optimizer</h1></div>
-    <div class="container">
-        <div class="route-stepper">
-            <div class="step"><div class="step-dot active"></div><span class="step-label">Fleet</span></div>
-            <div class="step-line"></div>
-            <div class="step"><div class="step-dot active"></div><span class="step-label">Locations</span></div>
-            <div class="step-line"></div>
-            <div class="step"><div class="step-dot active"></div><span class="step-label">Stops</span></div>
-            <div class="step-line"></div>
-            <div class="step"><div class="step-dot cta-dot"></div><span class="step-label">Generate</span></div>
-        </div>
+<body class="split-layout">
 
-        <form id="setupForm" action="/upload" method="post" enctype="multipart/form-data">
+    <div class="map-panel panel">
+        <div class="map-overlay">
+            <div class="stat-card">
+                <i class="fa-solid fa-truck"></i>
+                <div>
+                    <span class="val" id="stat-trucks">3</span>
+                    <span class="lbl">Active Trucks</span>
+                </div>
+            </div>
+            <div class="stat-card" id="stat-stops-card" style="display:none;">
+                <i class="fa-solid fa-map-location-dot"></i>
+                <div>
+                    <span class="val" id="stat-stops">0</span>
+                    <span class="lbl">Total Stops</span>
+                </div>
+            </div>
+        </div>
+        <div id="map"></div>
+    </div>
+
+    <div class="form-panel panel">
+        <form id="setupForm" action="/upload" method="post" enctype="multipart/form-data" style="display: flex; flex-direction: column; height: 100%;">
             
-            <div class="section">
-                <h2>1. Fleet details</h2>
-                <div class="form-group" style="margin-bottom: 0;">
+            <div class="progress-rail">
+                <div class="rail-step active" id="rail-1">
+                    <div class="rail-icon"><i class="fa-solid fa-truck"></i></div>
+                    <span class="rail-label">Fleet</span>
+                </div>
+                <div class="rail-step" id="rail-2">
+                    <div class="rail-icon"><i class="fa-solid fa-location-dot"></i></div>
+                    <span class="rail-label">Locations</span>
+                </div>
+                <div class="rail-step" id="rail-3">
+                    <div class="rail-icon"><i class="fa-solid fa-file-excel"></i></div>
+                    <span class="rail-label">Stops</span>
+                </div>
+                <div class="rail-step" id="rail-4">
+                    <div class="rail-icon"><i class="fa-solid fa-check"></i></div>
+                    <span class="rail-label">Review</span>
+                </div>
+            </div>
+
+            <!-- Step 1: Fleet -->
+            <div class="step-content active" id="step-1">
+                <h2 class="heading step-title">Fleet Details</h2>
+                <p class="step-desc">Configure the vehicles available for this route optimization.</p>
+                
+                <div class="control-group">
                     <label>Total active trucks</label>
-                    <div class="stepper-control">
-                        <button type="button" class="stepper-btn" id="truck_minus"><i class="fa-solid fa-minus"></i></button>
-                        <input type="number" id="num_trucks" name="num_trucks" value="3" min="1" max="50" required readonly>
-                        <button type="button" class="stepper-btn" id="truck_plus"><i class="fa-solid fa-plus"></i></button>
+                    <div class="pill-track">
+                        <button type="button" class="pill-btn" id="truck_minus"><i class="fa-solid fa-minus"></i></button>
+                        <input type="number" id="num_trucks" name="num_trucks" class="pill-input" value="3" min="1" max="50" required readonly>
+                        <button type="button" class="pill-btn" id="truck_plus"><i class="fa-solid fa-plus"></i></button>
                     </div>
                 </div>
                 
-                <div class="toggle-container" id="multiDepotContainer" style="display: none;">
-                    <div>
-                        <div style="font-weight: 500; font-size: 15px;">Multiple Depots</div>
-                        <div style="font-size: 13px; color: var(--ink-light); margin-top: 4px;">Drivers start from different locations</div>
+                <div class="toggle-row">
+                    <div class="toggle-text">
+                        <h4 class="heading">Multiple Depots</h4>
+                        <p>Drivers start from different locations</p>
                     </div>
-                    <label class="toggle-switch">
+                    <label class="switch">
                         <input type="checkbox" id="multi_depot" name="multi_depot">
                         <span class="slider"></span>
                     </label>
                 </div>
             </div>
 
-            <div class="section">
-                <h2>2. Set locations</h2>
-                <p style="font-size: 14px; color: var(--ink-light); margin-top: -10px; margin-bottom: 20px;" id="mapHelpText">Select an input field, then click on the map to place a pin.</p>
-                <div id="map" style="margin-bottom: 24px;"></div>
+            <!-- Step 2: Locations -->
+            <div class="step-content" id="step-2">
+                <h2 class="heading step-title">Set Locations</h2>
+                <p class="step-desc">Click an input field to highlight it, then click on the live map to drop a pin.</p>
                 
                 <div id="singleDepotFields">
-                    <div class="grid-2">
-                        <div class="form-group">
-                            <label>Start location</label>
-                            <input type="text" id="start_coord" class="coord-input active" value="22.967523,72.6205729" required readonly>
-                        </div>
-                        <div class="form-group">
-                            <label>End location (Pre-set)</label>
-                            <input type="text" id="end_coord" class="coord-input" value="23.277034,72.436150" required readonly>
-                        </div>
+                    <div class="control-group">
+                        <label><i class="fa-solid fa-circle-dot" style="color:var(--green);"></i> Start Location</label>
+                        <input type="text" id="start_coord" class="loc-input active" value="22.967523,72.6205729" required readonly>
+                    </div>
+                    <div class="control-group">
+                        <label><i class="fa-solid fa-flag-checkered" style="color:var(--amber);"></i> End Location</label>
+                        <input type="text" id="end_coord" class="loc-input locked" value="23.277034,72.436150" required readonly>
+                        <p style="font-size:12px; color:var(--text-muted); margin-top:4px;"><i class="fa-solid fa-lock"></i> Preset to global end destination.</p>
                     </div>
                 </div>
 
@@ -148,67 +463,104 @@
                 <input type="hidden" id="end_coords_json" name="end_coords_json">
             </div>
 
-            <div class="section">
-                <h2>3. Upload stops</h2>
-                <div class="form-group" style="margin-bottom: 0;">
-                    <label>Customer route data (.xlsx / .docx)</label>
-                    <div class="file-upload-wrapper">
-                        <input type="file" id="file_input" name="file" accept=".xlsx, .docx" required>
-                        <div class="file-upload-text">
-                            <i class="fa-solid fa-cloud-arrow-up"></i>
-                            <span id="file_name_display">Click or drag file to upload</span>
-                        </div>
+            <!-- Step 3: Stops -->
+            <div class="step-content" id="step-3">
+                <h2 class="heading step-title">Upload Stops</h2>
+                <p class="step-desc">Upload your customer list to be optimized across the fleet.</p>
+                
+                <div class="dropzone" id="dropzone">
+                    <input type="file" id="file_input" name="file" accept=".xlsx, .docx, .csv" required>
+                    <i class="fa-solid fa-cloud-arrow-up dropzone-icon"></i>
+                    <h4 class="heading" id="file_name_display">Drop file or click to browse</h4>
+                    <p>(.xlsx, .docx, .csv)</p>
+                </div>
+                
+                <a href="#" class="template-link"><i class="fa-solid fa-download"></i> Download sample template</a>
+                
+                <table class="preview-table" id="preview-table">
+                    <thead>
+                        <tr><th>ID</th><th>Name</th><th>Address</th></tr>
+                    </thead>
+                    <tbody id="preview-body"></tbody>
+                </table>
+            </div>
+
+            <!-- Step 4: Review -->
+            <div class="step-content" id="step-4">
+                <h2 class="heading step-title">Review & Generate</h2>
+                <p class="step-desc">Verify your configuration before starting the optimization engine.</p>
+                
+                <div class="review-grid">
+                    <div class="review-card">
+                        <span class="lbl">Fleet Size</span>
+                        <span class="val" id="rev-trucks">3 Trucks</span>
+                    </div>
+                    <div class="review-card">
+                        <span class="lbl">Depot Mode</span>
+                        <span class="val" id="rev-depot">Single Depot</span>
+                    </div>
+                    <div class="review-card">
+                        <span class="lbl">Total Stops</span>
+                        <span class="val" id="rev-stops">Pending Upload</span>
+                    </div>
+                    <div class="review-card">
+                        <span class="lbl">Readiness</span>
+                        <span class="val" id="rev-ready" style="color:var(--amber);">Incomplete</span>
                     </div>
                 </div>
+                
+                <div class="review-alert" id="review-alert">
+                    <i class="fa-solid fa-triangle-exclamation"></i>
+                    <span id="review-alert-text">Please complete all steps before generating.</span>
+                </div>
             </div>
-            
-            <button type="submit" class="btn" id="submitBtn">Generate Best Routes <i class="fa-solid fa-arrow-right"></i></button>
+
+            <!-- Footer -->
+            <div class="wizard-footer">
+                <button type="button" class="btn btn-outline" id="btn-back" style="visibility: hidden;"><i class="fa-solid fa-arrow-left"></i> Back</button>
+                <button type="button" class="btn btn-primary" id="btn-next">Continue <i class="fa-solid fa-arrow-right"></i></button>
+                <button type="submit" class="btn btn-cta" id="btn-submit" style="display: none;" disabled>Generate Routes <i class="fa-solid fa-wand-magic-sparkles"></i></button>
+            </div>
         </form>
     </div>
 
     <script>
-        var map = L.map("map").setView([23.0225, 72.5714], 11);
+        // Map Init
+        var map = L.map("map", { zoomControl: false }).setView([23.0225, 72.5714], 11);
+        L.control.zoom({ position: 'bottomright' }).addTo(map);
+        
         var googleStreets = L.tileLayer("http://{s}.google.com/vt/lyrs=m&x={x}&y={y}&z={z}", { maxZoom: 20, subdomains:["mt0","mt1","mt2","mt3"] });
         googleStreets.addTo(map);
 
         let activeInput = document.getElementById("start_coord");
         let markers = {};
         
-        markers["start_coord"] = L.marker([22.967523, 72.6205729], {
-            icon: L.divIcon({className: "custom-div-icon", html: "<div style='background-color:var(--route-blue); width:16px; height:16px; border-radius:50%; border:3px solid var(--bg-white); box-shadow:0 2px 4px rgba(0,0,0,0.3);'></div>"})
-        }).addTo(map).bindPopup("<b>Global Start Location</b>");
+        function getIcon(color) {
+            return L.divIcon({className: "custom-div-icon", html: `<div style='background-color:${color}; width:20px; height:20px; border-radius:50%; border:3px solid white; box-shadow:0 4px 6px rgba(0,0,0,0.3);'></div>`});
+        }
         
-        markers["end_coord"] = L.marker([23.277034, 72.436150], {
-            icon: L.divIcon({className: "custom-div-icon", html: "<div style='background-color:var(--safety-amber); width:16px; height:16px; border-radius:50%; border:3px solid var(--bg-white); box-shadow:0 2px 4px rgba(0,0,0,0.3);'></div>"})
-        }).addTo(map).bindPopup("<b>Global End Location</b>");
+        markers["start_coord"] = L.marker([22.967523, 72.6205729], { icon: getIcon('var(--green)') }).addTo(map).bindPopup("<b>Global Start Location</b>");
+        markers["end_coord"] = L.marker([23.277034, 72.436150], { icon: getIcon('var(--amber)') }).addTo(map).bindPopup("<b>Global End Location</b>");
 
+        // Fleet Logic
         const numTrucksInput = document.getElementById("num_trucks");
-        const truckMinus = document.getElementById("truck_minus");
-        const truckPlus = document.getElementById("truck_plus");
         const multiDepotCheckbox = document.getElementById("multi_depot");
-        const multiDepotContainer = document.getElementById("multiDepotContainer");
         const singleDepotFields = document.getElementById("singleDepotFields");
         const multiDepotFields = document.getElementById("multiDepotFields");
         
-        truckMinus.addEventListener("click", () => {
+        document.getElementById("truck_minus").addEventListener("click", () => {
             let v = parseInt(numTrucksInput.value);
             if(v > 1) { numTrucksInput.value = v - 1; updateDepotUI(); }
         });
-        
-        truckPlus.addEventListener("click", () => {
+        document.getElementById("truck_plus").addEventListener("click", () => {
             let v = parseInt(numTrucksInput.value);
             if(v < 50) { numTrucksInput.value = v + 1; updateDepotUI(); }
         });
 
         function updateDepotUI() {
             let num = parseInt(numTrucksInput.value) || 1;
-            if (num > 1) {
-                multiDepotContainer.style.display = "flex";
-            } else {
-                multiDepotContainer.style.display = "none";
-                multiDepotCheckbox.checked = false;
-            }
-
+            document.getElementById("stat-trucks").innerText = num;
+            
             if (multiDepotCheckbox.checked) {
                 singleDepotFields.style.display = "none";
                 multiDepotFields.style.display = "block";
@@ -218,31 +570,27 @@
                     let pre_st = markers[`start_${i}`] ? document.getElementById(`start_${i}`).value : "22.967523,72.6205729";
                     let pre_en = markers[`end_${i}`] ? document.getElementById(`end_${i}`).value : "23.277034,72.436150";
                     html += `
-                        <div style="margin-bottom: 16px; padding: 20px; border: 1px solid var(--border); border-radius: 6px; background: var(--concrete);">
-                            <h3 style="margin-top:0; font-size:15px; margin-bottom:16px; color:var(--ink);"><i class="fa-solid fa-truck" style="color:var(--route-blue);"></i> Truck ${i}</h3>
-                            <div class="grid-2">
-                                <div class="form-group" style="margin-bottom:0;">
-                                    <label>Start location</label>
-                                    <input type="text" id="start_${i}" class="coord-input multi-input" placeholder="Click map to set..." value="${pre_st}" required readonly>
-                                </div>
-                                <div class="form-group" style="margin-bottom:0;">
-                                    <label>End location</label>
-                                    <input type="text" id="end_${i}" class="coord-input multi-input" value="${pre_en}" required readonly>
-                                </div>
+                        <div class="truck-loc-card">
+                            <h4 class="heading"><i class="fa-solid fa-truck"></i> Truck ${i}</h4>
+                            <div class="control-group" style="margin-bottom:12px;">
+                                <label style="font-size:13px;"><i class="fa-solid fa-circle-dot" style="color:var(--green);"></i> Start Location</label>
+                                <input type="text" id="start_${i}" class="loc-input multi-input" placeholder="Click map to set..." value="${pre_st}" required readonly>
+                            </div>
+                            <div class="control-group" style="margin-bottom:0;">
+                                <label style="font-size:13px;"><i class="fa-solid fa-flag-checkered" style="color:var(--amber);"></i> End Location</label>
+                                <input type="text" id="end_${i}" class="loc-input multi-input locked" value="${pre_en}" required readonly>
                             </div>
                         </div>
                     `;
                 }
                 multiDepotFields.innerHTML = html;
-                
                 activeInput = document.getElementById("start_1");
                 if(activeInput) activeInput.classList.add("active");
-                
             } else {
                 singleDepotFields.style.display = "block";
                 multiDepotFields.style.display = "none";
                 activeInput = document.getElementById("start_coord");
-                document.querySelectorAll(".coord-input").forEach(el => el.classList.remove("active"));
+                document.querySelectorAll(".loc-input").forEach(el => el.classList.remove("active"));
                 if(activeInput) activeInput.classList.add("active");
             }
             bindInputClicks();
@@ -252,49 +600,34 @@
         updateDepotUI();
 
         function bindInputClicks() {
-            document.querySelectorAll(".coord-input").forEach(input => {
+            document.querySelectorAll(".loc-input:not(.locked)").forEach(input => {
                 input.addEventListener("click", function() {
-                    document.querySelectorAll(".coord-input").forEach(el => el.classList.remove("active"));
+                    document.querySelectorAll(".loc-input").forEach(el => el.classList.remove("active"));
                     this.classList.add("active");
                     activeInput = this;
                 });
             });
         }
-        
-        document.getElementById("file_input").addEventListener("change", function(e) {
-            let display = document.getElementById("file_name_display");
-            if (this.files && this.files.length > 0) {
-                display.innerHTML = "<b>" + this.files[0].name + "</b> selected";
-                display.style.color = "var(--ink)";
-            } else {
-                display.innerHTML = "Click or drag file to upload";
-                display.style.color = "var(--ink-light)";
-            }
-        });
 
         map.on("click", function(e) {
             if (!activeInput) return;
-            
             let lat = e.latlng.lat.toFixed(6);
             let lng = e.latlng.lng.toFixed(6);
-            let coordStr = lat + "," + lng;
-            
-            activeInput.value = coordStr;
+            activeInput.value = `${lat},${lng}`;
             
             let id = activeInput.id;
-            let color = id.includes("start") ? "var(--route-blue)" : "var(--safety-amber)";
-            let label = id.includes("start") ? "Start Location" : "End Location";
+            let isStart = id.includes("start");
+            let color = isStart ? 'var(--green)' : 'var(--amber)';
             
             if (markers[id]) map.removeLayer(markers[id]);
-            markers[id] = L.marker(e.latlng, {
-                icon: L.divIcon({className: "custom-div-icon", html: "<div style='background-color:" + color + "; width:16px; height:16px; border-radius:50%; border:3px solid var(--bg-white); box-shadow:0 2px 4px rgba(0,0,0,0.3);'></div>"})
-            }).addTo(map).bindPopup("<b>" + label + "</b>").openPopup();
+            markers[id] = L.marker(e.latlng, { icon: getIcon(color) }).addTo(map).bindPopup(isStart ? "<b>Start</b>" : "<b>End</b>").openPopup();
             
-            let inputs = Array.from(document.querySelectorAll(".coord-input")).filter(el => el.offsetWidth > 0);
+            // Auto advance
+            let inputs = Array.from(document.querySelectorAll(".loc-input:not(.locked)")).filter(el => el.offsetWidth > 0);
             let activeIdx = inputs.indexOf(activeInput);
             for(let i=activeIdx+1; i<inputs.length; i++) {
                 if(!inputs[i].value) {
-                    document.querySelectorAll(".coord-input").forEach(el => el.classList.remove("active"));
+                    document.querySelectorAll(".loc-input").forEach(el => el.classList.remove("active"));
                     inputs[i].classList.add("active");
                     activeInput = inputs[i];
                     break;
@@ -302,6 +635,137 @@
             }
         });
 
+        // File Upload Preview
+        let stopCount = 0;
+        let isFileValid = false;
+        const fileInput = document.getElementById("file_input");
+        const dropzone = document.getElementById("dropzone");
+        
+        dropzone.addEventListener('dragover', (e) => { e.preventDefault(); dropzone.classList.add('dragover'); });
+        dropzone.addEventListener('dragleave', () => dropzone.classList.remove('dragover'));
+        dropzone.addEventListener('drop', (e) => {
+            e.preventDefault();
+            dropzone.classList.remove('dragover');
+            if(e.dataTransfer.files.length) {
+                fileInput.files = e.dataTransfer.files;
+                handleFile(fileInput.files[0]);
+            }
+        });
+        
+        fileInput.addEventListener("change", function(e) {
+            if (this.files.length) handleFile(this.files[0]);
+        });
+
+        function handleFile(file) {
+            document.getElementById("file_name_display").innerText = file.name;
+            isFileValid = true; // Mark ready immediately to allow docx
+            stopCount = 0; // reset
+            
+            const reader = new FileReader();
+            reader.onload = function(e) {
+                try {
+                    const data = new Uint8Array(e.target.result);
+                    const workbook = XLSX.read(data, {type: 'array'});
+                    const firstSheet = workbook.Sheets[workbook.SheetNames[0]];
+                    const jsonData = XLSX.utils.sheet_to_json(firstSheet, {header: 1});
+                    
+                    if(jsonData.length > 1) {
+                        stopCount = jsonData.length - 1; // remove header
+                        document.getElementById("stat-stops-card").style.display = "flex";
+                        document.getElementById("stat-stops").innerText = stopCount;
+                        
+                        let tbody = "";
+                        for(let i=1; i<=Math.min(3, stopCount); i++) {
+                            let row = jsonData[i];
+                            if(row && row.length > 0) tbody += `<tr><td>${row[0]||'-'}</td><td>${row[1]||'-'}</td><td>${row[4]||row[2]||'-'}</td></tr>`;
+                        }
+                        document.getElementById("preview-body").innerHTML = tbody;
+                        document.getElementById("preview-table").style.display = "table";
+                    }
+                } catch(err) {
+                    // Fallback for docx or parsing failure
+                    document.getElementById("preview-body").innerHTML = "<tr><td colspan='3' style='color:var(--text-muted); font-style:italic;'>File ready for upload (preview not available).</td></tr>";
+                    document.getElementById("preview-table").style.display = "table";
+                }
+            };
+            reader.readAsArrayBuffer(file);
+        }
+
+        // Wizard Navigation
+        let currentStep = 1;
+        const totalSteps = 4;
+        const btnNext = document.getElementById("btn-next");
+        const btnBack = document.getElementById("btn-back");
+        const btnSubmit = document.getElementById("btn-submit");
+
+        function updateWizard() {
+            // Update Rails
+            for(let i=1; i<=totalSteps; i++) {
+                let r = document.getElementById("rail-"+i);
+                r.classList.remove("active", "completed");
+                if (i < currentStep) r.classList.add("completed");
+                if (i === currentStep) r.classList.add("active");
+                
+                // Update Content
+                document.getElementById("step-"+i).classList.remove("active");
+            }
+            document.getElementById("step-"+currentStep).classList.add("active");
+
+            // Buttons
+            btnBack.style.visibility = currentStep > 1 ? "visible" : "hidden";
+            
+            if (currentStep === totalSteps) {
+                btnNext.style.display = "none";
+                btnSubmit.style.display = "inline-flex";
+                populateReview();
+            } else {
+                btnNext.style.display = "inline-flex";
+                btnSubmit.style.display = "none";
+            }
+        }
+
+        btnNext.addEventListener("click", () => {
+            if (currentStep < totalSteps) {
+                currentStep++;
+                updateWizard();
+            }
+        });
+        btnBack.addEventListener("click", () => {
+            if (currentStep > 1) {
+                currentStep--;
+                updateWizard();
+            }
+        });
+
+        function populateReview() {
+            let num = parseInt(numTrucksInput.value) || 1;
+            document.getElementById("rev-trucks").innerText = `${num} Truck${num>1?'s':''}`;
+            document.getElementById("rev-depot").innerText = multiDepotCheckbox.checked ? "Multi-Depot" : "Single Depot";
+            
+            if (stopCount > 0) {
+                document.getElementById("rev-stops").innerText = `${stopCount} Stops`;
+            } else if (isFileValid) {
+                document.getElementById("rev-stops").innerText = "File Uploaded";
+            } else {
+                document.getElementById("rev-stops").innerText = "Pending Upload";
+            }
+            
+            let alertBox = document.getElementById("review-alert");
+            
+            if (isFileValid) {
+                document.getElementById("rev-ready").innerText = "Ready to Go";
+                document.getElementById("rev-ready").style.color = "#10b981";
+                alertBox.style.display = "none";
+                btnSubmit.disabled = false;
+            } else {
+                document.getElementById("rev-ready").innerText = "Incomplete";
+                document.getElementById("rev-ready").style.color = "var(--amber)";
+                alertBox.style.display = "flex";
+                btnSubmit.disabled = true;
+            }
+        }
+
+        // Form Submission Intercept
         document.getElementById("setupForm").addEventListener("submit", function(e) {
             let startCoords = [];
             let endCoords = [];
@@ -313,7 +777,7 @@
                     let en = document.getElementById(`end_${i}`).value;
                     if (!st || !en) {
                         e.preventDefault();
-                        alert("Please select Start and End locations for Truck " + i + " on the map.");
+                        alert(`Please select Start and End locations for Truck ${i} on the map.`);
                         return;
                     }
                     startCoords.push(st);
@@ -336,6 +800,9 @@
             
             document.getElementById("start_coords_json").value = JSON.stringify(startCoords);
             document.getElementById("end_coords_json").value = JSON.stringify(endCoords);
+            
+            btnSubmit.innerHTML = "Optimizing routes... <i class='fa-solid fa-circle-notch fa-spin'></i>";
+            btnSubmit.disabled = true;
         });
     </script>
 </body>
