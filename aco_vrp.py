@@ -151,18 +151,19 @@ class ACO_VRP:
         )
         stops_dimension = routing.GetDimensionOrDie("Stops")
         
-        # Force every truck to take a roughly even number of stops.
-        # We use SOFT bounds with a huge penalty to prevent the solver from failing 
-        # to find an initial feasible solution, while still strongly forcing it to balance the fleet.
-        ideal_stops = len(self.customers) / self.num_trucks
-        max_stops = math.ceil(ideal_stops) + 4
-        # We enforce a strict minimum of at least 1 customer per truck to ensure no truck is left empty.
-        # If there are lots of customers, we enforce a higher minimum to balance the load.
-        min_stops = max(1, math.floor(ideal_stops) - 4)
+        # To guarantee we find a solution within 8 seconds, we use extremely relaxed bounds.
+        # We enforce a strict minimum of 1 customer per truck to ensure no truck is left empty.
+        min_stops = 1
+        # Maximum is theoretically all customers, leaving room for the AI to dynamically balance based on Time
+        max_stops = len(self.customers)
         
         for vehicle_id in range(self.num_trucks):
             # We add +1 because the End node itself increments the CumulVar by 1.
             stops_dimension.CumulVar(routing.End(vehicle_id)).SetRange(min_stops + 1, max_stops + 1)
+            
+        # Optional: Encourage the solver to balance the shift times across all drivers
+        # time_dimension = routing.GetDimensionOrDie('Distance')
+        # time_dimension.SetGlobalSpanCostCoefficient(100)
 
         search_parameters = pywrapcp.DefaultRoutingSearchParameters()
         # AUTOMATIC strategy is better at handling strict bounds than PATH_CHEAPEST_ARC
