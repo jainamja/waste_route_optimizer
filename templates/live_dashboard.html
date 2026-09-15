@@ -455,13 +455,16 @@
             
             let allLats = [];
             let allLngs = [];
+            
+            let start_coords = data.start_coords.map(c => [parseFloat(c.split(',')[0]), parseFloat(c.split(',')[1])]);
+            let end_coords = data.end_coords.map(c => [parseFloat(c.split(',')[0]), parseFloat(c.split(',')[1])]);
 
             data.routes.forEach((truckRoute, i) => {
                 let color = colors[i % colors.length];
                 let latlngs = [];
                 
-                let startCoord = data.start_coords[i] || data.start_coords[0];
-                let endCoord = data.end_coords[i] || data.end_coords[0];
+                let startCoord = start_coords[i] || start_coords[0];
+                let endCoord = end_coords[i] || end_coords[0];
                 
                 allLats.push(startCoord[0], endCoord[0]);
                 allLngs.push(startCoord[1], endCoord[1]);
@@ -548,6 +551,9 @@
             let html = '';
             let trucksInfo = {};
             
+            let start_coords = data.start_coords.map(c => [parseFloat(c.split(',')[0]), parseFloat(c.split(',')[1])]);
+            let end_coords = data.end_coords.map(c => [parseFloat(c.split(',')[0]), parseFloat(c.split(',')[1])]);
+            
             data.customers.forEach(c => {
                 let t = c.truck;
                 if (!trucksInfo[t]) trucksInfo[t] = { total: 0, completed: 0 };
@@ -561,8 +567,8 @@
                 let color = colors[i % colors.length];
                 
                 let truckRoute = data.routes[i];
-                let startCoord = data.start_coords[i] || data.start_coords[0];
-                let endCoord = data.end_coords[i] || data.end_coords[0];
+                let startCoord = start_coords[i] || start_coords[0];
+                let endCoord = end_coords[i] || end_coords[0];
                 
                 let dirUrl = `https://www.google.com/maps/dir/?api=1&origin=${startCoord[0]},${startCoord[1]}&destination=${endCoord[0]},${endCoord[1]}&waypoints=`;
                 let waypoints = [];
