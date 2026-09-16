@@ -657,14 +657,12 @@
             truckRoute.forEach(customerId => {
                 let customer = data.customers.find(c => c.id === customerId);
                 if (customer) {
-                    stopsToEncode.push({
-                        id: customer.id,
-                        n: customer.name ? customer.name.substring(0, 30) : '',
-                        a: customer.address ? customer.address.substring(0, 50) : '',
-                        lt: customer.lat,
-                        lg: customer.lng,
-                        s: customer.stop_number
-                    });
+                    stopsToEncode.push([
+                        customer.id,
+                        customer.name ? customer.name.substring(0, 20) : '',
+                        parseFloat(Number(customer.lat).toFixed(5)),
+                        parseFloat(Number(customer.lng).toFixed(5))
+                    ]);
                 }
             });
             
@@ -672,17 +670,23 @@
             let base64 = btoa(unescape(encodeURIComponent(jsonStr)));
             let link = window.location.origin + '/driver?r=' + base64 + '&t=' + encodeURIComponent(truckId);
             
-            document.getElementById('driver-link-input').value = link;
-            document.getElementById('qrcode').innerHTML = '';
-            new QRCode(document.getElementById('qrcode'), {
-                text: link,
-                width: 180,
-                height: 180,
-                colorDark : "#000000",
-                colorLight : "#ffffff",
-                correctLevel : QRCode.CorrectLevel.L
-            });
-            document.getElementById('driver-link-modal').style.display = 'flex';
+            try {
+                document.getElementById('driver-link-input').value = link;
+                document.getElementById('qrcode').innerHTML = '';
+                new QRCode(document.getElementById('qrcode'), {
+                    text: link,
+                    width: 200,
+                    height: 200,
+                    colorDark : "#000000",
+                    colorLight : "#ffffff",
+                    correctLevel : QRCode.CorrectLevel.L
+                });
+                document.getElementById('driver-link-modal').style.display = 'flex';
+            } catch (e) {
+                console.error("QR Code generation failed, likely due to payload size:", e);
+                alert("Route is too long for a QR code. Please use the Copy Link button instead.");
+                document.getElementById('driver-link-modal').style.display = 'flex';
+            }
         };
 
         window.copyDriverLink = function() {

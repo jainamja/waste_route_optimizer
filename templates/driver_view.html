@@ -179,13 +179,13 @@
                     let rawStops = JSON.parse(decodedStr);
                     
                     // Rehydrate to standard format
-                    stops = rawStops.map(s => ({
-                        id: s.id,
-                        name: s.n,
-                        address: s.a,
-                        lat: s.lt,
-                        lng: s.lg,
-                        stop_number: s.s,
+                    stops = rawStops.map((s, idx) => ({
+                        id: s[0],
+                        name: s[1],
+                        address: "", // Omitted to keep QR code small
+                        lat: s[2],
+                        lng: s[3],
+                        stop_number: idx + 1,
                         status: 'PENDING'
                     }));
                     
