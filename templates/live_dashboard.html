@@ -622,15 +622,41 @@
                         
                         ${stopsListHtml}
                         
-                        <a href="${dirUrl}" target="_blank" class="route-link">
-                            <i class="fa-solid fa-location-arrow"></i> Open in Google Maps
-                        </a>
+                        <div style="display:flex; gap:12px; margin-top: 16px;">
+                            <a href="${dirUrl}" target="_blank" class="route-link" style="margin-top:0; flex:1;">
+                                <i class="fa-solid fa-map-location-dot"></i> Overview
+                            </a>
+                            <button onclick="startDriverNav('${t}', ${i})" class="route-link" style="margin-top:0; flex:1; background:var(--primary); color:white; border-color:var(--primary);">
+                                <i class="fa-solid fa-location-arrow"></i> Navigate
+                            </button>
+                        </div>
                     </div>
                 `;
             });
             
             document.getElementById('truck-stats').innerHTML = html;
         }
+
+        window.startDriverNav = function(truckId, index) {
+            let truckRoute = data.routes[index];
+            let stopsToSave = [];
+            truckRoute.forEach(customerId => {
+                let customer = data.customers.find(c => c.id === customerId);
+                if (customer) {
+                    stopsToSave.push({
+                        id: customer.id,
+                        name: customer.name,
+                        address: customer.address || '',
+                        lat: customer.lat,
+                        lng: customer.lng,
+                        status: customer.status,
+                        stop_number: customer.stop_number
+                    });
+                }
+            });
+            localStorage.setItem('driver_route_' + truckId, JSON.stringify(stopsToSave));
+            window.open('/driver?truck=' + encodeURIComponent(truckId), '_blank');
+        };
 
         window.markCompleted = function(customerId) {
             fetch(`/api/mark_completed/${customerId}`, { method: 'POST' })

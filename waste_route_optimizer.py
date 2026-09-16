@@ -260,6 +260,10 @@ def dashboard():
         return redirect(url_for('index'))
     return render_template('live_dashboard.html')
 
+@app.route('/driver')
+def driver_view():
+    return render_template('driver_view.html')
+
 @app.route('/api/data')
 def get_data():
     metadata_rows = Metadata.query.all()

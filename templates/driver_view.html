@@ -1,0 +1,346 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Driver Navigation</title>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=Manrope:wght@600;700;800&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <style>
+        :root {
+            --primary: #2F5FFF;
+            --primary-hover: #1e40af;
+            --amber: #FFA93E;
+            --green: #10b981;
+            --red: #ef4444;
+            --bg: #f8fafc;
+            --card-bg: #ffffff;
+            --text-main: #0f172a;
+            --text-muted: #64748b;
+            --border: #e2e8f0;
+            --shadow-soft: 0 10px 25px -5px rgba(0,0,0,0.05), 0 8px 10px -6px rgba(0,0,0,0.01);
+            --rad: 24px;
+        }
+
+        body {
+            margin: 0;
+            padding: 16px;
+            background-color: var(--bg);
+            font-family: 'Inter', sans-serif;
+            color: var(--text-main);
+            min-height: 100vh;
+            display: flex;
+            flex-direction: column;
+            box-sizing: border-box;
+        }
+
+        h1, h2, h3, h4 { font-family: 'Manrope', sans-serif; margin: 0; }
+
+        .container {
+            max-width: 600px;
+            margin: 0 auto;
+            width: 100%;
+            flex: 1;
+            display: flex;
+            flex-direction: column;
+            gap: 16px;
+        }
+
+        .header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            background: var(--card-bg);
+            padding: 16px;
+            border-radius: 16px;
+            box-shadow: var(--shadow-soft);
+        }
+
+        .header h1 { font-size: 18px; color: var(--primary); display: flex; align-items: center; gap: 8px;}
+
+        .card {
+            background: var(--card-bg);
+            padding: 24px;
+            border-radius: var(--rad);
+            box-shadow: var(--shadow-soft);
+        }
+
+        .progress-text {
+            font-size: 14px;
+            color: var(--text-muted);
+            font-weight: 600;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            margin-bottom: 8px;
+        }
+
+        .stop-name {
+            font-size: 28px;
+            margin-bottom: 8px;
+            line-height: 1.2;
+        }
+
+        .stop-address {
+            font-size: 16px;
+            color: var(--text-muted);
+            margin-bottom: 24px;
+            display: flex;
+            gap: 8px;
+            align-items: flex-start;
+        }
+
+        .btn {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 8px;
+            width: 100%;
+            padding: 16px;
+            border-radius: 12px;
+            font-family: 'Inter', sans-serif;
+            font-size: 16px;
+            font-weight: 600;
+            cursor: pointer;
+            border: none;
+            text-decoration: none;
+            margin-bottom: 12px;
+            transition: opacity 0.2s;
+        }
+        .btn:active { opacity: 0.8; }
+
+        .btn-primary { background: var(--primary); color: white; box-shadow: 0 4px 12px rgba(47, 95, 255, 0.3); }
+        .btn-success { background: var(--green); color: white; box-shadow: 0 4px 12px rgba(16, 185, 129, 0.3); }
+        .btn-outline { background: white; border: 2px solid var(--border); color: var(--text-main); }
+        .btn-danger { background: #fee2e2; color: var(--red); border: 2px solid #fecaca; }
+
+        /* Overview List */
+        .overview-title {
+            font-size: 16px;
+            margin: 24px 0 12px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .stop-list {
+            display: flex;
+            flex-direction: column;
+            gap: 8px;
+        }
+
+        .stop-item {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            padding: 12px;
+            background: var(--bg);
+            border-radius: 12px;
+            font-size: 14px;
+        }
+        .stop-item.active {
+            background: white;
+            border: 2px solid var(--primary);
+            box-shadow: 0 2px 8px rgba(47, 95, 255, 0.1);
+        }
+        .stop-item.completed { opacity: 0.6; }
+        
+        .status-icon { font-size: 18px; width: 24px; text-align: center; }
+        .status-icon.completed { color: var(--green); }
+        .status-icon.skipped { color: var(--red); }
+        .status-icon.pending { color: var(--text-muted); }
+
+        .empty-state { text-align: center; padding: 40px 20px; }
+        .empty-state i { font-size: 48px; color: var(--text-muted); margin-bottom: 16px; }
+    </style>
+</head>
+<body>
+    <div class="container" id="app">
+        <!-- Rendered by JS -->
+    </div>
+
+    <script>
+        const app = document.getElementById('app');
+        const urlParams = new URLSearchParams(window.location.search);
+        const truckId = urlParams.get('truck');
+        
+        let stops = [];
+        let currentIndex = 0;
+
+        function init() {
+            if (!truckId) {
+                renderError("No truck specified.");
+                return;
+            }
+
+            const storedStops = localStorage.getItem('driver_route_' + truckId);
+            if (!storedStops) {
+                renderError("No active route found for this truck. Please generate it from the dashboard.");
+                return;
+            }
+
+            stops = JSON.parse(storedStops);
+            
+            // Restore progress
+            const storedIndex = localStorage.getItem('driver_progress_' + truckId);
+            if (storedIndex !== null) {
+                currentIndex = parseInt(storedIndex, 10);
+            }
+
+            if (stops.length === 0) {
+                renderError("Route is empty.");
+                return;
+            }
+
+            render();
+        }
+
+        function saveProgress() {
+            localStorage.setItem('driver_progress_' + truckId, currentIndex);
+            localStorage.setItem('driver_route_' + truckId, JSON.stringify(stops));
+        }
+
+        function markStop(status) {
+            if (currentIndex < stops.length) {
+                stops[currentIndex].status = status;
+                
+                // Fire and forget to backend to sync dispatcher view
+                if (status === 'COMPLETED') {
+                    fetch('/api/mark_completed/' + stops[currentIndex].id, { method: 'POST' }).catch(e=>{});
+                }
+                
+                currentIndex++;
+                saveProgress();
+                render();
+                window.scrollTo(0,0);
+            }
+        }
+
+        function resetRoute() {
+            if (confirm("Are you sure you want to reset all progress for this route?")) {
+                currentIndex = 0;
+                stops.forEach(s => s.status = 'PENDING');
+                saveProgress();
+                render();
+            }
+        }
+
+        function renderError(msg) {
+            app.innerHTML = `
+                <div class="card empty-state">
+                    <i class="fa-solid fa-triangle-exclamation"></i>
+                    <h2>Oops!</h2>
+                    <p style="color:var(--text-muted); margin:16px 0 24px;">${msg}</p>
+                    <button class="btn btn-outline" onclick="window.close()">Go Back</button>
+                </div>
+            `;
+        }
+
+        function render() {
+            if (currentIndex >= stops.length) {
+                renderComplete();
+                return;
+            }
+
+            const stop = stops[currentIndex];
+            const isLast = currentIndex === stops.length - 1;
+            const mapUrl = `https://www.google.com/maps/dir/?api=1&destination=${stop.lat},${stop.lng}&travelmode=driving`;
+
+            let overviewHtml = stops.map((s, idx) => {
+                let icon = '<i class="fa-regular fa-circle status-icon pending"></i>';
+                let classes = 'stop-item';
+                if (idx < currentIndex) {
+                    if (s.status === 'SKIPPED') {
+                        icon = '<i class="fa-solid fa-circle-xmark status-icon skipped"></i>';
+                    } else {
+                        icon = '<i class="fa-solid fa-circle-check status-icon completed"></i>';
+                    }
+                    classes += ' completed';
+                } else if (idx === currentIndex) {
+                    icon = '<i class="fa-solid fa-location-dot status-icon" style="color:var(--primary);"></i>';
+                    classes += ' active';
+                }
+                
+                return `
+                    <div class="${classes}">
+                        ${icon}
+                        <div style="flex:1;">
+                            <div style="font-weight:600;">Stop ${s.stop_number}: ${s.name}</div>
+                        </div>
+                    </div>
+                `;
+            }).join('');
+
+            app.innerHTML = `
+                <div class="header">
+                    <h1><i class="fa-solid fa-truck"></i> Truck ${truckId}</h1>
+                    <button onclick="resetRoute()" style="background:none; border:none; color:var(--text-muted); font-size:14px; font-weight:600; cursor:pointer;">Reset</button>
+                </div>
+
+                <div class="card">
+                    <div class="progress-text">Stop ${currentIndex + 1} of ${stops.length}</div>
+                    <h2 class="stop-name">${stop.name}</h2>
+                    <div class="stop-address">
+                        <i class="fa-solid fa-location-dot" style="margin-top:4px;"></i>
+                        <span>${stop.address || 'No address provided'}</span>
+                    </div>
+
+                    <a href="${mapUrl}" target="_blank" class="btn btn-primary">
+                        <i class="fa-solid fa-location-arrow"></i> Open Navigation
+                    </a>
+
+                    <div style="display:flex; gap:12px; margin-top:24px;">
+                        <button class="btn btn-success" onclick="markStop('COMPLETED')" style="flex:2;">
+                            <i class="fa-solid fa-check"></i> ${isLast ? 'Complete Route' : 'Complete & Next'}
+                        </button>
+                        <button class="btn btn-danger" onclick="markStop('SKIPPED')" style="flex:1;">
+                            <i class="fa-solid fa-forward-step"></i> Skip
+                        </button>
+                    </div>
+                </div>
+
+                <div>
+                    <div class="overview-title">
+                        <h3>Route Overview</h3>
+                    </div>
+                    <div class="stop-list">
+                        ${overviewHtml}
+                    </div>
+                </div>
+            `;
+        }
+
+        function renderComplete() {
+            let completed = stops.filter(s => s.status !== 'SKIPPED').length; // Includes any completed
+            let skipped = stops.filter(s => s.status === 'SKIPPED').length;
+            
+            app.innerHTML = `
+                <div class="header">
+                    <h1><i class="fa-solid fa-truck"></i> Truck ${truckId}</h1>
+                    <button onclick="resetRoute()" style="background:none; border:none; color:var(--text-muted); font-size:14px; font-weight:600; cursor:pointer;">Reset</button>
+                </div>
+                
+                <div class="card empty-state" style="padding-top:60px;">
+                    <i class="fa-solid fa-flag-checkered" style="color:var(--green); font-size:64px;"></i>
+                    <h2 style="font-size:32px; margin-bottom:8px;">Route Complete!</h2>
+                    <p style="color:var(--text-muted); font-size:16px;">You've finished all stops for this truck.</p>
+                    
+                    <div style="display:flex; justify-content:center; gap:32px; margin:32px 0;">
+                        <div>
+                            <div style="font-size:32px; font-weight:800; font-family:'Manrope'; color:var(--text-main);">${completed}</div>
+                            <div style="font-size:13px; color:var(--text-muted); font-weight:600; text-transform:uppercase;">Completed</div>
+                        </div>
+                        <div>
+                            <div style="font-size:32px; font-weight:800; font-family:'Manrope'; color:var(--text-main);">${skipped}</div>
+                            <div style="font-size:13px; color:var(--text-muted); font-weight:600; text-transform:uppercase;">Skipped</div>
+                        </div>
+                    </div>
+                    
+                    <button class="btn btn-outline" onclick="window.close()">Close window</button>
+                </div>
+            `;
+        }
+
+        init();
+    </script>
+</body>
+</html>
