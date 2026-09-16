@@ -95,7 +95,9 @@ def extract_lat_lng(coord_str):
 def read_data_file(filepath):
     ext = os.path.splitext(filepath)[1].lower()
     df = None
-    if ext == '.xlsx':
+    if ext == '.csv':
+        df = pd.read_csv(filepath)
+    elif ext == '.xlsx':
         df = pd.read_excel(filepath)
     elif ext == '.docx':
         doc = Document(filepath)
@@ -191,7 +193,11 @@ def upload():
         
     start_coords_json = request.form.get('start_coords_json')
     end_coords_json = request.form.get('end_coords_json')
-    num_trucks = int(request.form.get('num_trucks', 3))
+    
+    try:
+        num_trucks = int(request.form.get('num_trucks') or 3)
+    except ValueError:
+        num_trucks = 3
     
     if not start_coords_json or not end_coords_json: return "Missing coordinates", 400
     
@@ -203,6 +209,10 @@ def upload():
     end_coords = [ (float(x.split(',')[0]), float(x.split(',')[1])) for x in ends_str ]
     
     filename = secure_filename(file.filename)
+    if not filename:
+        ext = os.path.splitext(file.filename)[1]
+        filename = f"upload_fallback{ext}"
+        
     filepath = os.path.join(app.config['UPLOAD_FOLDER'], filename)
     file.save(filepath)
     
