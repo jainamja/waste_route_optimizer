@@ -322,8 +322,22 @@
             .title-area h1 { font-size: 16px; }
         }
     </style>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
 </head>
 <body>
+    <!-- Modal for Driver Link -->
+    <div id="driver-link-modal" style="display:none; position:fixed; top:0; left:0; right:0; bottom:0; background:rgba(0,0,0,0.5); z-index:9999; align-items:center; justify-content:center;">
+        <div style="background:white; padding:32px; border-radius:24px; max-width:400px; width:90%; text-align:center;">
+            <h3 style="margin-top:0; font-family:'Manrope', sans-serif;">Send to Driver</h3>
+            <p style="color:var(--text-muted); font-size:14px; margin-bottom:24px;">Scan the QR code with a phone camera, or copy the link below.</p>
+            <div id="qrcode" style="display:flex; justify-content:center; margin-bottom:24px;"></div>
+            <div style="display:flex; gap:12px;">
+                <input type="text" id="driver-link-input" readonly style="flex:1; padding:12px; border:1px solid var(--border); border-radius:8px; font-size:12px; color:var(--text-main);">
+                <button onclick="copyDriverLink()" class="btn btn-primary" style="margin-bottom:0; width:auto; padding:0 24px; border:none; border-radius:8px; cursor:pointer;">Copy</button>
+            </div>
+            <button onclick="document.getElementById('driver-link-modal').style.display='none'" class="btn" style="margin-top:16px; background:#f1f5f9; color:var(--text-main); width:100%; padding:12px; border:none; border-radius:8px; cursor:pointer; font-weight:600;">Close</button>
+        </div>
+    </div>
     
     <div class="header-bar">
         <div class="title-area">
@@ -626,8 +640,8 @@
                             <a href="${dirUrl}" target="_blank" class="route-link" style="margin-top:0; flex:1;">
                                 <i class="fa-solid fa-map-location-dot"></i> Overview
                             </a>
-                            <button onclick="startDriverNav('${t}', ${i})" class="route-link" style="margin-top:0; flex:1; background:var(--primary); color:white; border-color:var(--primary);">
-                                <i class="fa-solid fa-location-arrow"></i> Navigate
+                            <button onclick="generateDriverLink('${t}', ${i})" class="route-link" style="margin-top:0; flex:1; background:var(--primary); color:white; border-color:var(--primary);">
+                                <i class="fa-solid fa-share-nodes"></i> Send to Driver
                             </button>
                         </div>
                     </div>
@@ -637,25 +651,50 @@
             document.getElementById('truck-stats').innerHTML = html;
         }
 
-        window.startDriverNav = function(truckId, index) {
+        window.generateDriverLink = function(truckId, index) {
             let truckRoute = data.routes[index];
-            let stopsToSave = [];
+            let stopsToEncode = [];
             truckRoute.forEach(customerId => {
                 let customer = data.customers.find(c => c.id === customerId);
                 if (customer) {
-                    stopsToSave.push({
+                    stopsToEncode.push({
                         id: customer.id,
-                        name: customer.name,
-                        address: customer.address || '',
-                        lat: customer.lat,
-                        lng: customer.lng,
-                        status: customer.status,
-                        stop_number: customer.stop_number
+                        n: customer.name ? customer.name.substring(0, 30) : '',
+                        a: customer.address ? customer.address.substring(0, 50) : '',
+                        lt: customer.lat,
+                        lg: customer.lng,
+                        s: customer.stop_number
                     });
                 }
             });
-            localStorage.setItem('driver_route_' + truckId, JSON.stringify(stopsToSave));
-            window.open('/driver?truck=' + encodeURIComponent(truckId), '_blank');
+            
+            let jsonStr = JSON.stringify(stopsToEncode);
+            let base64 = btoa(unescape(encodeURIComponent(jsonStr)));
+            let link = window.location.origin + '/driver?r=' + base64 + '&t=' + encodeURIComponent(truckId);
+            
+            document.getElementById('driver-link-input').value = link;
+            document.getElementById('qrcode').innerHTML = '';
+            new QRCode(document.getElementById('qrcode'), {
+                text: link,
+                width: 180,
+                height: 180,
+                colorDark : "#000000",
+                colorLight : "#ffffff",
+                correctLevel : QRCode.CorrectLevel.L
+            });
+            document.getElementById('driver-link-modal').style.display = 'flex';
+        };
+
+        window.copyDriverLink = function() {
+            let input = document.getElementById('driver-link-input');
+            input.select();
+            input.setSelectionRange(0, 99999); 
+            navigator.clipboard.writeText(input.value).then(() => {
+                let btn = input.nextElementSibling;
+                let old = btn.innerText;
+                btn.innerText = "Copied!";
+                setTimeout(() => btn.innerText = old, 2000);
+            });
         };
 
         window.markCompleted = function(customerId) {

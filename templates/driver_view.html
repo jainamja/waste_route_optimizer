@@ -165,29 +165,65 @@
     <script>
         const app = document.getElementById('app');
         const urlParams = new URLSearchParams(window.location.search);
-        const truckId = urlParams.get('truck');
+        let truckId = urlParams.get('t');
         
         let stops = [];
         let currentIndex = 0;
 
-        function init() {
-            if (!truckId) {
-                renderError("No truck specified.");
-                return;
+        function loadRouteData() {
+            // Check if URL has a payload (newly generated link)
+            const payload = urlParams.get('r');
+            if (payload) {
+                try {
+                    let decodedStr = decodeURIComponent(escape(atob(payload)));
+                    let rawStops = JSON.parse(decodedStr);
+                    
+                    // Rehydrate to standard format
+                    stops = rawStops.map(s => ({
+                        id: s.id,
+                        name: s.n,
+                        address: s.a,
+                        lat: s.lt,
+                        lng: s.lg,
+                        stop_number: s.s,
+                        status: 'PENDING'
+                    }));
+                    
+                    if (!truckId) truckId = "1";
+                    
+                    // Save to device storage
+                    localStorage.setItem('driver_route_' + truckId, JSON.stringify(stops));
+                    localStorage.setItem('driver_progress_' + truckId, 0);
+                    
+                    // Clean URL
+                    window.history.replaceState({}, document.title, window.location.pathname + "?t=" + truckId);
+                    return true;
+                } catch(e) {
+                    console.error("Failed to decode route payload:", e);
+                    return false;
+                }
             }
-
-            const storedStops = localStorage.getItem('driver_route_' + truckId);
-            if (!storedStops) {
-                renderError("No active route found for this truck. Please generate it from the dashboard.");
-                return;
-            }
-
-            stops = JSON.parse(storedStops);
             
-            // Restore progress
-            const storedIndex = localStorage.getItem('driver_progress_' + truckId);
-            if (storedIndex !== null) {
-                currentIndex = parseInt(storedIndex, 10);
+            // If no payload, try to load from device storage
+            if (truckId) {
+                const storedStops = localStorage.getItem('driver_route_' + truckId);
+                if (storedStops) {
+                    stops = JSON.parse(storedStops);
+                    const storedIndex = localStorage.getItem('driver_progress_' + truckId);
+                    if (storedIndex !== null) {
+                        currentIndex = parseInt(storedIndex, 10);
+                    }
+                    return true;
+                }
+            }
+            
+            return false;
+        }
+
+        function init() {
+            if (!loadRouteData()) {
+                renderError("No active route found. Please scan a valid QR code or link from the dispatcher.");
+                return;
             }
 
             if (stops.length === 0) {
