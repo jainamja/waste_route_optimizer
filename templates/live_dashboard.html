@@ -327,7 +327,7 @@
 <body>
     <!-- Modal for Driver Link -->
     <div id="driver-link-modal" style="display:none; position:fixed; top:0; left:0; right:0; bottom:0; background:rgba(0,0,0,0.5); z-index:9999; align-items:center; justify-content:center;">
-        <div style="background:white; padding:32px; border-radius:24px; max-width:400px; width:90%; text-align:center;">
+        <div style="background:white; padding:32px; border-radius:24px; max-width:450px; width:90%; text-align:center;">
             <h3 style="margin-top:0; font-family:'Manrope', sans-serif;">Send to Driver</h3>
             <p style="color:var(--text-muted); font-size:14px; margin-bottom:24px;">Scan the QR code with a phone camera, or copy the link below.</p>
             <div id="qrcode" style="display:flex; justify-content:center; margin-bottom:24px;"></div>
@@ -675,8 +675,8 @@
                 document.getElementById('qrcode').innerHTML = '';
                 new QRCode(document.getElementById('qrcode'), {
                     text: link,
-                    width: 200,
-                    height: 200,
+                    width: 350,
+                    height: 350,
                     colorDark : "#000000",
                     colorLight : "#ffffff",
                     correctLevel : QRCode.CorrectLevel.L
