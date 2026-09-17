@@ -190,6 +190,19 @@
                 } catch(e) { console.error(e); }
             });
         }
+        
+        // Show "Open in App" banner/redirect if it's the web version
+        if (!window.Capacitor && /Android|iPhone|iPad|iPod/i.test(navigator.userAgent)) {
+            window.location.replace("wasteroute://driver" + window.location.search);
+            setTimeout(() => {
+                let banner = document.createElement('div');
+                banner.style.cssText = 'position:fixed; top:0; left:0; right:0; background:var(--primary); color:white; padding:12px; text-align:center; z-index:9999; font-weight:bold; box-shadow:0 4px 12px rgba(0,0,0,0.2);';
+                banner.innerHTML = `<span style="margin-right:12px;">📱 Have the app installed?</span> <a href="wasteroute://driver${window.location.search}" style="background:white; color:var(--primary); padding:6px 16px; border-radius:16px; text-decoration:none; font-size:14px; font-weight:800;">Open App</a>`;
+                document.body.appendChild(banner);
+                const appElem = document.getElementById('app');
+                if(appElem) appElem.style.paddingTop = '60px';
+            }, 500);
+        }
 
         const app = document.getElementById('app');
         const urlParams = new URLSearchParams(window.location.search);
@@ -201,6 +214,9 @@
 
         function init() {
             if (!truckId) truckId = "1"; // Fallback for testing
+            
+            // Show loading state so it's not a blank white page!
+            app.innerHTML = `<div style="text-align:center; padding-top:60px; color:var(--text-muted);"><i class="fa-solid fa-spinner fa-spin" style="font-size:32px; margin-bottom:16px;"></i><br>Syncing route...</div>`;
             
             // Start GPS Polling
             startGpsPolling();
@@ -232,6 +248,8 @@
                     stops = [];
                     renderError("Waiting for Dispatcher to assign route to Truck " + truckId + "...");
                 }
+            }, error => {
+                renderError("Firebase Permission Denied: " + error.message + "<br><br>Please check your Firebase Realtime Database Security Rules.");
             });
         }
 
