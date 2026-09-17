@@ -185,6 +185,11 @@ def read_data_file(filepath):
 def index():
     return render_template('select_start_point.html')
 
+
+@app.route('/live')
+def live_tracking():
+    return render_template('live_tracking.html')
+
 @app.route('/upload', methods=['POST'])
 def upload():
     if 'file' not in request.files: return "No file part", 400
@@ -262,6 +267,29 @@ def upload():
         
     db.session.commit()
 
+    # INSERT TO FIREBASE
+    try:
+        import requests
+        firebase_url = "https://wasteroutelive-default-rtdb.firebaseio.com"
+        
+        updates = {}
+        for c in customers_data:
+            tid = c.get('truck')
+            if tid:
+                route_key = f"routes/route_{tid}/stops/{c['id']}"
+                updates[route_key] = {
+                    "name": c['name'],
+                    "address": c['address'],
+                    "lat": c['lat'],
+                    "lng": c['lng'],
+                    "sequence": c.get('stop_number', 99),
+                    "status": "PENDING"
+                }
+        requests.patch(f"{firebase_url}/.json", json=updates)
+    except Exception as e:
+        print("Firebase sync error:", e)
+
+
     return redirect(url_for('dashboard'))
 
 @app.route('/dashboard')
@@ -336,6 +364,29 @@ def mark_completed(customer_id):
     if customer:
         customer.status = 'COMPLETED'
         db.session.commit()
+
+    # INSERT TO FIREBASE
+    try:
+        import requests
+        firebase_url = "https://wasteroutelive-default-rtdb.firebaseio.com"
+        
+        updates = {}
+        for c in customers_data:
+            tid = c.get('truck')
+            if tid:
+                route_key = f"routes/route_{tid}/stops/{c['id']}"
+                updates[route_key] = {
+                    "name": c['name'],
+                    "address": c['address'],
+                    "lat": c['lat'],
+                    "lng": c['lng'],
+                    "sequence": c.get('stop_number', 99),
+                    "status": "PENDING"
+                }
+        requests.patch(f"{firebase_url}/.json", json=updates)
+    except Exception as e:
+        print("Firebase sync error:", e)
+
     return jsonify({'success': True, 'status': 'COMPLETED'})
 
 @app.route('/download_excel')
@@ -357,3 +408,94 @@ def download_excel():
 
 if __name__ == '__main__':
     app.run(debug=True, port=5000)
+
+
+@app.route('/api/dynamic_recalculate', methods=['POST'])
+def dynamic_recalculate():
+    import requests
+    firebase_url = "https://wasteroutelive-default-rtdb.firebaseio.com"
+    
+    try:
+        # 1. Fetch current GPS for all trucks
+        trucks_res = requests.get(f"{firebase_url}/trucks.json")
+        trucks_data = trucks_res.json() or {}
+        
+        # 2. Fetch all current routes
+        routes_res = requests.get(f"{firebase_url}/routes.json")
+        routes_data = routes_res.json() or {}
+        
+        pending_customers = []
+        truck_starts = []
+        active_truck_ids = []
+        
+        # For each truck, get its position and pending stops
+        for truck_id, truck_info in trucks_data.items():
+            if truck_info.get('status') == 'online' and truck_info.get('currentLat'):
+                truck_starts.append((float(truck_info['currentLat']), float(truck_info['currentLng'])))
+                active_truck_ids.append(truck_id)
+                
+                # Get pending stops for this truck
+                route_key = f"route_{truck_id}"
+                if route_key in routes_data and 'stops' in routes_data[route_key]:
+                    for stop_id, stop_info in routes_data[route_key]['stops'].items():
+                        if stop_info.get('status') == 'PENDING':
+                            pending_customers.append({
+                                'id': stop_id,
+                                'name': stop_info.get('name', ''),
+                                'address': stop_info.get('address', ''),
+                                'lat': float(stop_info['lat']),
+                                'lng': float(stop_info['lng'])
+                            })
+                            
+        if not pending_customers:
+            return jsonify({'error': 'No pending stops to recalculate.'}), 400
+            
+        if not truck_starts:
+            return jsonify({'error': 'No active trucks with GPS signal.'}), 400
+            
+        # 3. Use ACO_VRP (OR-Tools) with MULTIPLE starting coordinates!
+        # The depot (end_coords) doesn't matter much for dynamic mid-day, so we'll just set it to the first truck's start to close the loop
+        end_coords = [truck_starts[0]] * len(truck_starts)
+        
+        aco = ACO_VRP(truck_starts, end_coords, pending_customers, num_trucks=len(truck_starts))
+        new_routes, _, _ = aco.run()
+        
+        # 4. Write back to Firebase
+        updates = {}
+        for idx, route in enumerate(new_routes):
+            if idx < len(active_truck_ids):
+                tid = active_truck_ids[idx]
+                
+                # We overwrite the remaining sequence for this truck
+                for seq, cust_id in enumerate(route):
+                    # We find the customer data
+                    cust = next((c for c in pending_customers if c['id'] == cust_id), None)
+                    if cust:
+                        updates[f"routes/route_{tid}/stops/{cust_id}"] = {
+                            "name": cust['name'],
+                            "address": cust['address'],
+                            "lat": cust['lat'],
+                            "lng": cust['lng'],
+                            "sequence": seq + 1,
+                            "status": "PENDING"
+                        }
+                        
+        # Because we re-balanced globally, we need to clear ALL pending stops first 
+        # so they don't linger on old trucks if reassigned.
+        for tid in active_truck_ids:
+            route_key = f"route_{tid}"
+            if route_key in routes_data and 'stops' in routes_data[route_key]:
+                for stop_id, stop_info in routes_data[route_key]['stops'].items():
+                    if stop_info.get('status') == 'PENDING':
+                        requests.delete(f"{firebase_url}/routes/{route_key}/stops/{stop_id}.json")
+                        
+        # Now PATCH the new assignments
+        requests.patch(f"{firebase_url}/.json", json=updates)
+        
+        return jsonify({'success': True, 'recalculated_stops': len(pending_customers)})
+        
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        return jsonify({'error': str(e)}), 500
+

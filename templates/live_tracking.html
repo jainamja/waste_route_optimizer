@@ -1,0 +1,298 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Live Fleet Tracking</title>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=Manrope:wght@600;700;800&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/10.9.0/firebase-app-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/10.9.0/firebase-database-compat.js"></script>
+    
+    <style>
+        :root {
+            --primary: #2F5FFF;
+            --green: #10b981;
+            --amber: #FFA93E;
+            --red: #ef4444;
+            --bg: #f8fafc;
+            --card-bg: #ffffff;
+            --text-main: #0f172a;
+            --text-muted: #64748b;
+            --border: #e2e8f0;
+            --rad: 16px;
+        }
+        body { margin: 0; padding: 0; font-family: 'Inter', sans-serif; background: var(--bg); display: flex; height: 100vh; overflow: hidden; }
+        
+        #sidebar {
+            width: 400px;
+            background: var(--card-bg);
+            border-right: 1px solid var(--border);
+            display: flex;
+            flex-direction: column;
+            box-shadow: 2px 0 10px rgba(0,0,0,0.05);
+            z-index: 1000;
+        }
+        
+        .header {
+            padding: 24px;
+            border-bottom: 1px solid var(--border);
+        }
+        
+        .header h1 { font-family: 'Manrope'; margin: 0; font-size: 20px; display: flex; align-items: center; gap: 8px; }
+        
+        .live-badge {
+            background: #dcfce7; color: #166534; padding: 4px 8px; border-radius: 4px; font-size: 11px; font-weight: bold; text-transform: uppercase; margin-left: auto; display: flex; align-items: center; gap: 4px;
+        }
+        .pulse { width: 8px; height: 8px; background: #166534; border-radius: 50%; animation: pulse 2s infinite; }
+        @keyframes pulse { 0% { box-shadow: 0 0 0 0 rgba(22, 101, 52, 0.4); } 70% { box-shadow: 0 0 0 6px rgba(22, 101, 52, 0); } 100% { box-shadow: 0 0 0 0 rgba(22, 101, 52, 0); } }
+
+        .truck-list { flex: 1; overflow-y: auto; padding: 16px; }
+        
+        .truck-card {
+            background: white; border: 1px solid var(--border); border-radius: 12px; padding: 16px; margin-bottom: 12px; cursor: pointer; transition: 0.2s;
+        }
+        .truck-card:hover { border-color: var(--primary); box-shadow: 0 4px 12px rgba(47,95,255,0.1); }
+        .truck-card.active { border-color: var(--primary); border-width: 2px; }
+        
+        .truck-header { display: flex; justify-content: space-between; margin-bottom: 12px; }
+        .truck-name { font-weight: bold; font-size: 16px; }
+        
+        .status-dot { width: 10px; height: 10px; border-radius: 50%; display: inline-block; }
+        .status-online { background: var(--green); }
+        .status-offline { background: var(--text-muted); }
+        
+        .progress-bar { height: 6px; background: var(--border); border-radius: 3px; overflow: hidden; margin-bottom: 8px; }
+        .progress-fill { height: 100%; background: var(--primary); transition: 0.3s; }
+        
+        .truck-stats { font-size: 12px; color: var(--text-muted); display: flex; justify-content: space-between; }
+        
+        #map-container { flex: 1; position: relative; }
+        #map { width: 100%; height: 100%; }
+        
+        .btn { padding: 8px 16px; border-radius: 8px; font-weight: 600; cursor: pointer; border: none; font-size: 13px; }
+        .btn-primary { background: var(--primary); color: white; }
+        .btn-outline { background: white; border: 1px solid var(--border); color: var(--text-main); }
+        
+        /* Modal */
+        .modal-overlay { display: none; position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(0,0,0,0.5); z-index: 9999; align-items: center; justify-content: center; }
+        .modal { background: white; padding: 24px; border-radius: 16px; width: 400px; max-width: 90%; }
+    </style>
+</head>
+<body>
+
+    <div id="sidebar">
+        <div class="header">
+            <h1><i class="fa-solid fa-satellite-dish" style="color:var(--primary);"></i> Live Tracking <div class="live-badge"><div class="pulse"></div> Live Sync</div></h1>
+            <p style="margin: 8px 0 0; font-size: 13px; color: var(--text-muted);">Real-time fleet GPS and route progress</p>
+            
+            <div style="display:flex; gap:8px; margin-top:16px;">
+                <button class="btn btn-outline" style="flex:1;" onclick="openReassignModal()"><i class="fa-solid fa-shuffle"></i> Re-balance Routes</button>
+            </div>
+        </div>
+        
+        <div class="truck-list" id="trucks-container">
+            <!-- Rendered by JS -->
+            <div style="text-align:center; padding:40px; color:var(--text-muted); font-size:14px;">
+                <i class="fa-solid fa-spinner fa-spin" style="font-size:24px; margin-bottom:12px;"></i><br>
+                Connecting to Firebase...
+            </div>
+        </div>
+    </div>
+    
+    <div id="map-container">
+        <div id="map"></div>
+    </div>
+    
+    <!-- Reassign Modal -->
+    <div class="modal-overlay" id="reassign-modal">
+        <div class="modal">
+            <h2 style="margin-top:0;">Global Re-route</h2>
+            <p style="font-size:14px; color:var(--text-muted);">This will collect all remaining uncompleted stops from ALL active trucks, and globally recalculate optimal routes starting from each truck's CURRENT GPS location.</p>
+            
+            <div style="margin-top:24px; display:flex; justify-content:flex-end; gap:12px;">
+                <button class="btn btn-outline" onclick="closeReassignModal()">Cancel</button>
+                <button class="btn btn-primary" onclick="triggerGlobalReroute()"><i class="fa-solid fa-bolt"></i> Execute Re-route</button>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // Firebase Config
+        const firebaseConfig = {
+            apiKey: "AIzaSyAhLnjh0gRa2pf29G90zr-6AMcjLjbQpPg",
+            authDomain: "wasteroutelive.firebaseapp.com",
+            databaseURL: "https://wasteroutelive-default-rtdb.firebaseio.com",
+            projectId: "wasteroutelive",
+            storageBucket: "wasteroutelive.firebasestorage.app",
+            messagingSenderId: "141692937729",
+            appId: "1:141692937729:web:66398f74c16562c5d58200"
+        };
+        firebase.initializeApp(firebaseConfig);
+        const db = firebase.database();
+        
+        // Map Setup
+        const map = L.map('map').setView([0, 0], 2);
+        L.tileLayer('https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png', {
+            attribution: '&copy; OpenStreetMap contributors'
+        }).addTo(map);
+        
+        let truckMarkers = {};
+        let selectedTruckId = null;
+        
+        let trucksData = {};
+        let routesData = {};
+
+        // Custom Truck Marker Icon
+        const truckIcon = L.divIcon({
+            className: 'custom-truck-marker',
+            html: `<div style="background:var(--primary); color:white; width:36px; height:36px; border-radius:50%; display:flex; align-items:center; justify-content:center; border:3px solid white; box-shadow:0 4px 8px rgba(0,0,0,0.2);"><i class="fa-solid fa-truck"></i></div>`,
+            iconSize: [36, 36],
+            iconAnchor: [18, 18]
+        });
+
+        // 1. Listen to Trucks (GPS)
+        db.ref('trucks').on('value', snap => {
+            const data = snap.val() || {};
+            trucksData = data;
+            
+            let bounds = [];
+            
+            for (let id in data) {
+                let t = data[id];
+                if (t.currentLat && t.currentLng) {
+                    let latlng = [t.currentLat, t.currentLng];
+                    bounds.push(latlng);
+                    
+                    if (!truckMarkers[id]) {
+                        truckMarkers[id] = L.marker(latlng, { icon: truckIcon }).addTo(map);
+                        truckMarkers[id].bindTooltip(t.name || `Truck ${id}`, { permanent: true, direction: 'top', offset: [0, -20] });
+                    } else {
+                        truckMarkers[id].setLatLng(latlng);
+                    }
+                }
+            }
+            
+            if (bounds.length > 0 && !selectedTruckId && Object.keys(truckMarkers).length === 1) { // Auto zoom on first load
+                map.fitBounds(L.latLngBounds(bounds), { padding: [50, 50] });
+            }
+            
+            renderSidebar();
+        });
+        
+        // 2. Listen to Routes (Progress)
+        db.ref('routes').on('value', snap => {
+            routesData = snap.val() || {};
+            renderSidebar();
+        });
+        
+        function selectTruck(id) {
+            selectedTruckId = id;
+            if (trucksData[id] && trucksData[id].currentLat) {
+                map.setView([trucksData[id].currentLat, trucksData[id].currentLng], 14);
+            }
+            renderSidebar();
+        }
+
+        function renderSidebar() {
+            const container = document.getElementById('trucks-container');
+            if (Object.keys(trucksData).length === 0) {
+                container.innerHTML = `<div style="text-align:center; padding:40px; color:var(--text-muted); font-size:14px;">No active trucks found.</div>`;
+                return;
+            }
+            
+            let html = '';
+            for (let id in trucksData) {
+                let t = trucksData[id];
+                let isOnline = t.status === 'online';
+                
+                // Calculate progress
+                let route = routesData[`route_${id}`];
+                let totalStops = 0;
+                let completedStops = 0;
+                let nextStopName = "No active route";
+                
+                if (route && route.stops) {
+                    let stopsArr = Object.values(route.stops).sort((a,b) => a.sequence - b.sequence);
+                    totalStops = stopsArr.length;
+                    
+                    let firstPending = null;
+                    for (let s of stopsArr) {
+                        if (s.status !== 'PENDING') completedStops++;
+                        if (s.status === 'PENDING' && !firstPending) firstPending = s;
+                    }
+                    if (firstPending) nextStopName = "Next: " + firstPending.name;
+                    else if (totalStops > 0 && completedStops === totalStops) nextStopName = "Route Finished!";
+                }
+                
+                let progressPct = totalStops > 0 ? (completedStops / totalStops) * 100 : 0;
+                
+                let timeAgo = "Unknown";
+                if (t.lastUpdated) {
+                    let diffSeconds = Math.floor((Date.now() - t.lastUpdated) / 1000);
+                    if (diffSeconds < 60) timeAgo = `${diffSeconds}s ago`;
+                    else timeAgo = `${Math.floor(diffSeconds/60)}m ago`;
+                    
+                    if (diffSeconds > 120) isOnline = false; // Mark offline if stale for 2 mins
+                }
+                
+                html += `
+                    <div class="truck-card ${selectedTruckId === id ? 'active' : ''}" onclick="selectTruck('${id}')">
+                        <div class="truck-header">
+                            <span class="truck-name"><i class="fa-solid fa-truck" style="margin-right:6px; color:var(--primary);"></i> ${t.name || 'Truck '+id}</span>
+                            <span style="font-size:12px; color:var(--text-muted); display:flex; align-items:center; gap:4px;">
+                                <span class="status-dot ${isOnline ? 'status-online' : 'status-offline'}"></span>
+                                ${isOnline ? 'Online' : 'Offline'}
+                            </span>
+                        </div>
+                        
+                        <div class="progress-bar">
+                            <div class="progress-fill" style="width: ${progressPct}%;"></div>
+                        </div>
+                        
+                        <div class="truck-stats">
+                            <span>${completedStops} / ${totalStops} Stops</span>
+                            <span>GPS: ${timeAgo}</span>
+                        </div>
+                        
+                        <div style="font-size:12px; font-weight:600; margin-top:12px; color:var(--text-main); white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">
+                            <i class="fa-solid fa-location-dot" style="color:var(--amber); margin-right:4px;"></i> ${nextStopName}
+                        </div>
+                    </div>
+                `;
+            }
+            
+            container.innerHTML = html;
+        }
+
+        function openReassignModal() { document.getElementById('reassign-modal').style.display = 'flex'; }
+        function closeReassignModal() { document.getElementById('reassign-modal').style.display = 'none'; }
+        
+        async function triggerGlobalReroute() {
+            closeReassignModal();
+            const btn = document.querySelector('.header button');
+            btn.innerHTML = `<i class="fa-solid fa-spinner fa-spin"></i> Calculating...`;
+            btn.disabled = true;
+            
+            try {
+                // Fetch the backend recalculate endpoint
+                let res = await fetch('/api/dynamic_recalculate', { method: 'POST' });
+                let data = await res.json();
+                
+                if (res.ok) {
+                    alert("Success! Routes globally recalculated based on live GPS positions. Drivers will see updates instantly.");
+                } else {
+                    alert("Error: " + data.error);
+                }
+            } catch (e) {
+                alert("Network error: " + e);
+            }
+            
+            btn.innerHTML = `<i class="fa-solid fa-shuffle"></i> Re-balance Routes`;
+            btn.disabled = false;
+        }
+    </script>
+</body>
+</html>
