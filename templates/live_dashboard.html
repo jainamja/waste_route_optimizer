@@ -673,13 +673,10 @@
                 }
             });
             
-            let jsonStr = JSON.stringify(stopsToEncode);
-            let base64 = btoa(unescape(encodeURIComponent(jsonStr)));
-            
             // Generate a custom scheme link for the QR Code (Native App)
-            let nativeLink = 'wasteroute://driver?r=' + base64 + '&t=' + encodeURIComponent(truckId);
+            let nativeLink = 'wasteroute://driver?t=' + encodeURIComponent(truckId);
             // Generate a standard web link for WhatsApp sharing
-            let webLink = window.location.origin + '/driver?r=' + base64 + '&t=' + encodeURIComponent(truckId);
+            let webLink = window.location.origin + '/driver?t=' + encodeURIComponent(truckId);
             
             try {
                 // The input box gets the Web link so it's clickable in WhatsApp
