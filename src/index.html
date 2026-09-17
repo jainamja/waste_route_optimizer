@@ -228,9 +228,12 @@
                 if (data) {
                     stops = [];
                     for (let key in data) {
-                        stops.push({ id: key, ...data[key] });
+                        // Crucial fix: Firebase converts numeric keys (1,2,3) into sparse arrays with nulls.
+                        if (data[key] && typeof data[key] === 'object' && data[key].name) {
+                            stops.push({ id: key, ...data[key] });
+                        }
                     }
-                    stops.sort((a, b) => a.sequence - b.sequence);
+                    stops.sort((a, b) => (a.sequence || 999) - (b.sequence || 999));
                     
                     currentIndex = 0;
                     for (let i = 0; i < stops.length; i++) {
