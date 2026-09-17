@@ -185,7 +185,11 @@
                     let urlStr = data.url;
                     if (urlStr.includes('?')) {
                         let query = urlStr.substring(urlStr.indexOf('?'));
-                        window.location.search = query;
+                        // FIX: Only reload if the truck ID actually changed! 
+                        // Otherwise returning from Google Maps triggers a page reload, wiping the offline queue and reverting progress!
+                        if (window.location.search !== query) {
+                            window.location.search = query;
+                        }
                     }
                 } catch(e) { console.error(e); }
             });
@@ -297,15 +301,25 @@
         }
 
         window.markStop = function(status) {
+            console.log("[MARK STOP] Tapped:", status, "| Current Index:", currentIndex);
             if (currentIndex < stops.length) {
                 const stop = stops[currentIndex];
+                // FIX: Let Firebase act as the single source of truth. 
+                // Don't modify currentIndex locally, just push the update.
+                // Firebase's local cache will instantly trigger .on('value') and advance the UI automatically.
                 db.ref(`routes/route_${truckId}/stops/${stop.id}`).update({
                     status: status
                 });
-                stops[currentIndex].status = status;
-                currentIndex++;
-                render();
                 window.scrollTo(0,0);
+            }
+        };
+
+        window.openNavigation = function() {
+            console.log("[NAVIGATE] Clicked | Current Index:", currentIndex);
+            if (currentIndex < stops.length) {
+                const stop = stops[currentIndex];
+                const mapUrl = `https://www.google.com/maps/dir/?api=1&destination=${stop.lat},${stop.lng}&travelmode=driving`;
+                window.open(mapUrl, '_blank');
             }
         };
 
@@ -333,6 +347,7 @@
         }
 
         function render() {
+            console.log("[RENDER] Running render | Current Index:", currentIndex);
             if (currentIndex >= stops.length) {
                 renderComplete();
                 return;
@@ -340,7 +355,6 @@
 
             const stop = stops[currentIndex];
             const isLast = currentIndex === stops.length - 1;
-            const mapUrl = `https://www.google.com/maps/dir/?api=1&destination=${stop.lat},${stop.lng}&travelmode=driving`;
 
             let overviewHtml = stops.map((s, idx) => {
                 let icon = '<i class="fa-regular fa-circle status-icon pending"></i>';
@@ -381,9 +395,9 @@
                         <span>${stop.address || 'No address provided'}</span>
                     </div>
 
-                    <a href="${mapUrl}" target="_blank" class="btn btn-primary">
+                    <button class="btn btn-primary" onclick="openNavigation()">
                         <i class="fa-solid fa-location-arrow"></i> Open Navigation
-                    </a>
+                    </button>
 
                     <div style="display:flex; gap:12px; margin-top:24px;">
                         <button class="btn btn-success" onclick="markStop('COMPLETED')" style="flex:2;">
