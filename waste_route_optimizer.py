@@ -244,6 +244,23 @@ def upload():
                 if c['id'] == customer_id:
                     c['truck'] = truck_idx + 1
                     c['stop_number'] = stop_num + 1
+                    
+        # Append End Location as the final stop
+        if end_coords:
+            end_idx = min(truck_idx, len(end_coords) - 1)
+            depot_lat, depot_lng = end_coords[end_idx]
+            customers_data.append({
+                'id': f'end_depot_{truck_idx + 1}',
+                'name': 'End Location / Depot',
+                'phone': '',
+                'address': 'Return to Depot',
+                'location_url': '',
+                'lat': depot_lat,
+                'lng': depot_lng,
+                'status': 'PENDING',
+                'truck': truck_idx + 1,
+                'stop_number': len(route) + 1
+            })
 
     # Clear old data
     Customer.query.delete()
@@ -453,11 +470,21 @@ def dynamic_recalculate():
         if not truck_starts:
             return jsonify({'error': 'No active trucks with GPS signal.'}), 400
             
-        # 3. Use ACO_VRP (OR-Tools) with MULTIPLE starting coordinates!
-        # The depot (end_coords) doesn't matter much for dynamic mid-day, so we'll just set it to the first truck's start to close the loop
-        end_coords = [truck_starts[0]] * len(truck_starts)
+        # Filter out end depots from pending_customers so they aren't treated as mid-route stops
+        real_pending_customers = [c for c in pending_customers if not str(c['id']).startswith('end_depot_')]
         
-        aco = ACO_VRP(truck_starts, end_coords, pending_customers, num_trucks=len(truck_starts))
+        # 3. Fetch true end coords from DB
+        import json
+        end_coords_meta = Metadata.query.filter_by(key='end_coords').first()
+        if end_coords_meta:
+            saved_ends = json.loads(end_coords_meta.value)
+            true_ends = [ (float(x.split(',')[0]), float(x.split(',')[1])) for x in saved_ends ]
+            # Map end coords to trucks
+            end_coords = [true_ends[min(i, len(true_ends)-1)] for i in range(len(truck_starts))]
+        else:
+            end_coords = [truck_starts[0]] * len(truck_starts)
+        
+        aco = ACO_VRP(truck_starts, end_coords, real_pending_customers, num_trucks=len(truck_starts))
         new_routes, _, _ = aco.run()
         
         # 4. Write back to Firebase
@@ -469,7 +496,7 @@ def dynamic_recalculate():
                 # We overwrite the remaining sequence for this truck
                 for seq, cust_id in enumerate(route):
                     # We find the customer data
-                    cust = next((c for c in pending_customers if c['id'] == cust_id), None)
+                    cust = next((c for c in real_pending_customers if c['id'] == cust_id), None)
                     if cust:
                         updates[f"routes/route_{tid}/stops/{cust_id}"] = {
                             "name": cust['name'],
@@ -479,6 +506,17 @@ def dynamic_recalculate():
                             "sequence": seq + 1,
                             "status": "PENDING"
                         }
+                
+                # Re-append End Depot at the end of this truck's route
+                depot_lat, depot_lng = end_coords[idx]
+                updates[f"routes/route_{tid}/stops/end_depot_{tid}"] = {
+                    "name": "End Location / Depot",
+                    "address": "Return to Depot",
+                    "lat": depot_lat,
+                    "lng": depot_lng,
+                    "sequence": len(route) + 1,
+                    "status": "PENDING"
+                }
                         
         # Because we re-balanced globally, we need to clear ALL pending stops first 
         # so they don't linger on old trucks if reassigned.
