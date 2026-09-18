@@ -250,7 +250,7 @@ def upload():
             end_idx = min(truck_idx, len(end_coords) - 1)
             depot_lat, depot_lng = end_coords[end_idx]
             customers_data.append({
-                'id': f'end_depot_{truck_idx + 1}',
+                'id': -1000 - truck_idx,
                 'name': 'End Location / Depot',
                 'phone': '',
                 'address': 'Return to Depot',
@@ -471,7 +471,7 @@ def dynamic_recalculate():
             return jsonify({'error': 'No active trucks with GPS signal.'}), 400
             
         # Filter out end depots from pending_customers so they aren't treated as mid-route stops
-        real_pending_customers = [c for c in pending_customers if not str(c['id']).startswith('end_depot_')]
+        real_pending_customers = [c for c in pending_customers if int(c['id']) > -1000]
         
         # 3. Fetch true end coords from DB
         import json
@@ -509,7 +509,7 @@ def dynamic_recalculate():
                 
                 # Re-append End Depot at the end of this truck's route
                 depot_lat, depot_lng = end_coords[idx]
-                updates[f"routes/route_{tid}/stops/end_depot_{tid}"] = {
+                updates[f"routes/route_{tid}/stops/{-1000 - idx}"] = {
                     "name": "End Location / Depot",
                     "address": "Return to Depot",
                     "lat": depot_lat,
