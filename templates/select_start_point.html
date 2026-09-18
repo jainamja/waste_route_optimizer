@@ -537,7 +537,7 @@
         var map = L.map("map", { zoomControl: false }).setView([23.0225, 72.5714], 11);
         L.control.zoom({ position: 'bottomright' }).addTo(map);
         
-        var googleStreets = L.tileLayer("http://{s}.google.com/vt/lyrs=m&x={x}&y={y}&z={z}", { maxZoom: 20, subdomains:["mt0","mt1","mt2","mt3"] });
+        var googleStreets = L.tileLayer("https://{s}.google.com/vt/lyrs=m&x={x}&y={y}&z={z}", { maxZoom: 20, subdomains:["mt0","mt1","mt2","mt3"] });
         googleStreets.addTo(map);
         
         // Force recalculation for mobile layouts
