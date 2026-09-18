@@ -2,10 +2,19 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
     <title>Driver Navigation</title>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=Manrope:wght@600;700;800&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    
+    <!-- Leaflet -->
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+    
+    <!-- Firebase -->
+    <script src="https://www.gstatic.com/firebasejs/10.9.0/firebase-app-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/10.9.0/firebase-database-compat.js"></script>
+    
     <style>
         :root {
             --primary: #2F5FFF;
@@ -18,175 +27,201 @@
             --text-main: #0f172a;
             --text-muted: #64748b;
             --border: #e2e8f0;
-            --shadow-soft: 0 10px 25px -5px rgba(0,0,0,0.05), 0 8px 10px -6px rgba(0,0,0,0.01);
-            --rad: 24px;
+            --shadow: 0 4px 20px rgba(0,0,0,0.1);
         }
 
-        * {
-            box-sizing: border-box;
-        }
+        * { box-sizing: border-box; }
         
-        body {
-            margin: 0;
-            padding: 16px;
-            background-color: var(--bg);
+        body, html {
+            margin: 0; padding: 0;
+            width: 100%; height: 100%;
+            overflow: hidden;
             font-family: 'Inter', sans-serif;
             color: var(--text-main);
-            min-height: 100vh;
-            display: flex;
-            flex-direction: column;
-            box-sizing: border-box;
+            background-color: var(--bg);
         }
 
         h1, h2, h3, h4 { font-family: 'Manrope', sans-serif; margin: 0; }
 
-        .container {
-            max-width: 600px;
-            margin: 0 auto;
-            width: 100%;
-            flex: 1;
-            display: flex;
-            flex-direction: column;
-            gap: 16px;
+        /* Full Screen Map */
+        #map {
+            position: absolute;
+            top: 0; left: 0; right: 0; bottom: 0;
+            z-index: 1;
         }
 
-        .header {
+        /* Glassmorphism Navbar */
+        #navbar {
+            position: absolute;
+            top: max(env(safe-area-inset-top, 16px), 16px);
+            left: 16px;
+            right: 16px;
+            z-index: 1000;
+            background: rgba(255, 255, 255, 0.7);
+            backdrop-filter: blur(12px);
+            -webkit-backdrop-filter: blur(12px);
+            border: 1px solid rgba(255,255,255,0.5);
+            border-radius: 16px;
+            padding: 12px 20px;
             display: flex;
             justify-content: space-between;
             align-items: center;
-            background: var(--card-bg);
-            padding: 16px;
-            border-radius: 16px;
-            box-shadow: var(--shadow-soft);
+            box-shadow: var(--shadow);
+        }
+        
+        @supports not (backdrop-filter: blur(1px)) {
+            #navbar { background: rgba(255, 255, 255, 0.95); }
         }
 
-        .header h1 { font-size: 18px; color: var(--primary); display: flex; align-items: center; gap: 8px;}
-
-        .card {
-            background: var(--card-bg);
-            padding: 24px;
-            border-radius: var(--rad);
-            box-shadow: var(--shadow-soft);
-        }
-
-        .progress-text {
-            font-size: 14px;
-            color: var(--text-muted);
-            font-weight: 600;
-            text-transform: uppercase;
-            letter-spacing: 0.5px;
-            margin-bottom: 8px;
-        }
-
-        .stop-name {
-            font-size: 28px;
-            margin-bottom: 8px;
-            line-height: 1.2;
-        }
-
-        .stop-address {
-            font-size: 16px;
-            color: var(--text-muted);
-            margin-bottom: 24px;
-            display: flex;
-            gap: 8px;
-            align-items: flex-start;
-        }
-
-        .btn {
+        .navbar-title { font-weight: 800; font-size: 18px; display: flex; align-items: center; gap: 8px; }
+        
+        /* Floating Action Button */
+        #fab {
+            position: absolute;
+            bottom: max(env(safe-area-inset-bottom, 16px), 16px); /* Dynamic adjustment via JS */
+            right: 16px;
+            width: 56px;
+            height: 56px;
+            border-radius: 28px;
+            background: var(--primary);
+            color: white;
             display: flex;
             align-items: center;
             justify-content: center;
-            gap: 8px;
-            width: 100%;
-            padding: 16px;
-            border-radius: 12px;
-            font-family: 'Inter', sans-serif;
-            font-size: 16px;
-            font-weight: 600;
-            cursor: pointer;
+            font-size: 20px;
+            box-shadow: 0 4px 15px rgba(47, 95, 255, 0.4);
             border: none;
-            text-decoration: none;
-            margin-bottom: 12px;
-            transition: opacity 0.2s;
+            z-index: 1000;
+            cursor: pointer;
+            transition: transform 0.2s;
         }
-        .btn:active { opacity: 0.8; }
+        #fab:active { transform: scale(0.95); }
 
-        .btn-primary { background: var(--primary); color: white; box-shadow: 0 4px 12px rgba(47, 95, 255, 0.3); }
-        .btn-success { background: var(--green); color: white; box-shadow: 0 4px 12px rgba(16, 185, 129, 0.3); }
-        .btn-outline { background: white; border: 2px solid var(--border); color: var(--text-main); }
-        .btn-danger { background: #fee2e2; color: var(--red); border: 2px solid #fecaca; }
-
-        /* Overview List */
-        .overview-title {
-            font-size: 16px;
-            margin: 24px 0 12px;
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-        }
-
-        .stop-list {
+        /* Bottom Sheet */
+        #bottom-sheet {
+            position: absolute;
+            bottom: 0; left: 0; right: 0;
+            background: var(--card-bg);
+            border-radius: 24px 24px 0 0;
+            box-shadow: 0 -4px 20px rgba(0,0,0,0.15);
+            z-index: 1001; /* Above map and FAB */
             display: flex;
             flex-direction: column;
-            gap: 8px;
+            transform: translateY(100%); /* Hidden initially */
+            will-change: transform;
+            /* Height is tall enough to cover screen, but peeked */
+            height: 90vh; 
         }
 
-        .stop-item {
+        .sheet-handle-area {
+            width: 100%;
+            padding: 12px 0 8px;
             display: flex;
-            align-items: center;
-            gap: 12px;
-            padding: 12px;
-            background: var(--bg);
-            border-radius: 12px;
-            font-size: 14px;
+            justify-content: center;
+            cursor: grab;
+            touch-action: none; /* Prevent native scroll here */
         }
-        .stop-item.active {
-            background: white;
-            border: 2px solid var(--primary);
-            box-shadow: 0 2px 8px rgba(47, 95, 255, 0.1);
+        .sheet-handle {
+            width: 40px; height: 5px;
+            background: #cbd5e1;
+            border-radius: 3px;
         }
-        .stop-item.completed { opacity: 0.6; }
+
+        .sheet-content {
+            padding: 0 20px 20px;
+            flex: 1;
+            overflow-y: hidden; /* Scroll enabled when fully expanded */
+            display: flex;
+            flex-direction: column;
+        }
+
+        /* Current Stop Card (Always visible in peek) */
+        .current-stop-card {
+            padding-bottom: 16px;
+            border-bottom: 1px solid var(--border);
+            margin-bottom: 16px;
+        }
         
-        .status-icon { font-size: 18px; width: 24px; text-align: center; }
+        .progress-text { font-size: 12px; font-weight: 700; color: var(--primary); text-transform: uppercase; margin-bottom: 4px;}
+        .stop-name { font-size: 22px; font-weight: 800; margin-bottom: 4px; }
+        .stop-address { font-size: 14px; color: var(--text-muted); display: flex; gap: 6px; }
+        
+        .action-buttons { display: flex; gap: 12px; margin-top: 16px; }
+        .btn { padding: 12px 16px; border-radius: 12px; font-weight: 700; cursor: pointer; border: none; font-size: 14px; display: flex; align-items: center; justify-content: center; gap: 6px;}
+        .btn-success { background: var(--green); color: white; flex: 2; }
+        .btn-danger { background: #fee2e2; color: var(--red); flex: 1; }
+        .btn:active { opacity: 0.8; }
+
+        /* Stop List */
+        .stop-list {
+            flex: 1;
+            overflow-y: auto;
+            display: flex;
+            flex-direction: column;
+            gap: 12px;
+            padding-bottom: env(safe-area-inset-bottom, 20px);
+        }
+        .stop-item {
+            display: flex; align-items: flex-start; gap: 12px; padding: 12px; background: var(--bg); border-radius: 12px;
+        }
+        .stop-item.active { background: #eff6ff; border: 1px solid #bfdbfe; }
+        .stop-item.completed { opacity: 0.6; }
+        .status-icon { font-size: 18px; margin-top: 2px; }
         .status-icon.completed { color: var(--green); }
         .status-icon.skipped { color: var(--red); }
         .status-icon.pending { color: var(--text-muted); }
 
-        .empty-state { text-align: center; padding: 40px 20px; }
-        .empty-state i { font-size: 48px; color: var(--text-muted); margin-bottom: 16px; }
     </style>
 </head>
 <body>
-    <div class="container" id="app">
-        <!-- Rendered by JS -->
+
+    <!-- Map -->
+    <div id="map"></div>
+
+    <!-- Navbar -->
+    <div id="navbar">
+        <div class="navbar-title"><i class="fa-solid fa-truck"></i> <span id="truck-title">Loading...</span></div>
+        <button onclick="resetRoute()" style="background:none; border:none; color:var(--text-muted); font-size:14px; font-weight:600; cursor:pointer;">Reset</button>
     </div>
 
-    <script src="https://www.gstatic.com/firebasejs/10.9.0/firebase-app-compat.js"></script>
-    <script src="https://www.gstatic.com/firebasejs/10.9.0/firebase-database-compat.js"></script>
+    <!-- FAB -->
+    <button id="fab" onclick="openNavigation()"><i class="fa-solid fa-location-arrow"></i></button>
+
+    <!-- Bottom Sheet -->
+    <div id="bottom-sheet">
+        <div class="sheet-handle-area" id="drag-handle">
+            <div class="sheet-handle"></div>
+        </div>
+        <div class="sheet-content">
+            <div id="current-stop-container" class="current-stop-card">
+                <!-- Rendered via JS -->
+            </div>
+            <div id="stop-list-container" class="stop-list">
+                <!-- Rendered via JS -->
+            </div>
+        </div>
+    </div>
+
     <script>
-        // Firebase Config
         const firebaseConfig = {
             apiKey: "AIzaSyAhLnjh0gRa2pf29G90zr-6AMcjLjbQpPg",
             authDomain: "wasteroutelive.firebaseapp.com",
-            databaseURL: "https://wasteroutelive-default-rtdb.firebaseio.com",
             projectId: "wasteroutelive",
             storageBucket: "wasteroutelive.firebasestorage.app",
             messagingSenderId: "141692937729",
-            appId: "1:141692937729:web:66398f74c16562c5d58200"
+            appId: "1:141692937729:web:66398f74c16562c5d58200",
+            measurementId: "G-VGBBVXB6PW"
         };
         firebase.initializeApp(firebaseConfig);
         const db = firebase.database();
-        
-        // Capacitor Native App Link Interceptor (for initial load)
+
+        // Capacitor Native App Link Interceptor
         if (window.Capacitor && window.Capacitor.Plugins && window.Capacitor.Plugins.App) {
             window.Capacitor.Plugins.App.addListener('appUrlOpen', data => {
                 try {
                     let urlStr = data.url;
                     if (urlStr.includes('?')) {
                         let query = urlStr.substring(urlStr.indexOf('?'));
-                        // FIX: Only reload if the truck ID actually changed! 
-                        // Otherwise returning from Google Maps triggers a page reload, wiping the offline queue and reverting progress!
                         if (window.location.search !== query) {
                             window.location.search = query;
                         }
@@ -195,44 +230,44 @@
             });
         }
         
-        // Show "Open in App" banner/redirect if it's the web version
+        // Web fallback Deep Link Banner
         if (!window.Capacitor && /Android|iPhone|iPad|iPod/i.test(navigator.userAgent)) {
             window.location.replace("wasteroute://driver" + window.location.search);
             setTimeout(() => {
                 let banner = document.createElement('div');
-                banner.style.cssText = 'position:fixed; top:0; left:0; right:0; background:var(--primary); color:white; padding:12px; text-align:center; z-index:9999; font-weight:bold; box-shadow:0 4px 12px rgba(0,0,0,0.2);';
-                banner.innerHTML = `<span style="margin-right:12px;">📱 Have the app installed?</span> <a href="wasteroute://driver${window.location.search}" style="background:white; color:var(--primary); padding:6px 16px; border-radius:16px; text-decoration:none; font-size:14px; font-weight:800;">Open App</a>`;
+                banner.style.cssText = 'position:fixed; top:0; left:0; right:0; background:var(--primary); color:white; padding:12px; text-align:center; z-index:9999; font-weight:bold;';
+                banner.innerHTML = `<a href="wasteroute://driver${window.location.search}" style="color:white; text-decoration:none;">📱 Open in App</a>`;
                 document.body.appendChild(banner);
-                const appElem = document.getElementById('app');
-                if(appElem) appElem.style.paddingTop = '60px';
             }, 500);
         }
 
-        const app = document.getElementById('app');
         const urlParams = new URLSearchParams(window.location.search);
-        let truckId = urlParams.get('t');
+        let truckId = urlParams.get('t') || "1";
+        document.getElementById('truck-title').innerText = "Truck " + truckId;
         
         let stops = [];
         let currentIndex = 0;
-        let gpsInterval = null;
+        let map, routeLine, routeMarkers = [];
+
+        // Setup Leaflet
+        function initMap() {
+            map = L.map("map", { zoomControl: false }).setView([23.0225, 72.5714], 12);
+            L.tileLayer('https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png', {
+                attribution: '&copy; OpenStreetMap'
+            }).addTo(map);
+        }
+        initMap();
 
         function init() {
-            if (!truckId) truckId = "1"; // Fallback for testing
-            
-            // Show loading state so it's not a blank white page!
-            app.innerHTML = `<div style="text-align:center; padding-top:60px; color:var(--text-muted);"><i class="fa-solid fa-spinner fa-spin" style="font-size:32px; margin-bottom:16px;"></i><br>Syncing route...</div>`;
-            
-            // Start GPS Polling
             startGpsPolling();
 
-            // Listen to Firebase for this truck's route
+            // Firebase Listener
             const routeRef = db.ref(`routes/route_${truckId}/stops`);
             routeRef.on('value', snapshot => {
                 const data = snapshot.val();
                 if (data) {
                     stops = [];
                     for (let key in data) {
-                        // Crucial fix: Firebase converts numeric keys (1,2,3) into sparse arrays with nulls.
                         if (data[key] && typeof data[key] === 'object' && data[key].name) {
                             stops.push({ id: key, ...data[key] });
                         }
@@ -251,66 +286,117 @@
                     }
                     render();
                 } else {
-                    // Automatically create empty route if not found (for easy testing without backend)
-                    stops = [];
-                    renderError("Waiting for Dispatcher to assign route to Truck " + truckId + "...");
+                    document.getElementById('current-stop-container').innerHTML = `
+                        <div style="text-align:center; color:var(--text-muted); padding:20px;">
+                            <i class="fa-solid fa-spinner fa-spin" style="font-size:24px; margin-bottom:12px;"></i><br>
+                            Waiting for Route...
+                        </div>`;
                 }
-            }, error => {
-                renderError("Firebase Permission Denied: " + error.message + "<br><br>Please check your Firebase Realtime Database Security Rules.");
             });
         }
 
-        async function startGpsPolling() {
-            // Request permissions if in native app
-            if (window.Capacitor && window.Capacitor.Plugins && window.Capacitor.Plugins.Geolocation) {
-                try {
-                    await window.Capacitor.Plugins.Geolocation.requestPermissions();
-                } catch(e) { console.error("Permission request failed", e); }
-            } else if (!navigator.geolocation) {
-                return;
-            }
+        function render() {
+            console.log("[RENDER] Running render | Current Index:", currentIndex);
             
-            updateGps();
-            gpsInterval = setInterval(updateGps, 15000); // 15 seconds
-            
-            const truckRef = db.ref(`trucks/${truckId}`);
-            truckRef.child('status').onDisconnect().set('offline');
-            truckRef.child('status').set('online');
-            truckRef.child('name').set('Truck ' + truckId);
-        }
+            // 1. Draw Map Route
+            if (routeLine) map.removeLayer(routeLine);
+            routeMarkers.forEach(m => map.removeLayer(m));
+            routeMarkers = [];
 
-        async function updateGps() {
-            try {
-                let pos;
-                if (window.Capacitor && window.Capacitor.Plugins && window.Capacitor.Plugins.Geolocation) {
-                    pos = await window.Capacitor.Plugins.Geolocation.getCurrentPosition({ enableHighAccuracy: true });
+            let latlngs = [];
+            stops.forEach((s, idx) => {
+                if (s.lat && s.lng) {
+                    let isCompleted = s.status !== 'PENDING';
+                    let isCurrent = idx === currentIndex;
+                    let color = isCurrent ? '#2F5FFF' : (isCompleted ? '#10b981' : '#64748b');
+                    
+                    if (s.status !== 'SKIPPED') latlngs.push([s.lat, s.lng]);
+                    
+                    let markerHtml = `<div style="background:${color}; width:24px; height:24px; border-radius:50%; border:3px solid white; box-shadow:0 2px 4px rgba(0,0,0,0.3); color:white; display:flex; align-items:center; justify-content:center; font-size:10px; font-weight:bold;">${s.sequence || (idx+1)}</div>`;
+                    let icon = L.divIcon({ html: markerHtml, className: 'custom-div-icon', iconSize: [24, 24], iconAnchor: [12, 12] });
+                    let m = L.marker([s.lat, s.lng], {icon: icon}).addTo(map);
+                    routeMarkers.push(m);
+                }
+            });
+            if (latlngs.length > 0) {
+                routeLine = L.polyline(latlngs, {color: '#2F5FFF', weight: 4, dashArray: '8, 8', opacity: 0.6}).addTo(map);
+                
+                // Center Map on Current Stop smoothly
+                if (currentIndex < stops.length) {
+                    const currentStop = stops[currentIndex];
+                    // Offset the center slightly down so the bottom sheet doesn't cover it
+                    map.flyTo([currentStop.lat, currentStop.lng], 14, {animate: true, duration: 1});
                 } else {
-                    pos = await new Promise((resolve, reject) => {
-                        navigator.geolocation.getCurrentPosition(resolve, reject, { enableHighAccuracy: true, timeout: 5000, maximumAge: 0 });
-                    });
+                    map.fitBounds(routeLine.getBounds(), {padding: [50, 50]});
+                }
+            }
+
+            // 2. Render UI
+            if (currentIndex >= stops.length) {
+                document.getElementById('current-stop-container').innerHTML = `
+                    <div style="text-align:center; padding: 20px;">
+                        <i class="fa-solid fa-flag-checkered" style="font-size:32px; color:var(--green); margin-bottom:12px;"></i>
+                        <h2>Route Complete!</h2>
+                    </div>`;
+            } else {
+                const stop = stops[currentIndex];
+                const isLast = currentIndex === stops.length - 1;
+                
+                document.getElementById('current-stop-container').innerHTML = `
+                    <div class="progress-text">Stop ${currentIndex + 1} of ${stops.length}</div>
+                    <div class="stop-name">${stop.name}</div>
+                    <div class="stop-address">
+                        <i class="fa-solid fa-location-dot" style="margin-top:4px;"></i>
+                        <span>${stop.address || 'No address provided'}</span>
+                    </div>
+                    <div class="action-buttons">
+                        <button class="btn btn-success" onclick="markStop('COMPLETED')">
+                            <i class="fa-solid fa-check"></i> ${isLast ? 'Finish' : 'Complete & Next'}
+                        </button>
+                        <button class="btn btn-danger" onclick="markStop('SKIPPED')">
+                            <i class="fa-solid fa-forward-step"></i> Skip
+                        </button>
+                    </div>
+                `;
+            }
+
+            // 3. Render Stop List
+            let listHtml = stops.map((s, idx) => {
+                let icon = '<i class="fa-regular fa-circle status-icon pending"></i>';
+                let classes = 'stop-item';
+                if (idx < currentIndex) {
+                    icon = s.status === 'SKIPPED' ? '<i class="fa-solid fa-circle-xmark status-icon skipped"></i>' : '<i class="fa-solid fa-circle-check status-icon completed"></i>';
+                    classes += ' completed';
+                } else if (idx === currentIndex) {
+                    icon = '<i class="fa-solid fa-location-dot status-icon" style="color:var(--primary);"></i>';
+                    classes += ' active';
                 }
                 
-                db.ref(`trucks/${truckId}`).update({
-                    currentLat: pos.coords.latitude,
-                    currentLng: pos.coords.longitude,
-                    lastUpdated: firebase.database.ServerValue.TIMESTAMP
-                });
-            } catch (err) {
-                console.error("GPS Error", err);
-            }
+                return `
+                    <div class="${classes}">
+                        ${icon}
+                        <div>
+                            <div style="font-weight:600;">Stop ${s.sequence || (idx+1)}: ${s.name}</div>
+                            <div style="font-size:12px; color:var(--text-muted);">${s.address}</div>
+                        </div>
+                    </div>
+                `;
+            }).join('');
+            document.getElementById('stop-list-container').innerHTML = listHtml;
+            
+            // Recalculate Peek Height after rendering content
+            setTimeout(calculateSnapPoints, 50);
         }
 
         window.markStop = function(status) {
             console.log("[MARK STOP] Tapped:", status, "| Current Index:", currentIndex);
             if (currentIndex < stops.length) {
                 const stop = stops[currentIndex];
-                // FIX: Let Firebase act as the single source of truth. 
-                // Don't modify currentIndex locally, just push the update.
-                // Firebase's local cache will instantly trigger .on('value') and advance the UI automatically.
-                db.ref(`routes/route_${truckId}/stops/${stop.id}`).update({
-                    status: status
-                });
-                window.scrollTo(0,0);
+                db.ref(`routes/route_${truckId}/stops/${stop.id}`).update({ status: status });
+                // Sheet automatically updates via .on('value')
+                
+                // Snap sheet back to peek if they advanced
+                snapSheet(snapPoints.peek);
             }
         };
 
@@ -324,136 +410,186 @@
         };
 
         window.resetRoute = function() {
-            if (confirm("Are you sure you want to reset all progress for this route?")) {
+            if (confirm("Reset route progress?")) {
                 let updates = {};
-                stops.forEach(s => {
-                    updates[s.id + '/status'] = 'PENDING';
-                });
+                stops.forEach(s => { updates[s.id + "/status"] = 'PENDING'; });
                 db.ref(`routes/route_${truckId}/stops`).update(updates);
             }
         };
 
-        function renderError(msg) {
-            app.innerHTML = `
-                <div class="header">
-                    <h1><i class="fa-solid fa-truck"></i> Truck ${truckId}</h1>
-                </div>
-                <div class="card empty-state">
-                    <i class="fa-solid fa-satellite-dish" style="color:var(--primary); font-size:48px;"></i>
-                    <h2 style="margin-top:16px;">Live Sync Active</h2>
-                    <p style="color:var(--text-muted); margin:16px 0 24px;">${msg}</p>
-                </div>
-            `;
-        }
-
-        function render() {
-            console.log("[RENDER] Running render | Current Index:", currentIndex);
-            if (currentIndex >= stops.length) {
-                renderComplete();
-                return;
+        async function startGpsPolling() {
+            if (window.Capacitor && window.Capacitor.Plugins && window.Capacitor.Plugins.Geolocation) {
+                try { await window.Capacitor.Plugins.Geolocation.requestPermissions(); } catch(e){}
             }
-
-            const stop = stops[currentIndex];
-            const isLast = currentIndex === stops.length - 1;
-
-            let overviewHtml = stops.map((s, idx) => {
-                let icon = '<i class="fa-regular fa-circle status-icon pending"></i>';
-                let classes = 'stop-item';
-                if (idx < currentIndex) {
-                    if (s.status === 'SKIPPED') {
-                        icon = '<i class="fa-solid fa-circle-xmark status-icon skipped"></i>';
-                    } else {
-                        icon = '<i class="fa-solid fa-circle-check status-icon completed"></i>';
+            const updateGps = async () => {
+                try {
+                    let pos;
+                    if (window.Capacitor && window.Capacitor.Plugins && window.Capacitor.Plugins.Geolocation) {
+                        pos = await window.Capacitor.Plugins.Geolocation.getCurrentPosition({ enableHighAccuracy: true });
+                    } else if (navigator.geolocation) {
+                        pos = await new Promise((res, rej) => navigator.geolocation.getCurrentPosition(res, rej, { enableHighAccuracy: true, timeout: 5000 }));
                     }
-                    classes += ' completed';
-                } else if (idx === currentIndex) {
-                    icon = '<i class="fa-solid fa-location-dot status-icon" style="color:var(--primary);"></i>';
-                    classes += ' active';
-                }
-                
-                return `
-                    <div class="${classes}">
-                        ${icon}
-                        <div style="flex:1;">
-                            <div style="font-weight:600;">Stop ${s.sequence || (idx+1)}: ${s.name}</div>
-                        </div>
-                    </div>
-                `;
-            }).join('');
-
-            app.innerHTML = `
-                <div class="header">
-                    <h1><i class="fa-solid fa-truck"></i> Truck ${truckId}</h1>
-                    <button onclick="resetRoute()" style="background:none; border:none; color:var(--text-muted); font-size:14px; font-weight:600; cursor:pointer;">Reset</button>
-                </div>
-
-                <div class="card">
-                    <div class="progress-text">Stop ${currentIndex + 1} of ${stops.length}</div>
-                    <h2 class="stop-name">${stop.name}</h2>
-                    <div class="stop-address">
-                        <i class="fa-solid fa-location-dot" style="margin-top:4px;"></i>
-                        <span>${stop.address || 'No address provided'}</span>
-                    </div>
-
-                    <button class="btn btn-primary" onclick="openNavigation()">
-                        <i class="fa-solid fa-location-arrow"></i> Open Navigation
-                    </button>
-
-                    <div style="display:flex; gap:12px; margin-top:24px;">
-                        <button class="btn btn-success" onclick="markStop('COMPLETED')" style="flex:2;">
-                            <i class="fa-solid fa-check"></i> ${isLast ? 'Complete Route' : 'Complete & Next'}
-                        </button>
-                        <button class="btn btn-danger" onclick="markStop('SKIPPED')" style="flex:1;">
-                            <i class="fa-solid fa-forward-step"></i> Skip
-                        </button>
-                    </div>
-                </div>
-
-                <div>
-                    <div class="overview-title">
-                        <h3>Route Overview <span style="font-size:12px; font-weight:normal; color:var(--green);">● Live Sync</span></h3>
-                    </div>
-                    <div class="stop-list">
-                        ${overviewHtml}
-                    </div>
-                </div>
-            `;
+                    if (pos) {
+                        db.ref(`trucks/${truckId}`).update({
+                            currentLat: pos.coords.latitude, currentLng: pos.coords.longitude, lastUpdated: firebase.database.ServerValue.TIMESTAMP
+                        });
+                    }
+                } catch (err) { console.error("GPS Error", err); }
+            };
+            updateGps();
+            setInterval(updateGps, 15000);
+            const truckRef = db.ref(`trucks/${truckId}`);
+            truckRef.child('status').onDisconnect().set('offline');
+            truckRef.child('status').set('online');
+            truckRef.child('name').set('Truck ' + truckId);
         }
 
-        function renderComplete() {
-            let completed = stops.filter(s => s.status !== 'SKIPPED').length;
-            let skipped = stops.filter(s => s.status === 'SKIPPED').length;
-            
-            app.innerHTML = `
-                <div class="header">
-                    <h1><i class="fa-solid fa-truck"></i> Truck ${truckId}</h1>
-                    <button onclick="resetRoute()" style="background:none; border:none; color:var(--text-muted); font-size:14px; font-weight:600; cursor:pointer;">Reset</button>
-                </div>
-                
-                <div class="card empty-state" style="padding-top:60px;">
-                    <i class="fa-solid fa-flag-checkered" style="color:var(--green); font-size:64px;"></i>
-                    <h2 style="font-size:32px; margin-bottom:8px;">Route Complete!</h2>
-                    <p style="color:var(--text-muted); font-size:16px;">You've finished all stops for this truck.</p>
-                    
-                    <div style="display:flex; justify-content:center; gap:32px; margin:32px 0;">
-                        <div>
-                            <div style="font-size:32px; font-weight:800; font-family:'Manrope'; color:var(--text-main);">${completed}</div>
-                            <div style="font-size:13px; color:var(--text-muted); font-weight:600; text-transform:uppercase;">Completed</div>
-                        </div>
-                        <div>
-                            <div style="font-size:32px; font-weight:800; font-family:'Manrope'; color:var(--text-main);">${skipped}</div>
-                            <div style="font-size:13px; color:var(--text-muted); font-weight:600; text-transform:uppercase;">Skipped</div>
-                        </div>
-                    </div>
-                </div>
-            `;
-        }
-
-        // Initialize Firebase Offline Persistence explicitly (default is on for web, but good to ensure)
-        // Note: For full offline support in v8 compat, we would need to add indexDB persistence, but 
-        // Realtime Database automatically handles offline queueing in memory until reconnected.
+        /* -----------------------------------------------------
+           BOTTOM SHEET GESTURE ENGINE
+           ----------------------------------------------------- */
+        const sheet = document.getElementById('bottom-sheet');
+        const handleArea = document.getElementById('drag-handle');
+        const stopList = document.getElementById('stop-list-container');
+        const fab = document.getElementById('fab');
         
+        let sheetHeight = 0;
+        let snapPoints = { peek: 0, half: 0, full: 0 };
+        let currentTranslate = 0;
+        let isDragging = false;
+        let startY = 0;
+        let startTranslate = 0;
+        let lastY = 0;
+        let lastTime = 0;
+        let velocity = 0;
+
+        function calculateSnapPoints() {
+            const wHeight = window.innerHeight;
+            const currentCard = document.getElementById('current-stop-container');
+            const handleHeight = 25; // height of handle-area approx
+            
+            // Peek: Handle + Current Card padding
+            const peekContentHeight = currentCard.offsetHeight + handleHeight;
+            
+            sheetHeight = wHeight * 0.9; // Max height is 90vh
+            
+            // Coordinates represent the Y translation to apply (0 = fully expanded, sheetHeight = fully hidden)
+            // But let's work in reverse: 0 = fully expanded, max translate = peek
+            snapPoints.full = 0;
+            snapPoints.half = (sheetHeight / 2);
+            snapPoints.peek = sheetHeight - peekContentHeight;
+            
+            // Initial snap
+            if (!isDragging) snapSheet(snapPoints.peek, false);
+        }
+
+        function updateFabPosition(translateY) {
+            // Distance from bottom of the screen to the top of the sheet
+            const sheetTopDistanceFromBottom = sheetHeight - translateY;
+            
+            // Fab sits 16px above the sheet
+            fab.style.bottom = (sheetTopDistanceFromBottom + 16) + 'px';
+        }
+
+        function snapSheet(y, animate = true) {
+            if (y > snapPoints.peek) y = snapPoints.peek;
+            if (y < snapPoints.full) y = snapPoints.full;
+            
+            currentTranslate = y;
+            
+            sheet.style.transition = animate ? 'transform 0.3s cubic-bezier(0.25, 0.8, 0.25, 1)' : 'none';
+            fab.style.transition = animate ? 'bottom 0.3s cubic-bezier(0.25, 0.8, 0.25, 1)' : 'none';
+            
+            sheet.style.transform = `translateY(${y}px)`;
+            updateFabPosition(y);
+            
+            // Lock map interaction when full
+            if (y === snapPoints.full) {
+                map.dragging.disable();
+                stopList.style.overflowY = 'auto'; // Enable internal scrolling
+            } else {
+                map.dragging.enable();
+                stopList.style.overflowY = 'hidden';
+            }
+        }
+
+        // Dragging Logic
+        function onDragStart(e) {
+            // Don't start drag if clicking a button inside current stop
+            if (e.target.closest('button')) return;
+
+            isDragging = true;
+            startY = e.touches ? e.touches[0].clientY : e.clientY;
+            startTranslate = currentTranslate;
+            lastY = startY;
+            lastTime = Date.now();
+            sheet.style.transition = 'none';
+            fab.style.transition = 'none';
+        }
+
+        function onDragMove(e) {
+            if (!isDragging) return;
+            const currentY = e.touches ? e.touches[0].clientY : e.clientY;
+            const deltaY = currentY - startY;
+            
+            // Velocity calculation
+            const currentTime = Date.now();
+            const timeDiff = currentTime - lastTime;
+            if (timeDiff > 0) {
+                velocity = (currentY - lastY) / timeDiff;
+            }
+            lastY = currentY;
+            lastTime = currentTime;
+
+            let newTranslate = startTranslate + deltaY;
+            
+            // Resistance at boundaries
+            if (newTranslate < snapPoints.full) {
+                newTranslate = snapPoints.full + (newTranslate - snapPoints.full) * 0.2; // Rubber band effect
+            }
+            
+            currentTranslate = newTranslate;
+            sheet.style.transform = `translateY(${newTranslate}px)`;
+            updateFabPosition(Math.max(snapPoints.full, Math.min(newTranslate, snapPoints.peek)));
+            
+            e.preventDefault(); // Prevent native scroll while dragging sheet
+        }
+
+        function onDragEnd(e) {
+            if (!isDragging) return;
+            isDragging = false;
+            
+            let targetSnap;
+            if (Math.abs(velocity) > 0.5) {
+                if (velocity < 0) { // Flicked up
+                    targetSnap = (startTranslate === snapPoints.peek) ? snapPoints.half : snapPoints.full;
+                } else { // Flicked down
+                    targetSnap = (startTranslate === snapPoints.full) ? snapPoints.half : snapPoints.peek;
+                }
+            } else { // Slow drag
+                const distToFull = Math.abs(currentTranslate - snapPoints.full);
+                const distToHalf = Math.abs(currentTranslate - snapPoints.half);
+                const distToPeek = Math.abs(currentTranslate - snapPoints.peek);
+                
+                if (distToFull < distToHalf && distToFull < distToPeek) targetSnap = snapPoints.full;
+                else if (distToHalf < distToFull && distToHalf < distToPeek) targetSnap = snapPoints.half;
+                else targetSnap = snapPoints.peek;
+            }
+            snapSheet(targetSnap);
+        }
+
+        // Attach listeners to handle + current card so user can drag from anywhere except the buttons
+        const currentCard = document.getElementById('current-stop-container');
+        handleArea.addEventListener('touchstart', onDragStart, {passive: false});
+        currentCard.addEventListener('touchstart', onDragStart, {passive: false});
+        
+        window.addEventListener('touchmove', onDragMove, {passive: false});
+        window.addEventListener('touchend', onDragEnd);
+        
+        window.addEventListener('resize', () => setTimeout(calculateSnapPoints, 100));
+
+        // Start App
         init();
+
     </script>
 </body>
 </html>
