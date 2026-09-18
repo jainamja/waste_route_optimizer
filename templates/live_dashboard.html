@@ -507,6 +507,7 @@
 
                 let stopsMap = {};
                 truckRoute.forEach(customerId => {
+                    if (customerId <= 0 || String(customerId).startsWith('-')) return;
                     let c = data.customers.find(c => c.id === customerId);
                     if(c) {
                         let coordStr = c.lat + "," + c.lng;
