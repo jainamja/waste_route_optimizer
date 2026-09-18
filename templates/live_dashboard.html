@@ -445,7 +445,7 @@
 
         function updateHeaderStats() {
             let numTrucks = data.routes.length;
-            let numStops = data.customers.length;
+            let numStops = data.customers.filter(c => c.id > 0 || !String(c.id).startsWith('-')).length;
             
             let totalDist = 0;
             if(data.route_distances) {
@@ -607,6 +607,8 @@
                     if (customer) {
                         waypoints.push(`${customer.lat},${customer.lng}`);
                         let isDone = customer.status === 'COMPLETED';
+                        let isDepot = customer.id < 0 || customer.name === 'End Location / Depot';
+                        let displayName = isDepot ? customer.name : `Stop ${customer.stop_number}: ${customer.name}`;
                         
                         stopsListHtml += `
                             <div class="stop-item ${isDone ? 'completed' : ''}">
@@ -614,7 +616,7 @@
                                     ${isDone ? '<i class="fa-solid fa-circle-check"></i>' : '<i class="fa-regular fa-circle"></i>'}
                                 </div>
                                 <div class="stop-info">
-                                    <div class="stop-name">Stop ${customer.stop_number}: ${customer.name}</div>
+                                    <div class="stop-name">${displayName}</div>
                                     ${customer.address ? `<div style="color:var(--text-muted);"><i class="fa-solid fa-location-dot"></i> ${customer.address}</div>` : ''}
                                 </div>
                             </div>

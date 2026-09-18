@@ -341,9 +341,12 @@
             } else {
                 const stop = stops[currentIndex];
                 const isLast = currentIndex === stops.length - 1;
+                const isDepot = stop.id < 0 || stop.name === 'End Location / Depot';
+                
+                let progressText = isDepot ? "Final Destination" : `Stop ${currentIndex + 1} of ${stops.length - (stops[stops.length-1].id < 0 ? 1 : 0)}`;
                 
                 document.getElementById('current-stop-container').innerHTML = `
-                    <div class="progress-text">Stop ${currentIndex + 1} of ${stops.length}</div>
+                    <div class="progress-text">${progressText}</div>
                     <div class="stop-name">${stop.name}</div>
                     <div class="stop-address">
                         <i class="fa-solid fa-location-dot" style="margin-top:4px;"></i>
@@ -372,11 +375,14 @@
                     classes += ' active';
                 }
                 
+                let isDepot = s.id < 0 || s.name === 'End Location / Depot';
+                let titleText = isDepot ? s.name : `Stop ${s.sequence || (idx+1)}: ${s.name}`;
+                
                 return `
                     <div class="${classes}">
                         ${icon}
                         <div>
-                            <div style="font-weight:600;">Stop ${s.sequence || (idx+1)}: ${s.name}</div>
+                            <div style="font-weight:600;">${titleText}</div>
                             <div style="font-size:12px; color:var(--text-muted);">${s.address}</div>
                         </div>
                     </div>
