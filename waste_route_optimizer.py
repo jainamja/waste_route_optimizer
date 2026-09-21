@@ -446,7 +446,10 @@ def dynamic_recalculate():
         active_truck_ids = []
         
         # For each truck, get its position and pending stops
-        for truck_id, truck_info in trucks_data.items():
+        trucks_items = trucks_data.items() if isinstance(trucks_data, dict) else enumerate(trucks_data) if isinstance(trucks_data, list) else []
+        for truck_id, truck_info in trucks_items:
+            if not truck_info: continue
+            truck_id = str(truck_id)
             if truck_info.get('status') == 'online' and truck_info.get('currentLat'):
                 truck_starts.append((float(truck_info['currentLat']), float(truck_info['currentLng'])))
                 active_truck_ids.append(truck_id)
@@ -454,10 +457,13 @@ def dynamic_recalculate():
                 # Get pending stops for this truck
                 route_key = f"route_{truck_id}"
                 if route_key in routes_data and 'stops' in routes_data[route_key]:
-                    for stop_id, stop_info in routes_data[route_key]['stops'].items():
+                    stops_raw = routes_data[route_key]['stops']
+                    stops_items = stops_raw.items() if isinstance(stops_raw, dict) else enumerate(stops_raw) if isinstance(stops_raw, list) else []
+                    for stop_id, stop_info in stops_items:
+                        if not stop_info: continue
                         if stop_info.get('status') == 'PENDING':
                             pending_customers.append({
-                                'id': stop_id,
+                                'id': str(stop_id),
                                 'name': stop_info.get('name', ''),
                                 'address': stop_info.get('address', ''),
                                 'lat': float(stop_info['lat']),
@@ -523,7 +529,10 @@ def dynamic_recalculate():
         for tid in active_truck_ids:
             route_key = f"route_{tid}"
             if route_key in routes_data and 'stops' in routes_data[route_key]:
-                for stop_id, stop_info in routes_data[route_key]['stops'].items():
+                stops_raw = routes_data[route_key]['stops']
+                stops_items = stops_raw.items() if isinstance(stops_raw, dict) else enumerate(stops_raw) if isinstance(stops_raw, list) else []
+                for stop_id, stop_info in stops_items:
+                    if not stop_info: continue
                     if stop_info.get('status') == 'PENDING':
                         requests.delete(f"{firebase_url}/routes/{route_key}/stops/{stop_id}.json")
                         
