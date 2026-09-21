@@ -321,9 +321,20 @@ def upload():
         if auth_res.status_code == 200:
             id_token = auth_res.json().get('idToken')
             
-            # fully clear old orphaned data
-            requests.delete(f"{firebase_url}/trucks.json?auth={id_token}")
-            requests.delete(f"{firebase_url}/routes.json?auth={id_token}")
+            # fully clear old orphaned data safely by fetching keys first
+            trucks_res = requests.get(f"{firebase_url}/trucks.json?auth={id_token}")
+            if trucks_res.status_code == 200 and trucks_res.json():
+                trucks_data = trucks_res.json()
+                trucks_items = trucks_data.items() if isinstance(trucks_data, dict) else enumerate(trucks_data) if isinstance(trucks_data, list) else []
+                for tid, _ in trucks_items:
+                    if _ is not None: requests.delete(f"{firebase_url}/trucks/{tid}.json?auth={id_token}")
+                    
+            routes_res = requests.get(f"{firebase_url}/routes.json?auth={id_token}")
+            if routes_res.status_code == 200 and routes_res.json():
+                routes_data = routes_res.json()
+                routes_items = routes_data.items() if isinstance(routes_data, dict) else enumerate(routes_data) if isinstance(routes_data, list) else []
+                for rid, _ in routes_items:
+                    if _ is not None: requests.delete(f"{firebase_url}/routes/{rid}.json?auth={id_token}")
             
             # Group updates by route
             routes_payload = {}
