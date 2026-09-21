@@ -181,7 +181,45 @@ def read_data_file(filepath):
         except (ValueError, TypeError):
             pass
             
-    return customers
+    # Group nearby stops (e.g., in the same society) within 50 meters
+    import math
+    def haversine(lat1, lon1, lat2, lon2):
+        R = 6371000
+        phi1, phi2 = math.radians(lat1), math.radians(lat2)
+        dphi, dlam = math.radians(lat2 - lat1), math.radians(lon2 - lon1)
+        a = math.sin(dphi/2)**2 + math.cos(phi1)*math.cos(phi2)*math.sin(dlam/2)**2
+        return R * 2 * math.atan2(math.sqrt(a), math.sqrt(1-a))
+
+    merged = []
+    for c in customers:
+        found = False
+        for g in merged:
+            if haversine(c['lat'], c['lng'], g['lat'], g['lng']) < 50:
+                g['grouped_customers'].append(c)
+                found = True
+                break
+        if not found:
+            c_copy = dict(c)
+            c_copy['grouped_customers'] = [c]
+            merged.append(c_copy)
+            
+    final_customers = []
+    for idx, g in enumerate(merged):
+        g['id'] = idx + 1 # Re-index sequentially
+        if len(g['grouped_customers']) > 1:
+            names = [x['name'] for x in g['grouped_customers']]
+            if len(names) > 2:
+                g['name'] = f"{names[0]} & {len(names)-1} others"
+            else:
+                g['name'] = " & ".join(names)
+                
+            all_names_str = ", ".join(names)
+            g['address'] = f"[Grouped: {all_names_str}] {g['address']}"
+            
+        del g['grouped_customers']
+        final_customers.append(g)
+        
+    return final_customers
 
 @app.route('/')
 def index():
