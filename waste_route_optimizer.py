@@ -470,11 +470,11 @@ def dynamic_recalculate():
                                 'lng': float(stop_info['lng'])
                             })
                             
+        if not truck_starts:
+            return jsonify({'error': 'No online trucks found. Open the driver app so it sends GPS data!'}), 400
+            
         if not pending_customers:
             return jsonify({'error': 'No pending stops to recalculate.'}), 400
-            
-        if not truck_starts:
-            return jsonify({'error': 'No active trucks with GPS signal.'}), 400
             
         # Filter out end depots from pending_customers so they aren't treated as mid-route stops
         real_pending_customers = [c for c in pending_customers if int(c['id']) > -1000]
