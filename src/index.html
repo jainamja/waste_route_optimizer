@@ -657,7 +657,7 @@
             }
 
             try {
-                let backendUrl = window.location.origin.includes('localhost') || window.location.origin.includes('capacitor://') ? 'https://waste-route-optimizer.onrender.com' : window.location.origin;
+                let backendUrl = window.location.origin.includes('localhost') || window.location.origin.includes('capacitor://') ? 'https://waste-route-optimizer-robn.onrender.com' : window.location.origin;
                 let res = await fetch(backendUrl + '/api/resolve_token?token=' + encodeURIComponent(token));
                 if (!res.ok) throw new Error("Token resolution failed");
                 let data = await res.json();
