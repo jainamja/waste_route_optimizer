@@ -27,6 +27,7 @@
             --rad: 24px;
         }
 
+        html, body { overflow-x: hidden; }
         body {
             margin: 0;
             padding: 16px;
@@ -109,6 +110,8 @@
             align-items: center;
             margin-bottom: 32px;
             position: relative;
+            width: 100%;
+            box-sizing: border-box;
         }
         .progress-rail::before {
             content: '';
@@ -336,6 +339,10 @@
             margin-top: 24px;
             padding-top: 24px;
             border-top: 1px solid var(--border);
+            width: 100%;
+            box-sizing: border-box;
+            flex-wrap: wrap;
+            gap: 12px;
         }
         .btn {
             padding: 14px 24px;
@@ -367,7 +374,7 @@
             .map-panel { display: flex; flex-direction: column; width: 100%; height: auto; flex: none; border-radius: 0; border: none; border-bottom: 1px solid var(--border); position: static; }
             .map-overlay { position: static; padding: 16px; background: var(--bg); flex-wrap: wrap; pointer-events: auto; }
             #map { position: relative; height: 350px; flex: none; z-index: 1; }
-            .form-panel { width: 100%; padding: 24px; border-radius: 0; box-shadow: none; flex: none; }
+            .form-panel { width: 100%; padding: 24px; border-radius: 0; box-shadow: none; flex: none; box-sizing: border-box; }
             .rail-label { display: none; }
         }
     </style>
