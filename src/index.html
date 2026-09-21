@@ -278,6 +278,49 @@
                     }
                     stops.sort((a, b) => (a.sequence || 999) - (b.sequence || 999));
                     
+                    // --- BEGIN CLUSTERING LOGIC ---
+                    let groupedStops = [];
+                    let currentGroup = null;
+                    
+                    function getDistance(lat1, lon1, lat2, lon2) {
+                        const R = 6371e3;
+                        const p1 = lat1 * Math.PI/180;
+                        const p2 = lat2 * Math.PI/180;
+                        const dp = (lat2-lat1) * Math.PI/180;
+                        const dl = (lon2-lon1) * Math.PI/180;
+                        const a = Math.sin(dp/2) * Math.sin(dp/2) + Math.cos(p1) * Math.cos(p2) * Math.sin(dl/2) * Math.sin(dl/2);
+                        return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
+                    }
+                    
+                    stops.forEach(s => {
+                        if (s.id < 0 || s.name === 'End Location / Depot') {
+                            if (currentGroup) { groupedStops.push(currentGroup); currentGroup = null; }
+                            groupedStops.push(s);
+                            return;
+                        }
+                        
+                        if (!currentGroup) {
+                            currentGroup = { ...s, subStops: [s] };
+                        } else {
+                            if (getDistance(currentGroup.lat, currentGroup.lng, s.lat, s.lng) < 50) {
+                                currentGroup.subStops.push(s);
+                                let names = currentGroup.subStops.map(x => x.name);
+                                if (names.length > 2) {
+                                    currentGroup.name = `${names[0]} & ${names.length - 1} others`;
+                                } else {
+                                    currentGroup.name = names.join(" & ");
+                                }
+                                if (s.status === 'PENDING') currentGroup.status = 'PENDING';
+                            } else {
+                                groupedStops.push(currentGroup);
+                                currentGroup = { ...s, subStops: [s] };
+                            }
+                        }
+                    });
+                    if (currentGroup) groupedStops.push(currentGroup);
+                    stops = groupedStops;
+                    // --- END CLUSTERING LOGIC ---
+                    
                     currentIndex = 0;
                     for (let i = 0; i < stops.length; i++) {
                         if (stops[i].status === 'PENDING') {
@@ -452,7 +495,17 @@
             console.log("[MARK STOP] Tapped:", status, "| Current Index:", currentIndex);
             if (currentIndex < stops.length) {
                 const stop = stops[currentIndex];
-                db.ref(`routes/route_${truckId}/stops/${stop.id}`).update({ status: status });
+                
+                let updates = {};
+                if (stop.subStops) {
+                    stop.subStops.forEach(ss => {
+                        updates[ss.id + "/status"] = status;
+                    });
+                } else {
+                    updates[stop.id + "/status"] = status;
+                }
+                
+                db.ref(`routes/route_${truckId}/stops`).update(updates);
                 // Sheet automatically updates via .on('value')
                 
                 // Snap sheet back to peek if they advanced
@@ -472,7 +525,13 @@
         window.resetRoute = function() {
             if (confirm("Reset route progress?")) {
                 let updates = {};
-                stops.forEach(s => { updates[s.id + "/status"] = 'PENDING'; });
+                stops.forEach(s => { 
+                    if (s.subStops) {
+                        s.subStops.forEach(ss => { updates[ss.id + "/status"] = 'PENDING'; });
+                    } else {
+                        updates[s.id + "/status"] = 'PENDING'; 
+                    }
+                });
                 db.ref(`routes/route_${truckId}/stops`).update(updates);
             }
         };
