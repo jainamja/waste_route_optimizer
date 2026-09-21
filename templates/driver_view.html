@@ -16,6 +16,7 @@
     
     <!-- Firebase -->
     <script src="https://www.gstatic.com/firebasejs/10.9.0/firebase-app-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/10.9.0/firebase-auth-compat.js"></script>
     <script src="https://www.gstatic.com/firebasejs/10.9.0/firebase-database-compat.js"></script>
     
     <style>
@@ -244,10 +245,7 @@
             }, 500);
         }
 
-        const urlParams = new URLSearchParams(window.location.search);
-        let truckId = urlParams.get('t') || "1";
-        document.getElementById('truck-title').innerText = "Truck " + truckId;
-        
+        let truckId = null;
         let stops = [];
         let currentIndex = 0;
         let map, routeLine, routeMarkers = [];
@@ -263,7 +261,6 @@
                 attribution: 'Map data &copy; Google'
             }).addTo(map);
         }
-        initMap();
 
         function init() {
             startGpsPolling();
@@ -650,8 +647,39 @@
         
         window.addEventListener('resize', () => setTimeout(calculateSnapPoints, 100));
 
+        async function initApp() {
+            const urlParams = new URLSearchParams(window.location.search);
+            let token = urlParams.get('token');
+            if (!token) {
+                document.getElementById('truck-title').innerText = "Invalid Link";
+                document.getElementById('current-stop-container').innerHTML = `<div style="text-align:center; color:#e11d48; padding:20px;"><b>Error:</b> Invalid or missing driver token.</div>`;
+                return;
+            }
+
+            try {
+                let res = await fetch('/api/resolve_token?token=' + encodeURIComponent(token));
+                if (!res.ok) throw new Error("Token resolution failed");
+                let data = await res.json();
+                if (data.error || !data.truck_id) throw new Error(data.error || "Route not found");
+                
+                truckId = data.truck_id;
+                document.getElementById('truck-title').innerText = "Truck " + truckId;
+                
+                // Sign in anonymously for Firebase Rules
+                await firebase.auth().signInAnonymously();
+                
+                // Start normal app logic
+                initMap();
+                init();
+            } catch (err) {
+                console.error(err);
+                document.getElementById('truck-title').innerText = "Error";
+                document.getElementById('current-stop-container').innerHTML = `<div style="text-align:center; color:#e11d48; padding:20px;"><b>Route Not Found:</b><br>${err.message}</div>`;
+            }
+        }
+
         // Start App
-        init();
+        initApp();
 
     </script>
 </body>

@@ -238,28 +238,19 @@ def upload():
             active_route_times.append(t)
             active_route_distances.append(d)
             
+    import secrets
+    driver_tokens = {}
+    
     for truck_idx, route in enumerate(active_routes):
+        truck_id = truck_idx + 1
+        driver_tokens[str(truck_id)] = secrets.token_urlsafe(16)
+        
         for stop_num, customer_id in enumerate(route):
             for c in customers_data:
                 if c['id'] == customer_id:
                     c['truck'] = truck_idx + 1
                     c['stop_number'] = stop_num + 1
-
-        # Validation checks
-        assigned_ids = set()
-        duplicate_ids = set()
-        for route in active_routes:
-            for cid in route:
-                if cid in assigned_ids:
-                    duplicate_ids.add(cid)
-                assigned_ids.add(cid)
-        
-        unassigned_customers = [c['id'] for c in customers_data if 'stop_number' not in c]
-        if duplicate_ids:
-            print(f"[WARNING] Route generation assigned duplicate stops: {duplicate_ids}")
-        if unassigned_customers:
-            print(f"[WARNING] Route generation failed to assign stops for: {unassigned_customers}")
-
+                    
         # Append End Location as the final stop
         if end_coords:
             end_idx = min(truck_idx, len(end_coords) - 1)
@@ -277,6 +268,21 @@ def upload():
                 'stop_number': len(route) + 1
             })
 
+    # Validation checks
+    assigned_ids = set()
+    duplicate_ids = set()
+    for route in active_routes:
+        for cid in route:
+            if cid in assigned_ids:
+                duplicate_ids.add(cid)
+            assigned_ids.add(cid)
+    
+    unassigned_customers = [c['id'] for c in customers_data if 'stop_number' not in c and c['id'] > -1000]
+    if duplicate_ids:
+        print(f"[WARNING] Route generation assigned duplicate stops: {duplicate_ids}")
+    if unassigned_customers:
+        print(f"[WARNING] Route generation failed to assign stops for: {unassigned_customers}")
+
     # Clear old data
     Customer.query.delete()
     Metadata.query.delete()
@@ -287,7 +293,8 @@ def upload():
     m2 = Metadata(key='end_coords', value=json.dumps(ends_str))
     m3 = Metadata(key='route_times', value=json.dumps(active_route_times))
     m4 = Metadata(key='route_distances', value=json.dumps(active_route_distances))
-    db.session.add_all([m1, m2, m3, m4])
+    m_tokens = Metadata(key='driver_tokens', value=json.dumps(driver_tokens))
+    db.session.add_all([m1, m2, m3, m4, m_tokens])
     
     for c in customers_data:
         new_cust = Customer(
@@ -374,6 +381,10 @@ def get_data():
     route_distances = []
     if 'route_distances' in metadata:
         route_distances = json.loads(metadata['route_distances'])
+        
+    driver_tokens = {}
+    if 'driver_tokens' in metadata:
+        driver_tokens = json.loads(metadata['driver_tokens'])
 
     return jsonify({
         'customers': customers,
@@ -381,7 +392,8 @@ def get_data():
         'route_times': route_times,
         'route_distances': route_distances,
         'start_coords': start_coords,
-        'end_coords': end_coords
+        'end_coords': end_coords,
+        'driver_tokens': driver_tokens
     })
 
 @app.route('/api/mark_completed/<int:customer_id>', methods=['POST'])
@@ -414,6 +426,27 @@ def mark_completed(customer_id):
         print("Firebase sync error:", e)
 
     return jsonify({'success': True, 'status': 'COMPLETED'})
+
+@app.route('/api/resolve_token')
+def resolve_token():
+    token = request.args.get('token')
+    if not token:
+        return jsonify({'error': 'Missing token'}), 400
+        
+    token_meta = Metadata.query.filter_by(key='driver_tokens').first()
+    if not token_meta:
+        return jsonify({'error': 'No tokens found'}), 404
+        
+    import json
+    driver_tokens = json.loads(token_meta.value)
+    
+    # Reverse lookup: find truck_id that has this token
+    truck_id = next((tid for tid, tok in driver_tokens.items() if tok == token), None)
+    
+    if truck_id:
+        return jsonify({'truck_id': truck_id})
+    else:
+        return jsonify({'error': 'Invalid token'}), 404
 
 @app.route('/download_excel')
 def download_excel():
