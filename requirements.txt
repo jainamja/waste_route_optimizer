@@ -8,5 +8,5 @@ gunicorn
 requests
 Flask-SQLAlchemy
 psycopg2-binary
-flask-cors==5.0.0
+flask-cors
 
