@@ -308,6 +308,9 @@
         .map-popup-card h4 { font-family: 'Manrope', sans-serif; margin-bottom: 4px; font-size: 16px;}
         .map-popup-card p { font-size: 12px; color: var(--text-muted); margin: 0 0 12px 0; line-height: 1.5; }
         
+        #qrcode { overflow: hidden; }
+        #qrcode canvas, #qrcode img { max-width: 100%; height: auto; }
+        
         @media (max-width: 1024px) {
             body { height: auto; overflow: visible; }
             .main-split { flex-direction: column; min-height: auto;}
@@ -689,15 +692,20 @@
                 // The input box gets the Web link so it's clickable in WhatsApp
                 document.getElementById('driver-link-input').value = webLink;
                 document.getElementById('qrcode').innerHTML = '';
-                new QRCode(document.getElementById('qrcode'), {
+                
+                document.getElementById('driver-link-modal').style.display = 'flex';
+                let qrContainer = document.getElementById('qrcode');
+                let qrSize = Math.min(280, qrContainer.clientWidth || 280);
+                if (qrSize <= 0) qrSize = 250; // Fallback
+                
+                new QRCode(qrContainer, {
                     text: nativeLink, // QR code gets the native link
-                    width: 350,
-                    height: 350,
+                    width: qrSize,
+                    height: qrSize,
                     colorDark : "#000000",
                     colorLight : "#ffffff",
                     correctLevel : QRCode.CorrectLevel.L
                 });
-                document.getElementById('driver-link-modal').style.display = 'flex';
             } catch (e) {
                 console.error("QR Code generation failed, likely due to payload size:", e);
                 alert("Route is too long for a QR code. Please use the Copy Link button instead.");
