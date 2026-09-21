@@ -657,7 +657,8 @@
             }
 
             try {
-                let res = await fetch('/api/resolve_token?token=' + encodeURIComponent(token));
+                let backendUrl = window.location.origin.includes('localhost') || window.location.origin.includes('capacitor://') ? 'https://waste-route-optimizer.onrender.com' : window.location.origin;
+                let res = await fetch(backendUrl + '/api/resolve_token?token=' + encodeURIComponent(token));
                 if (!res.ok) throw new Error("Token resolution failed");
                 let data = await res.json();
                 if (data.error || !data.truck_id) throw new Error(data.error || "Route not found");
