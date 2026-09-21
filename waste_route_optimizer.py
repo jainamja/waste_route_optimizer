@@ -311,14 +311,39 @@ def upload():
         import requests
         firebase_url = "https://wasteroutelive-default-rtdb.firebaseio.com"
         
-                    "name": c['name'],
-                    "address": c['address'],
-                    "lat": c['lat'],
-                    "lng": c['lng'],
-                    "sequence": c.get('stop_number', None),
-                    "status": "PENDING"
-                }
-        requests.patch(f"{firebase_url}/.json", json=updates)
+        # Authenticate anonymously as backend
+        API_KEY = "AIzaSyAhLnjh0gRa2pf29G90zr-6AMcjLjbQpPg"
+        auth_url = f"https://identitytoolkit.googleapis.com/v1/accounts:signUp?key={API_KEY}"
+        auth_res = requests.post(auth_url, json={"returnSecureToken": True})
+        
+        if auth_res.status_code == 200:
+            id_token = auth_res.json().get('idToken')
+            
+            # Group updates by route
+            routes_payload = {}
+            for c in customers_data:
+                tid = c.get('truck')
+                if tid:
+                    route_key = f"route_{tid}"
+                    if route_key not in routes_payload: routes_payload[route_key] = {}
+                    
+                    routes_payload[route_key][str(c['id'])] = {
+                        "name": c['name'],
+                        "address": c['address'],
+                        "lat": c['lat'],
+                        "lng": c['lng'],
+                        "sequence": c.get('stop_number', None),
+                        "status": "PENDING"
+                    }
+                    
+            # Overwrite each route individually to satisfy Firebase rules
+            for route_key, stops in routes_payload.items():
+                res = requests.put(f"{firebase_url}/routes/{route_key}/stops.json?auth={id_token}", json=stops)
+                if res.status_code != 200:
+                    print(f"Failed to write {route_key}: {res.text}")
+        else:
+            print("Backend Firebase Auth failed:", auth_res.text)
+            
     except Exception as e:
         print("Firebase sync error:", e)
 

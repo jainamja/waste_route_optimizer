@@ -8,7 +8,9 @@
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
     <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
     <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+    <!-- Firebase -->
     <script src="https://www.gstatic.com/firebasejs/10.9.0/firebase-app-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/10.9.0/firebase-auth-compat.js"></script>
     <script src="https://www.gstatic.com/firebasejs/10.9.0/firebase-database-compat.js"></script>
     
     <style>
@@ -163,39 +165,44 @@
             iconAnchor: [18, 18]
         });
 
-        // 1. Listen to Trucks (GPS)
-        db.ref('trucks').on('value', snap => {
-            const data = snap.val() || {};
-            trucksData = data;
-            
-            let bounds = [];
-            
-            for (let id in data) {
-                let t = data[id];
-                if (t.currentLat && t.currentLng) {
-                    let latlng = [t.currentLat, t.currentLng];
-                    bounds.push(latlng);
-                    
-                    if (!truckMarkers[id]) {
-                        truckMarkers[id] = L.marker(latlng, { icon: truckIcon }).addTo(map);
-                        truckMarkers[id].bindTooltip(t.name || `Truck ${id}`, { permanent: true, direction: 'top', offset: [0, -20] });
-                    } else {
-                        truckMarkers[id].setLatLng(latlng);
+        firebase.auth().signInAnonymously().then(() => {
+            // 1. Listen to Trucks (GPS)
+            db.ref('trucks').on('value', snap => {
+                const data = snap.val() || {};
+                trucksData = data;
+                
+                let bounds = [];
+                
+                for (let id in data) {
+                    let t = data[id];
+                    if (t.currentLat && t.currentLng) {
+                        let latlng = [t.currentLat, t.currentLng];
+                        bounds.push(latlng);
+                        
+                        if (!truckMarkers[id]) {
+                            truckMarkers[id] = L.marker(latlng, { icon: truckIcon }).addTo(map);
+                            truckMarkers[id].bindTooltip(t.name || `Truck ${id}`, { permanent: true, direction: 'top', offset: [0, -20] });
+                        } else {
+                            truckMarkers[id].setLatLng(latlng);
+                        }
                     }
                 }
-            }
+                
+                if (bounds.length > 0 && selectedTruckId === null) {
+                    map.fitBounds(bounds, { padding: [50, 50] });
+                }
+                
+                renderSidebar();
+            });
             
-            if (bounds.length > 0 && !selectedTruckId && Object.keys(truckMarkers).length === 1) { // Auto zoom on first load
-                map.fitBounds(L.latLngBounds(bounds), { padding: [50, 50] });
-            }
-            
-            renderSidebar();
-        });
-        
-        // 2. Listen to Routes (Progress)
-        db.ref('routes').on('value', snap => {
-            routesData = snap.val() || {};
-            renderSidebar();
+            // 2. Listen to Routes (Progress)
+            db.ref('routes').on('value', snap => {
+                routesData = snap.val() || {};
+                renderSidebar();
+            });
+        }).catch(err => {
+            console.error("Dashboard Auth Error:", err);
+            alert("Database connection blocked. Please check Firebase Rules.");
         });
         
         function selectTruck(id) {
