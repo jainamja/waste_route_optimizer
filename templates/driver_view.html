@@ -252,6 +252,7 @@
         let currentIndex = 0;
         let map, routeLine, routeMarkers = [];
         let markerCluster;
+        let currentRenderId = 0;
 
         // Setup Leaflet
         function initMap() {
@@ -304,6 +305,9 @@
         function render() {
             console.log("[RENDER] Running render | Current Index:", currentIndex);
             
+            currentRenderId++;
+            let thisRenderId = currentRenderId;
+
             // 1. Draw Map Route
             if (routeLine) map.removeLayer(routeLine);
             if (markerCluster) map.removeLayer(markerCluster);
@@ -335,7 +339,7 @@
                     let isDepot = s.id < 0 || s.name === 'End Location / Depot';
                     let hasSeq = (s.sequence !== undefined && s.sequence !== null);
                     if (!hasSeq) console.warn("Stop missing sequence, falling back to index:", s);
-                    let displaySeq = hasSeq ? s.sequence : (idx+1);
+                    let displaySeq = hasSeq ? s.sequence : '?';
 
                     let markerHtml = '';
                     if (isDepot) {
@@ -355,7 +359,22 @@
             });
             map.addLayer(markerCluster);
             if (latlngs.length > 0) {
-                routeLine = L.polyline(latlngs, {color: '#2F5FFF', weight: 4, dashArray: '8, 8', opacity: 0.6}).addTo(map);
+                let coordsString = latlngs.map(ll => `${ll[1]},${ll[0]}`).join(';');
+                let url = `https://router.project-osrm.org/route/v1/driving/${coordsString}?overview=full&geometries=geojson`;
+                
+                fetch(url).then(res => res.json()).then(routeData => {
+                    if (thisRenderId !== currentRenderId) return;
+                    if (routeData.routes && routeData.routes.length > 0) {
+                        let geojson = routeData.routes[0].geometry;
+                        routeLine = L.geoJSON(geojson, { style: { color: '#2F5FFF', weight: 5, opacity: 0.8 } }).addTo(map);
+                    } else {
+                        routeLine = L.polyline(latlngs, {color: '#2F5FFF', weight: 4, dashArray: '8, 8', opacity: 0.6}).addTo(map);
+                    }
+                }).catch(e => {
+                    if (thisRenderId !== currentRenderId) return;
+                    console.error('OSRM fetch error:', e);
+                    routeLine = L.polyline(latlngs, {color: '#2F5FFF', weight: 4, dashArray: '8, 8', opacity: 0.6}).addTo(map);
+                });
                 
                 // Center Map on Current Stop smoothly
                 if (currentIndex < stops.length) {
@@ -413,7 +432,7 @@
                 
                 let isDepot = s.id < 0 || s.name === 'End Location / Depot';
                 let hasSeq = (s.sequence !== undefined && s.sequence !== null);
-                let displaySeq = hasSeq ? s.sequence : (idx+1);
+                let displaySeq = hasSeq ? s.sequence : '?';
                 let titleText = isDepot ? s.name : `Stop ${displaySeq}: ${s.name}`;
                 
                 return `

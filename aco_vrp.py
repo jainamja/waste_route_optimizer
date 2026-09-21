@@ -210,4 +210,23 @@ class ACO_VRP:
             route_times.append(route_time)
             route_distances.append(route_distance)
 
+        # Validation Checks
+        assigned_cids = []
+        for r in routes: assigned_cids.extend(r)
+        
+        all_input_cids = [c['id'] for c in self.customers]
+        
+        # Check duplicates
+        import collections
+        dupes = [item for item, count in collections.Counter(assigned_cids).items() if count > 1]
+        assert not dupes, f"VRP output contained duplicate customer IDs: {dupes}"
+        
+        # Check missing
+        missing = set(all_input_cids) - set(assigned_cids)
+        assert not missing, f"VRP output dropped customer IDs: {missing}"
+        
+        # Check extra
+        extra = set(assigned_cids) - set(all_input_cids)
+        assert not extra, f"VRP output generated unknown customer IDs: {extra}"
+
         return routes, route_times, route_distances

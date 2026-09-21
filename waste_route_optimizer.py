@@ -244,7 +244,22 @@ def upload():
                 if c['id'] == customer_id:
                     c['truck'] = truck_idx + 1
                     c['stop_number'] = stop_num + 1
-                    
+
+        # Validation checks
+        assigned_ids = set()
+        duplicate_ids = set()
+        for route in active_routes:
+            for cid in route:
+                if cid in assigned_ids:
+                    duplicate_ids.add(cid)
+                assigned_ids.add(cid)
+        
+        unassigned_customers = [c['id'] for c in customers_data if 'stop_number' not in c]
+        if duplicate_ids:
+            print(f"[WARNING] Route generation assigned duplicate stops: {duplicate_ids}")
+        if unassigned_customers:
+            print(f"[WARNING] Route generation failed to assign stops for: {unassigned_customers}")
+
         # Append End Location as the final stop
         if end_coords:
             end_idx = min(truck_idx, len(end_coords) - 1)
@@ -289,17 +304,11 @@ def upload():
         import requests
         firebase_url = "https://wasteroutelive-default-rtdb.firebaseio.com"
         
-        updates = {}
-        for c in customers_data:
-            tid = c.get('truck')
-            if tid:
-                route_key = f"routes/route_{tid}/stops/{c['id']}"
-                updates[route_key] = {
                     "name": c['name'],
                     "address": c['address'],
                     "lat": c['lat'],
                     "lng": c['lng'],
-                    "sequence": c.get('stop_number', 99),
+                    "sequence": c.get('stop_number', None),
                     "status": "PENDING"
                 }
         requests.patch(f"{firebase_url}/.json", json=updates)
@@ -397,7 +406,7 @@ def mark_completed(customer_id):
                     "address": c['address'],
                     "lat": c['lat'],
                     "lng": c['lng'],
-                    "sequence": c.get('stop_number', 99),
+                    "sequence": c.get('stop_number', None),
                     "status": "PENDING"
                 }
         requests.patch(f"{firebase_url}/.json", json=updates)
