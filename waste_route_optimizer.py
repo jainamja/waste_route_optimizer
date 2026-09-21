@@ -321,6 +321,10 @@ def upload():
         if auth_res.status_code == 200:
             id_token = auth_res.json().get('idToken')
             
+            # fully clear old orphaned data
+            requests.delete(f"{firebase_url}/trucks.json?auth={id_token}")
+            requests.delete(f"{firebase_url}/routes.json?auth={id_token}")
+            
             # Group updates by route
             routes_payload = {}
             for c in customers_data:
@@ -338,11 +342,14 @@ def upload():
                         "status": "PENDING"
                     }
                     
-            # Overwrite each route individually to satisfy Firebase rules
             for route_key, stops in routes_payload.items():
-                res = requests.put(f"{firebase_url}/routes/{route_key}/stops.json?auth={id_token}", json=stops)
+                res = requests.put(f"{firebase_url}/routes/{route_key}.json?auth={id_token}", json={"stops": stops})
                 if res.status_code != 200:
                     print(f"Failed to write {route_key}: {res.text}")
+                    
+                # also init the truck so it exists for tracking
+                tid = route_key.split('_')[1]
+                requests.put(f"{firebase_url}/trucks/{tid}.json?auth={id_token}", json={"status": "offline"})
         else:
             print("Backend Firebase Auth failed:", auth_res.text)
             
@@ -430,28 +437,22 @@ def mark_completed(customer_id):
         customer.status = 'COMPLETED'
         db.session.commit()
 
-    # INSERT TO FIREBASE
-    try:
-        import requests
-        firebase_url = "https://wasteroutelive-default-rtdb.firebaseio.com"
-        
-        updates = {}
-        for c in customers_data:
-            tid = c.get('truck')
-            if tid:
-                route_key = f"routes/route_{tid}/stops/{c['id']}"
-                updates[route_key] = {
-                    "name": c['name'],
-                    "address": c['address'],
-                    "lat": c['lat'],
-                    "lng": c['lng'],
-                    "sequence": c.get('stop_number', None),
-                    "status": "PENDING"
-                }
-        requests.patch(f"{firebase_url}/.json", json=updates)
-    except Exception as e:
-        print("Firebase sync error:", e)
-
+        # Sync to Firebase
+        try:
+            import requests
+            firebase_url = "https://wasteroutelive-default-rtdb.firebaseio.com"
+            
+            # Authenticate anonymously as backend
+            API_KEY = "AIzaSyAhLnjh0gRa2pf29G90zr-6AMcjLjbQpPg"
+            auth_url = f"https://identitytoolkit.googleapis.com/v1/accounts:signUp?key={API_KEY}"
+            auth_res = requests.post(auth_url, json={"returnSecureToken": True})
+            
+            if auth_res.status_code == 200:
+                id_token = auth_res.json().get('idToken')
+                requests.patch(f"{firebase_url}/routes/route_{customer.truck_id}/stops/{customer.id}.json?auth={id_token}", json={"status": "COMPLETED"})
+        except Exception as e:
+            print("Firebase sync error in mark_completed:", e)
+            
     return jsonify({'success': True, 'status': 'COMPLETED'})
 
 @app.route('/api/resolve_token')
@@ -502,12 +503,20 @@ def dynamic_recalculate():
     firebase_url = "https://wasteroutelive-default-rtdb.firebaseio.com"
     
     try:
+        # Authenticate anonymously as backend
+        API_KEY = "AIzaSyAhLnjh0gRa2pf29G90zr-6AMcjLjbQpPg"
+        auth_url = f"https://identitytoolkit.googleapis.com/v1/accounts:signUp?key={API_KEY}"
+        auth_res = requests.post(auth_url, json={"returnSecureToken": True})
+        if auth_res.status_code != 200:
+            return jsonify({'error': 'Backend auth failed'}), 500
+        id_token = auth_res.json().get('idToken')
+        
         # 1. Fetch current GPS for all trucks
-        trucks_res = requests.get(f"{firebase_url}/trucks.json")
+        trucks_res = requests.get(f"{firebase_url}/trucks.json?auth={id_token}")
         trucks_data = trucks_res.json() or {}
         
         # 2. Fetch all current routes
-        routes_res = requests.get(f"{firebase_url}/routes.json")
+        routes_res = requests.get(f"{firebase_url}/routes.json?auth={id_token}")
         routes_data = routes_res.json() or {}
         
         pending_customers = []
@@ -563,26 +572,29 @@ def dynamic_recalculate():
         new_routes, _, _ = aco.run()
         
         # 4. Write back to Firebase
-        updates = {}
+        updates_by_route = {}
         for idx, route in enumerate(new_routes):
             if idx < len(active_truck_ids):
                 tid = active_truck_ids[idx]
                 
                 start_seq = 1
                 route_key = f"route_{tid}"
+                if route_key not in updates_by_route: updates_by_route[route_key] = {}
+                
                 if route_key in routes_data and 'stops' in routes_data[route_key]:
                     stops_raw = routes_data[route_key]['stops']
                     stops_items = stops_raw.items() if isinstance(stops_raw, dict) else enumerate(stops_raw) if isinstance(stops_raw, list) else []
                     for s_id, s_info in stops_items:
                         if s_info and s_info.get('status') != 'PENDING' and int(s_id) > -1000:
                             start_seq += 1
+                            updates_by_route[route_key][s_id] = s_info # Keep completed stops
                 
                 # We overwrite the remaining sequence for this truck
                 for seq, cust_id in enumerate(route):
                     # We find the customer data
                     cust = next((c for c in real_pending_customers if c['id'] == cust_id), None)
                     if cust:
-                        updates[f"routes/route_{tid}/stops/{cust_id}"] = {
+                        updates_by_route[route_key][str(cust_id)] = {
                             "name": cust['name'],
                             "address": cust['address'],
                             "lat": cust['lat'],
@@ -593,7 +605,7 @@ def dynamic_recalculate():
                 
                 # Re-append End Depot at the end of this truck's route
                 depot_lat, depot_lng = end_coords[idx]
-                updates[f"routes/route_{tid}/stops/{-1000 - idx}"] = {
+                updates_by_route[route_key][str(-1000 - idx)] = {
                     "name": "End Location / Depot",
                     "address": "Return to Depot",
                     "lat": depot_lat,
@@ -602,20 +614,9 @@ def dynamic_recalculate():
                     "status": "PENDING"
                 }
                         
-        # Because we re-balanced globally, we need to clear ALL pending stops first 
-        # so they don't linger on old trucks if reassigned.
-        for tid in active_truck_ids:
-            route_key = f"route_{tid}"
-            if route_key in routes_data and 'stops' in routes_data[route_key]:
-                stops_raw = routes_data[route_key]['stops']
-                stops_items = stops_raw.items() if isinstance(stops_raw, dict) else enumerate(stops_raw) if isinstance(stops_raw, list) else []
-                for stop_id, stop_info in stops_items:
-                    if not stop_info: continue
-                    if stop_info.get('status') == 'PENDING':
-                        requests.delete(f"{firebase_url}/routes/{route_key}/stops/{stop_id}.json")
-                        
-        # Now PATCH the new assignments
-        requests.patch(f"{firebase_url}/.json", json=updates)
+        # Now PUT the new assignments individually to clear out old orphaned pending stops on these active routes
+        for route_key, stops in updates_by_route.items():
+            requests.put(f"{firebase_url}/routes/{route_key}/stops.json?auth={id_token}", json=stops)
         
         return jsonify({'success': True, 'recalculated_stops': len(pending_customers)})
         
