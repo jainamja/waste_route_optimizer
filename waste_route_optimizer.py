@@ -499,6 +499,15 @@ def dynamic_recalculate():
             if idx < len(active_truck_ids):
                 tid = active_truck_ids[idx]
                 
+                start_seq = 1
+                route_key = f"route_{tid}"
+                if route_key in routes_data and 'stops' in routes_data[route_key]:
+                    stops_raw = routes_data[route_key]['stops']
+                    stops_items = stops_raw.items() if isinstance(stops_raw, dict) else enumerate(stops_raw) if isinstance(stops_raw, list) else []
+                    for s_id, s_info in stops_items:
+                        if s_info and s_info.get('status') != 'PENDING' and int(s_id) > -1000:
+                            start_seq += 1
+                
                 # We overwrite the remaining sequence for this truck
                 for seq, cust_id in enumerate(route):
                     # We find the customer data
@@ -509,7 +518,7 @@ def dynamic_recalculate():
                             "address": cust['address'],
                             "lat": cust['lat'],
                             "lng": cust['lng'],
-                            "sequence": seq + 1,
+                            "sequence": start_seq + seq,
                             "status": "PENDING"
                         }
                 
@@ -520,7 +529,7 @@ def dynamic_recalculate():
                     "address": "Return to Depot",
                     "lat": depot_lat,
                     "lng": depot_lng,
-                    "sequence": len(route) + 1,
+                    "sequence": start_seq + len(route),
                     "status": "PENDING"
                 }
                         

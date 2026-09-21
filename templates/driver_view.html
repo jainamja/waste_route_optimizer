@@ -9,7 +9,10 @@
     
     <!-- Leaflet -->
     <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+    <link rel="stylesheet" href="https://unpkg.com/leaflet.markercluster@1.4.1/dist/MarkerCluster.css" />
+    <link rel="stylesheet" href="https://unpkg.com/leaflet.markercluster@1.4.1/dist/MarkerCluster.Default.css" />
     <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+    <script src="https://unpkg.com/leaflet.markercluster@1.4.1/dist/leaflet.markercluster.js"></script>
     
     <!-- Firebase -->
     <script src="https://www.gstatic.com/firebasejs/10.9.0/firebase-app-compat.js"></script>
@@ -248,6 +251,7 @@
         let stops = [];
         let currentIndex = 0;
         let map, routeLine, routeMarkers = [];
+        let markerCluster;
 
         // Setup Leaflet
         function initMap() {
@@ -302,8 +306,22 @@
             
             // 1. Draw Map Route
             if (routeLine) map.removeLayer(routeLine);
+            if (markerCluster) map.removeLayer(markerCluster);
             routeMarkers.forEach(m => map.removeLayer(m));
             routeMarkers = [];
+
+            markerCluster = L.markerClusterGroup({
+                maxClusterRadius: 25,
+                showCoverageOnHover: false,
+                iconCreateFunction: function(cluster) {
+                    return L.divIcon({ 
+                        html: `<div style="background:#0f172a; width:26px; height:26px; border-radius:50%; border:2px solid white; box-shadow:0 2px 4px rgba(0,0,0,0.3); color:white; display:flex; align-items:center; justify-content:center; font-size:11px; font-weight:bold;">${cluster.getChildCount()}</div>`, 
+                        className: 'custom-div-icon', 
+                        iconSize: [26, 26], 
+                        iconAnchor: [13,13] 
+                    });
+                }
+            });
 
             let latlngs = [];
             stops.forEach((s, idx) => {
@@ -315,21 +333,27 @@
                     if (s.status !== 'SKIPPED') latlngs.push([s.lat, s.lng]);
                     
                     let isDepot = s.id < 0 || s.name === 'End Location / Depot';
-                    let markerHtml;
+                    let hasSeq = (s.sequence !== undefined && s.sequence !== null);
+                    if (!hasSeq) console.warn("Stop missing sequence, falling back to index:", s);
+                    let displaySeq = hasSeq ? s.sequence : (idx+1);
+
+                    let markerHtml = '';
                     if (isDepot) {
                         markerHtml = `<div style="background-color:#f59e0b; width:16px; height:16px; border-radius:50%; border:2px solid white; box-shadow:0 0 4px rgba(0,0,0,0.5);"></div>`;
                     } else {
-                        markerHtml = `<div style="background:${color}; width:24px; height:24px; border-radius:50%; border:3px solid white; box-shadow:0 2px 4px rgba(0,0,0,0.3); color:white; display:flex; align-items:center; justify-content:center; font-size:10px; font-weight:bold;">${s.sequence || (idx+1)}</div>`;
+                        markerHtml = `<div style="background:${color}; width:24px; height:24px; border-radius:50%; border:3px solid white; box-shadow:0 2px 4px rgba(0,0,0,0.3); color:white; display:flex; align-items:center; justify-content:center; font-size:10px; font-weight:bold;">${displaySeq}</div>`;
                     }
                     
                     let iconSize = isDepot ? [20, 20] : [24, 24];
                     let iconAnchor = isDepot ? [10, 10] : [12, 12];
                     
                     let icon = L.divIcon({ html: markerHtml, className: 'custom-div-icon', iconSize: iconSize, iconAnchor: iconAnchor });
-                    let m = L.marker([s.lat, s.lng], {icon: icon}).addTo(map);
+                    let m = L.marker([s.lat, s.lng], {icon: icon});
+                    markerCluster.addLayer(m);
                     routeMarkers.push(m);
                 }
             });
+            map.addLayer(markerCluster);
             if (latlngs.length > 0) {
                 routeLine = L.polyline(latlngs, {color: '#2F5FFF', weight: 4, dashArray: '8, 8', opacity: 0.6}).addTo(map);
                 
@@ -388,7 +412,9 @@
                 }
                 
                 let isDepot = s.id < 0 || s.name === 'End Location / Depot';
-                let titleText = isDepot ? s.name : `Stop ${s.sequence || (idx+1)}: ${s.name}`;
+                let hasSeq = (s.sequence !== undefined && s.sequence !== null);
+                let displaySeq = hasSeq ? s.sequence : (idx+1);
+                let titleText = isDepot ? s.name : `Stop ${displaySeq}: ${s.name}`;
                 
                 return `
                     <div class="${classes}">
