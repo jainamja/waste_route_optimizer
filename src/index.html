@@ -752,6 +752,17 @@
         async function initApp() {
             const urlParams = new URLSearchParams(window.location.search);
             let token = urlParams.get('token');
+            
+            if (!token) {
+                // Try recovery from storage
+                if (window.Capacitor && window.Capacitor.Plugins && window.Capacitor.Plugins.Preferences) {
+                    const saved = await window.Capacitor.Plugins.Preferences.get({ key: 'driver_token' });
+                    token = saved.value;
+                } else {
+                    token = localStorage.getItem('driver_token');
+                }
+            }
+            
             if (!token) {
                 document.getElementById('truck-title').innerText = "Invalid Link";
                 document.getElementById('current-stop-container').innerHTML = `<div style="text-align:center; color:#e11d48; padding:20px;"><b>Error:</b> Invalid or missing driver token.</div>`;
@@ -765,6 +776,13 @@
                 let data = await res.json();
                 if (data.error || !data.truck_id) throw new Error(data.error || "Route not found");
                 
+                // Save it persistently for future cold launches
+                if (window.Capacitor && window.Capacitor.Plugins && window.Capacitor.Plugins.Preferences) {
+                    window.Capacitor.Plugins.Preferences.set({ key: 'driver_token', value: token }).catch(e=>{});
+                } else {
+                    localStorage.setItem('driver_token', token);
+                }
+                
                 truckId = data.truck_id;
                 document.getElementById('truck-title').innerText = "Truck " + truckId;
                 
@@ -773,8 +791,16 @@
                 init();
             } catch (err) {
                 console.error(err);
+                
+                // Clear the dead token so we don't try it again
+                if (window.Capacitor && window.Capacitor.Plugins && window.Capacitor.Plugins.Preferences) {
+                    window.Capacitor.Plugins.Preferences.remove({ key: 'driver_token' }).catch(e=>{});
+                } else {
+                    localStorage.removeItem('driver_token');
+                }
+                
                 document.getElementById('truck-title').innerText = "Error";
-                document.getElementById('current-stop-container').innerHTML = `<div style="text-align:center; color:#e11d48; padding:20px;"><b>Route Not Found:</b><br>${err.message}</div>`;
+                document.getElementById('current-stop-container').innerHTML = `<div style="text-align:center; color:#e11d48; padding:20px;"><b>This route has ended</b><br>Please ask dispatch for a new link.</div>`;
             }
         }
 
