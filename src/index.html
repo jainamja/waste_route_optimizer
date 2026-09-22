@@ -505,7 +505,10 @@
                     updates[stop.id + "/status"] = status;
                 }
                 
-                db.ref(`routes/route_${truckId}/stops`).update(updates);
+                db.ref(`routes/route_${truckId}/stops`).update(updates).catch(err => {
+                    console.error("Firebase write failed (markStop):", err);
+                    alert("Failed to update stop status. Check connection.");
+                });
                 // Sheet automatically updates via .on('value')
                 
                 // Snap sheet back to peek if they advanced
@@ -532,7 +535,10 @@
                         updates[s.id + "/status"] = 'PENDING'; 
                     }
                 });
-                db.ref(`routes/route_${truckId}/stops`).update(updates);
+                db.ref(`routes/route_${truckId}/stops`).update(updates).catch(err => {
+                    console.error("Firebase write failed (resetRoute):", err);
+                    alert("Failed to reset route. Check connection.");
+                });
             }
         };
 
@@ -551,7 +557,7 @@
                     if (pos) {
                         db.ref(`trucks/${truckId}`).update({
                             currentLat: pos.coords.latitude, currentLng: pos.coords.longitude, lastUpdated: firebase.database.ServerValue.TIMESTAMP
-                        });
+                        }).catch(err => console.error("Firebase write failed (GPS update):", err));
                     }
                 } catch (err) { console.error("GPS Error", err); }
             };
@@ -559,8 +565,8 @@
             setInterval(updateGps, 15000);
             const truckRef = db.ref(`trucks/${truckId}`);
             truckRef.child('status').onDisconnect().set('offline');
-            truckRef.child('status').set('online');
-            truckRef.child('name').set('Truck ' + truckId);
+            truckRef.child('status').set('online').catch(err => console.error("Firebase write failed (status):", err));
+            truckRef.child('name').set('Truck ' + truckId).catch(err => console.error("Firebase write failed (name):", err));
         }
 
         /* -----------------------------------------------------
@@ -725,9 +731,6 @@
                 truckId = data.truck_id;
                 document.getElementById('truck-title').innerText = "Truck " + truckId;
                 
-                // Sign in anonymously for Firebase Rules
-                await firebase.auth().signInAnonymously();
-                
                 // Start normal app logic
                 initMap();
                 init();
@@ -738,8 +741,14 @@
             }
         }
 
-        // Start App
-        initApp();
+        // 2. Wrap app startup in Firebase Auth to guarantee permissions
+        firebase.auth().signInAnonymously().then(() => {
+            initApp();
+        }).catch(err => {
+            console.error("Firebase auth failed:", err);
+            document.getElementById('truck-title').innerText = "Auth Error";
+            document.getElementById('current-stop-container').innerHTML = `<div style="text-align:center; color:#e11d48; padding:20px;"><b>Connection issue:</b><br>Try refreshing the page.</div>`;
+        });
 
     </script>
 </body>
