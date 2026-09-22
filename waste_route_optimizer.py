@@ -584,26 +584,30 @@ def dynamic_recalculate():
         
         # 4. Write back to Firebase
         updates_by_route = {}
+        # First, preserve completed stops for ALL active trucks
+        for tid in active_truck_ids:
+            route_key = f"route_{tid}"
+            updates_by_route[route_key] = {}
+            if route_key in routes_data and 'stops' in routes_data[route_key]:
+                stops_raw = routes_data[route_key]['stops']
+                stops_items = stops_raw.items() if isinstance(stops_raw, dict) else enumerate(stops_raw) if isinstance(stops_raw, list) else []
+                for s_id, s_info in stops_items:
+                    if s_info and s_info.get('status') != 'PENDING' and int(s_id) > -1000:
+                        updates_by_route[route_key][str(s_id)] = s_info
+
+        # Then apply the newly recalculated routes
         for idx, route in enumerate(new_routes):
             if idx < len(active_truck_ids):
                 tid = active_truck_ids[idx]
-                
-                start_seq = 1
                 route_key = f"route_{tid}"
-                if route_key not in updates_by_route: updates_by_route[route_key] = {}
                 
-                if route_key in routes_data and 'stops' in routes_data[route_key]:
-                    stops_raw = routes_data[route_key]['stops']
-                    stops_items = stops_raw.items() if isinstance(stops_raw, dict) else enumerate(stops_raw) if isinstance(stops_raw, list) else []
-                    for s_id, s_info in stops_items:
-                        if s_info and s_info.get('status') != 'PENDING' and int(s_id) > -1000:
-                            start_seq += 1
-                            updates_by_route[route_key][s_id] = s_info # Keep completed stops
+                # Determine starting sequence based on existing completed stops
+                start_seq = 1 + len(updates_by_route[route_key])
                 
                 # We overwrite the remaining sequence for this truck
                 for seq, cust_id in enumerate(route):
                     # We find the customer data
-                    cust = next((c for c in real_pending_customers if c['id'] == cust_id), None)
+                    cust = next((c for c in real_pending_customers if c['id'] == str(cust_id) or c['id'] == cust_id), None)
                     if cust:
                         updates_by_route[route_key][str(cust_id)] = {
                             "name": cust['name'],
