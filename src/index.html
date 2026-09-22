@@ -563,10 +563,28 @@
             };
             updateGps();
             setInterval(updateGps, 15000);
+            
+            // Manage Online/Offline Presence robustly
             const truckRef = db.ref(`trucks/${truckId}`);
-            truckRef.child('status').onDisconnect().set('offline');
-            truckRef.child('status').set('online').catch(err => console.error("Firebase write failed (status):", err));
-            truckRef.child('name').set('Truck ' + truckId).catch(err => console.error("Firebase write failed (name):", err));
+            db.ref('.info/connected').on('value', (snap) => {
+                if (snap.val() === true) {
+                    // Arm the disconnect hook immediately upon connection
+                    truckRef.child('status').onDisconnect().set('offline');
+                    // Mark as online
+                    truckRef.child('status').set('online').catch(err => console.error("Firebase write failed (status):", err));
+                    truckRef.child('name').set('Truck ' + truckId).catch(err => console.error("Firebase write failed (name):", err));
+                }
+            });
+            
+            // Force resume if Capacitor pauses the webview
+            if (window.Capacitor && window.Capacitor.Plugins && window.Capacitor.Plugins.App) {
+                window.Capacitor.Plugins.App.addListener('appStateChange', ({ isActive }) => {
+                    if (isActive) {
+                        truckRef.child('status').set('online').catch(e=>{});
+                        updateGps();
+                    }
+                });
+            }
         }
 
         /* -----------------------------------------------------
