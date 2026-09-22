@@ -433,10 +433,24 @@
 
             // 2. Render UI
             if (currentIndex >= stops.length) {
+                let totalCompleted = stops.reduce((acc, s) => {
+                    if (s.subStops) return acc + s.subStops.length;
+                    return acc + 1;
+                }, 0);
+                
+                const hasDepot = stops.length > 0 && (stops[stops.length-1].id < 0 || stops[stops.length-1].name === 'End Location / Depot');
+                if (hasDepot) totalCompleted -= 1;
+                
                 document.getElementById('current-stop-container').innerHTML = `
                     <div style="text-align:center; padding: 20px;">
-                        <i class="fa-solid fa-flag-checkered" style="font-size:32px; color:var(--green); margin-bottom:12px;"></i>
-                        <h2>Route Complete!</h2>
+                        <i class="fa-solid fa-flag-checkered" style="font-size:48px; color:var(--green); margin-bottom:16px;"></i>
+                        <h2 style="margin:0 0 8px 0;">Shift Complete!</h2>
+                        <p style="color:var(--text-muted); margin:0 0 24px 0; font-size:16px;">
+                            Great job! You completed <b>${totalCompleted}</b> stops today.
+                        </p>
+                        <button onclick="endShift()" class="btn btn-primary" style="width:100%; padding:14px; font-size:16px; border-radius:12px; background:var(--red); border:none; box-shadow:0 4px 12px rgba(239, 68, 68, 0.3);">
+                            <i class="fa-solid fa-power-off"></i> End Shift & Go Offline
+                        </button>
                     </div>`;
             } else {
                 const stop = stops[currentIndex];
@@ -547,6 +561,37 @@
             }
         };
 
+        window.endShift = async function() {
+            if (!confirm("End your shift and go offline?")) return;
+            
+            // 1. Stop GPS Polling
+            if (window.gpsInterval) clearInterval(window.gpsInterval);
+            
+            // 2. Set Firebase to Offline & cancel disconnect hook
+            if (truckId) {
+                const truckRef = db.ref(`trucks/${truckId}/status`);
+                truckRef.set('offline').catch(e=>{});
+                truckRef.onDisconnect().cancel();
+            }
+            
+            // 3. Clear Token to prevent auto-login
+            if (window.Capacitor && window.Capacitor.Plugins && window.Capacitor.Plugins.Preferences) {
+                await window.Capacitor.Plugins.Preferences.remove({ key: 'driver_token' }).catch(e=>{});
+            } else {
+                localStorage.removeItem('driver_token');
+            }
+            
+            // 4. Update UI
+            document.getElementById('current-stop-container').innerHTML = `
+                <div style="text-align:center; padding: 20px;">
+                    <i class="fa-solid fa-power-off" style="font-size:48px; color:var(--text-muted); margin-bottom:16px;"></i>
+                    <h2 style="margin:0 0 8px 0;">Shift Ended</h2>
+                    <p style="color:var(--text-muted); margin:0;">You are now offline. You can safely close the app.</p>
+                </div>
+            `;
+            document.getElementById('truck-title').innerText = "Offline";
+        };
+
         async function startGpsPolling() {
             if (window.Capacitor && window.Capacitor.Plugins && window.Capacitor.Plugins.Geolocation) {
                 try { await window.Capacitor.Plugins.Geolocation.requestPermissions(); } catch(e){}
@@ -567,7 +612,7 @@
                 } catch (err) { console.error("GPS Error", err); }
             };
             updateGps();
-            setInterval(updateGps, 15000);
+            window.gpsInterval = setInterval(updateGps, 15000);
             
             // Manage Online/Offline Presence robustly
             const truckRef = db.ref(`trucks/${truckId}`);
