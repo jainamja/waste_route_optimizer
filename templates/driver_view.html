@@ -573,6 +573,7 @@
                     // Mark as online
                     truckRef.child('status').set('online').catch(err => console.error("Firebase write failed (status):", err));
                     truckRef.child('name').set('Truck ' + truckId).catch(err => console.error("Firebase write failed (name):", err));
+                    truckRef.child('lastUpdated').set(firebase.database.ServerValue.TIMESTAMP).catch(e=>{});
                 }
             });
             
@@ -585,6 +586,13 @@
                     }
                 });
             }
+            
+            // Web fallback visibility safeguard for fast recovery
+            document.addEventListener('visibilitychange', () => {
+                if (document.visibilityState === 'visible') {
+                    updateGps();
+                }
+            });
         }
 
         /* -----------------------------------------------------
