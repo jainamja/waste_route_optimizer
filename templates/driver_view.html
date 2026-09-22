@@ -254,12 +254,17 @@
 
         // Setup Leaflet
         function initMap() {
+            if (map) {
+                map.remove();
+                map = null;
+            }
             map = L.map("map", { zoomControl: false }).setView([23.0225, 72.5714], 12);
             L.tileLayer("https://{s}.google.com/vt/lyrs=m&x={x}&y={y}&z={z}", {
                 maxZoom: 20, 
                 subdomains:["mt0","mt1","mt2","mt3"],
                 attribution: 'Map data &copy; Google'
             }).addTo(map);
+            setTimeout(() => { if (map) map.invalidateSize(); }, 100);
         }
 
         function init() {
@@ -583,6 +588,9 @@
                     if (isActive) {
                         truckRef.child('status').set('online').catch(e=>{});
                         updateGps();
+                        if (map) {
+                            setTimeout(() => map.invalidateSize(), 100);
+                        }
                     }
                 });
             }
@@ -591,6 +599,9 @@
             document.addEventListener('visibilitychange', () => {
                 if (document.visibilityState === 'visible') {
                     updateGps();
+                    if (map) {
+                        setTimeout(() => map.invalidateSize(), 100);
+                    }
                 }
             });
         }
