@@ -548,6 +548,66 @@ def download_excel():
     
     return send_file(export_path, as_attachment=True)
 
+@app.route('/api/remove_stop', methods=['POST'])
+def remove_stop():
+    data = request.json
+    cust_id = data.get('customer_id')
+    truck_id = int(data.get('truck_id'))
+    
+    if not cust_id or not truck_id:
+        return jsonify({'error': 'Missing customer_id or truck_id'}), 400
+        
+    try:
+        # Fetch target customer
+        sql_cust = Customer.query.get(int(cust_id))
+        if not sql_cust:
+            return jsonify({'error': 'Customer not found in SQL database'}), 404
+            
+        target_seq = sql_cust.stop_number
+        
+        # Mark as cancelled (or delete)
+        db.session.delete(sql_cust)
+        
+        # Shift subsequent stops in SQL
+        subsequent_stops = Customer.query.filter(
+            Customer.truck_id == truck_id,
+            Customer.stop_number > target_seq,
+            Customer.status == 'PENDING'
+        ).all()
+        for s in subsequent_stops:
+            s.stop_number -= 1
+            
+        db.session.commit()
+        
+        # Sync to Firebase
+        import requests
+        firebase_url = "https://wasteroutelive-default-rtdb.firebaseio.com"
+        API_KEY = "AIzaSyAhLnjh0gRa2pf29G90zr-6AMcjLjbQpPg"
+        auth_res = requests.post(f"https://identitytoolkit.googleapis.com/v1/accounts:signUp?key={API_KEY}", json={"returnSecureToken": True})
+        if auth_res.status_code == 200:
+            id_token = auth_res.json().get('idToken')
+            route_key = f"route_{truck_id}"
+            
+            stops_res = requests.get(f"{firebase_url}/routes/{route_key}/stops.json?auth={id_token}")
+            stops = stops_res.json() or {}
+            
+            # Remove target stop and shift others
+            if str(cust_id) in stops:
+                del stops[str(cust_id)]
+                
+                for s_id, s_info in stops.items():
+                    if s_info and s_info.get('status') == 'PENDING' and s_info.get('sequence', 0) > target_seq:
+                        s_info['sequence'] -= 1
+                        
+                # Update Firebase
+                requests.put(f"{firebase_url}/routes/{route_key}/stops.json?auth={id_token}", json=stops)
+                
+        return jsonify({'success': True})
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        return jsonify({'error': str(e)}), 500
+
 @app.route('/api/add_stop', methods=['POST'])
 def add_stop():
     data = request.json

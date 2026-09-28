@@ -652,9 +652,12 @@
                                 <div class="stop-status">
                                     ${isDone ? '<i class="fa-solid fa-circle-check"></i>' : '<i class="fa-regular fa-circle"></i>'}
                                 </div>
-                                <div class="stop-info">
-                                    <div class="stop-name">${displayName}</div>
-                                    ${customer.address ? `<div style="color:var(--text-muted);"><i class="fa-solid fa-location-dot"></i> ${customer.address}</div>` : ''}
+                                <div class="stop-info" style="flex:1;">
+                                    <div style="display:flex; justify-content:space-between; align-items:flex-start;">
+                                        <div class="stop-name">${displayName}</div>
+                                        ${!isDone && !isDepot ? `<button onclick="removeStop(${customer.id}, ${customer.truck})" style="background:none; border:none; color:#ef4444; cursor:pointer; padding:4px; margin-left:8px;" title="Remove Stop"><i class="fa-solid fa-trash"></i></button>` : ''}
+                                    </div>
+                                    ${customer.address ? `<div style="color:var(--text-muted); font-size:13px; margin-top:2px;"><i class="fa-solid fa-location-dot"></i> ${customer.address}</div>` : ''}
                                 </div>
                             </div>
                         `;
@@ -889,6 +892,28 @@
             
             btn.innerHTML = insert_mode === 'manual' ? 'Force Insert Stop' : 'Add & Recalculate';
             btn.disabled = false;
+        };
+
+        window.removeStop = async function(customerId, truckId) {
+            if (!confirm("Are you sure you want to completely remove this stop from Truck " + truckId + "?")) {
+                return;
+            }
+            try {
+                let res = await fetch('/api/remove_stop', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({ customer_id: customerId, truck_id: truckId })
+                });
+                let resData = await res.json();
+                if (resData.success) {
+                    loadData();
+                } else {
+                    alert("Failed to remove stop: " + resData.error);
+                }
+            } catch(e) {
+                console.error(e);
+                alert("An error occurred while removing the stop.");
+            }
         };
 
         window.onload = loadData;
