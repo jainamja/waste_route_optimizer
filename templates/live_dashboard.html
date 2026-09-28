@@ -343,6 +343,24 @@
         </div>
     </div>
     
+    <!-- Modal for Add Stop -->
+    <div id="add-stop-modal" style="display:none; position:fixed; top:0; left:0; right:0; bottom:0; background:rgba(0,0,0,0.5); z-index:9999; align-items:center; justify-content:center;">
+        <div style="background:white; padding:32px; border-radius:24px; max-width:450px; width:90%;">
+            <h3 style="margin-top:0; font-family:'Manrope', sans-serif;">Add New Stop Mid-Route</h3>
+            <p style="color:var(--text-muted); font-size:14px; margin-bottom:24px;">This stop will be added to the live map and optimally assigned to the closest truck.</p>
+            <div style="display:flex; flex-direction:column; gap:16px;">
+                <input type="text" id="new-stop-name" placeholder="Customer Name (e.g. John Doe)" style="padding:12px; border:1px solid var(--border); border-radius:12px; font-family:'Inter', sans-serif;">
+                <input type="text" id="new-stop-phone" placeholder="Phone Number (Optional)" style="padding:12px; border:1px solid var(--border); border-radius:12px; font-family:'Inter', sans-serif;">
+                <input type="text" id="new-stop-address" placeholder="Address (Required if no map link)" style="padding:12px; border:1px solid var(--border); border-radius:12px; font-family:'Inter', sans-serif;">
+                <input type="text" id="new-stop-url" placeholder="Google Maps Link (Recommended)" style="padding:12px; border:1px solid var(--border); border-radius:12px; font-family:'Inter', sans-serif;">
+            </div>
+            <div style="margin-top:24px; display:flex; gap:12px;">
+                <button class="btn btn-primary" id="btn-submit-stop" onclick="submitNewStop()" style="flex:1;">Add & Recalculate</button>
+                <button class="btn btn-outline" onclick="closeAddStopModal()" style="flex:1;">Cancel</button>
+            </div>
+        </div>
+    </div>
+    
     <div class="header-bar">
         <div class="title-area">
             <img src="/static/logo.jpg" alt="Logo" style="height: 32px; border-radius: 8px;">
@@ -353,6 +371,7 @@
             <div class="live-indicator" id="live-indicator" style="display:none;"><span class="pulse"></span> Live</div>
         </div>
         <div style="display:flex; gap:12px;">
+            <button onclick="openAddStopModal()" class="btn btn-primary" id="add-stop-btn" style="background:#10b981; border:none; display:none;"><i class="fa-solid fa-plus"></i> Add Stop</button>
             <a href="/live" class="btn btn-primary" target="_blank" style="text-decoration:none;"><i class="fa-solid fa-satellite-dish"></i> Open Live Tracking</a>
             <a href="/download_excel" class="btn btn-outline" id="export-btn" style="display:none; text-decoration:none;">
                 <i class="fa-solid fa-file-excel"></i> Export Report
@@ -428,6 +447,7 @@
                         document.getElementById('dashboard-content').style.display = 'none';
                         document.getElementById('live-indicator').style.display = 'none';
                         document.getElementById('export-btn').style.display = 'none';
+                        document.getElementById('add-stop-btn').style.display = 'none';
                         return;
                     }
                     data = resData;
@@ -435,6 +455,7 @@
                     document.getElementById('dashboard-content').style.display = 'flex';
                     document.getElementById('live-indicator').style.display = 'flex';
                     document.getElementById('export-btn').style.display = 'inline-flex';
+                    document.getElementById('add-stop-btn').style.display = 'inline-flex';
                     
                     updateHeaderStats();
                     renderMap();
@@ -730,6 +751,65 @@
             fetch(`/api/mark_completed/${customerId}`, { method: 'POST' })
                 .then(res => res.json())
                 .then(() => loadData());
+        };
+
+        // Add Stop Modal Logic
+        window.openAddStopModal = function() {
+            document.getElementById('add-stop-modal').style.display = 'flex';
+        };
+        
+        window.closeAddStopModal = function() {
+            document.getElementById('add-stop-modal').style.display = 'none';
+            document.getElementById('new-stop-name').value = '';
+            document.getElementById('new-stop-phone').value = '';
+            document.getElementById('new-stop-address').value = '';
+            document.getElementById('new-stop-url').value = '';
+        };
+        
+        window.submitNewStop = async function() {
+            const btn = document.getElementById('btn-submit-stop');
+            const name = document.getElementById('new-stop-name').value;
+            const phone = document.getElementById('new-stop-phone').value;
+            const address = document.getElementById('new-stop-address').value;
+            const location_url = document.getElementById('new-stop-url').value;
+            
+            if (!address && !location_url) {
+                alert("Please provide either an Address or a Google Maps Link!");
+                return;
+            }
+            
+            btn.innerHTML = '<i class="fa-solid fa-circle-notch fa-spin"></i> Adding Stop...';
+            btn.disabled = true;
+            
+            try {
+                let res = await fetch('/api/add_stop', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({name, phone, address, location_url})
+                });
+                let data = await res.json();
+                
+                if (data.success) {
+                    btn.innerHTML = '<i class="fa-solid fa-circle-notch fa-spin"></i> Recalculating Routes...';
+                    let recalcRes = await fetch('/api/dynamic_recalculate', { method: 'POST' });
+                    let recalcData = await recalcRes.json();
+                    
+                    if (recalcData.success) {
+                        closeAddStopModal();
+                        loadData(); // Reload UI
+                    } else {
+                        alert("Stop added, but recalculation failed: " + recalcData.error);
+                    }
+                } else {
+                    alert("Error adding stop: " + data.error);
+                }
+            } catch (e) {
+                console.error(e);
+                alert("An error occurred. Please check console.");
+            }
+            
+            btn.innerHTML = 'Add & Recalculate';
+            btn.disabled = false;
         };
 
         window.onload = loadData;

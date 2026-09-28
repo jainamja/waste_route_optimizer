@@ -548,6 +548,55 @@ def download_excel():
     
     return send_file(export_path, as_attachment=True)
 
+@app.route('/api/add_stop', methods=['POST'])
+def add_stop():
+    data = request.json
+    if not data: return jsonify({'error': 'No data provided'}), 400
+    
+    name = data.get('name', 'New Stop')
+    phone = data.get('phone', '')
+    address = data.get('address', '')
+    location_url = data.get('location_url', '')
+    
+    lat, lng = None, None
+    if location_url:
+        url_match = re.search(r'(https?://[^\s]+)', str(location_url))
+        if url_match:
+            lat, lng = resolve_gmaps_url(url_match.group(1))
+            
+    if (lat is None or lng is None) and address:
+        search_query = str(address)
+        if "ahmedabad" not in search_query.lower() and "gujarat" not in search_query.lower():
+            search_query += ", Ahmedabad, Gujarat, India"
+        try:
+            from geopy.geocoders import ArcGIS
+            location = ArcGIS().geocode(search_query)
+            if location: lat, lng = location.latitude, location.longitude
+        except: pass
+        
+    if lat is None or lng is None:
+        return jsonify({'error': 'Could not resolve coordinates from the provided URL or Address.'}), 400
+        
+    try:
+        max_id = db.session.query(db.func.max(Customer.id)).scalar() or 0
+        new_cust = Customer(
+            id=max_id + 1,
+            name=name,
+            phone=phone,
+            address=address,
+            location_url=location_url,
+            lat=lat,
+            lng=lng,
+            status='PENDING'
+        )
+        db.session.add(new_cust)
+        db.session.commit()
+        return jsonify({'success': True, 'customer_id': max_id + 1})
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        return jsonify({'error': str(e)}), 500
+
 if __name__ == '__main__':
     app.run(debug=True, port=5000)
 
@@ -603,6 +652,16 @@ def dynamic_recalculate():
                                 'lng': float(stop_info['lng'])
                             })
                             
+        unassigned = Customer.query.filter_by(status='PENDING').filter((Customer.truck_id == None) | (Customer.truck_id == '')).all()
+        for c in unassigned:
+            pending_customers.append({
+                'id': str(c.id),
+                'name': c.name,
+                'address': c.address,
+                'lat': c.lat,
+                'lng': c.lng
+            })
+
         if not truck_starts:
             return jsonify({'error': 'No online trucks found. Open the driver app so it sends GPS data!'}), 400
             
@@ -676,6 +735,25 @@ def dynamic_recalculate():
         # Now PUT the new assignments individually to clear out old orphaned pending stops on these active routes
         for route_key, stops in updates_by_route.items():
             requests.put(f"{firebase_url}/routes/{route_key}/stops.json?auth={id_token}", json=stops)
+        
+        # Update SQL Database so Excel reports stay perfectly synced with live routes
+        try:
+            for idx, route in enumerate(new_routes):
+                if idx < len(active_truck_ids):
+                    tid = active_truck_ids[idx]
+                    route_key = f"route_{tid}"
+                    # Base sequence offsets for SQL
+                    completed_count = len([s for s_id, s in updates_by_route[route_key].items() if s.get('status') != 'PENDING' and int(s_id) > -1000])
+                    start_seq = completed_count + 1
+                    
+                    for seq, cust_id in enumerate(route):
+                        sql_cust = Customer.query.get(int(cust_id))
+                        if sql_cust:
+                            sql_cust.truck_id = int(tid)
+                            sql_cust.stop_number = start_seq + seq
+            db.session.commit()
+        except Exception as sql_e:
+            print("Failed to update SQL assignments:", sql_e)
         
         return jsonify({'success': True, 'recalculated_stops': len(pending_customers)})
         
