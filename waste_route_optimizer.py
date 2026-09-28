@@ -110,6 +110,13 @@ def read_data_file(filepath):
     
     if df is None or df.empty: return []
 
+    # Auto-detect missing headers (if a column name is a URL or a pure integer)
+    has_no_header = any('http' in str(c) or 'maps.app' in str(c) for c in df.columns)
+    if has_no_header:
+        new_row = pd.DataFrame([df.columns], columns=df.columns)
+        df = pd.concat([new_row, df], ignore_index=True)
+        df.columns = [str(i) for i in range(len(df.columns))]
+
     cols = [str(c).lower() for c in df.columns]
     df.columns = cols
     
@@ -117,11 +124,37 @@ def read_data_file(filepath):
     lat_col = next((c for c in cols if 'lat' in c), None) if not coord_col else None
     lng_col = next((c for c in cols if 'lng' in c or 'lon' in c), None) if not coord_col else None
 
-    name_col = next((c for c in cols if 'name' in c), cols[0])
-    phone_col = next((c for c in cols if 'phone' in c), cols[1] if len(cols)>1 else None)
-    address_col = next((c for c in cols if 'address' in c), cols[2] if len(cols)>2 else None)
+    # Smart detect URL
     loc_url_col = next((c for c in cols if 'location' in c and c != coord_col), None)
+    if not loc_url_col:
+        for c in cols:
+            first_val = str(df[c].dropna().head(1).iloc[0]) if len(df[c].dropna()) else ""
+            if 'http' in first_val or 'maps.app' in first_val:
+                loc_url_col = c
+                break
 
+    name_col = next((c for c in cols if 'name' in c), None)
+    if not name_col:
+        for c in cols:
+            if c != loc_url_col and c != coord_col:
+                first_val = str(df[c].dropna().head(1).iloc[0]) if len(df[c].dropna()) else ""
+                if not first_val.isdigit() and len(first_val) > 2 and len(first_val) < 50:
+                    name_col = c
+                    break
+        if not name_col: name_col = cols[0]
+
+    address_col = next((c for c in cols if 'address' in c), None)
+    if not address_col:
+        max_len = 0
+        for c in cols:
+            if c not in [loc_url_col, name_col, coord_col]:
+                avg_len = df[c].astype(str).str.len().mean()
+                if avg_len > max_len:
+                    max_len = avg_len
+                    address_col = c
+
+    phone_col = next((c for c in cols if 'phone' in c), None)
+    
     urls_to_resolve = set()
     for _, row in df.iterrows():
         loc_url_raw = row.get(loc_url_col) if loc_url_col and not pd.isna(row.get(loc_url_col)) else ""
