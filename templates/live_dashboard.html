@@ -784,21 +784,30 @@
             const select = document.getElementById('manual-target');
             select.innerHTML = '<option value="">-- First Stop (Start of Route) --</option>';
             
-            if (data && data.routes) {
-                data.routes.forEach(route => {
-                    let optgroup = document.createElement('optgroup');
-                    optgroup.label = "Truck " + route.truck_id;
-                    
-                    if (route.stops) {
-                        // Sort by sequence
-                        let sorted = Object.values(route.stops).filter(s => s.status === 'PENDING' && parseInt(s.id) > -1000).sort((a,b) => a.sequence - b.sequence);
-                        sorted.forEach(s => {
-                            let opt = document.createElement('option');
-                            opt.value = route.truck_id + "|" + s.sequence;
-                            opt.text = "After Stop " + s.sequence + ": " + s.name;
-                            optgroup.appendChild(opt);
-                        });
+            if (data && data.customers) {
+                // Group customers by truck
+                let trucks = {};
+                data.customers.forEach(c => {
+                    if (c.id > -1000 && c.truck !== null) {
+                        if (!trucks[c.truck]) trucks[c.truck] = [];
+                        trucks[c.truck].push(c);
                     }
+                });
+                
+                Object.keys(trucks).sort((a,b)=>a-b).forEach(truckId => {
+                    let optgroup = document.createElement('optgroup');
+                    optgroup.label = "Truck " + truckId;
+                    
+                    let sorted = trucks[truckId].sort((a,b) => a.stop_number - b.stop_number);
+                    sorted.forEach(s => {
+                        if(s.status === 'PENDING') {
+                            let opt = document.createElement('option');
+                            opt.value = truckId + "|" + s.stop_number;
+                            opt.text = "After Stop " + s.stop_number + ": " + s.name;
+                            optgroup.appendChild(opt);
+                        }
+                    });
+                    
                     select.appendChild(optgroup);
                 });
             }
@@ -841,7 +850,7 @@
                         reqData.target_sequence = parseInt(parts[1]);
                     } else {
                         // If no target selected, assume we want it on truck 1, sequence 0 (first)
-                        let firstTruck = data.routes && data.routes.length > 0 ? data.routes[0].truck_id : 1;
+                        let firstTruck = data.customers && data.customers.length > 0 ? data.customers[0].truck : 1;
                         reqData.target_truck_id = firstTruck;
                         reqData.target_sequence = 0;
                     }
