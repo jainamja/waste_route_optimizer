@@ -346,8 +346,20 @@
     <!-- Modal for Add Stop -->
     <div id="add-stop-modal" style="display:none; position:fixed; top:0; left:0; right:0; bottom:0; background:rgba(0,0,0,0.5); z-index:9999; align-items:center; justify-content:center;">
         <div style="background:white; padding:32px; border-radius:24px; max-width:450px; width:90%;">
-            <h3 style="margin-top:0; font-family:'Manrope', sans-serif;">Add New Stop Mid-Route</h3>
-            <p style="color:var(--text-muted); font-size:14px; margin-bottom:24px;">This stop will be added to the live map and optimally assigned to the closest truck.</p>
+            <h3 style="margin-top:0; font-family:'Manrope', sans-serif;">Add New Stop</h3>
+            
+            <select id="insert-mode" onchange="toggleInsertMode()" style="width:100%; padding:12px; margin-bottom:16px; border:1px solid var(--border); border-radius:12px; font-family:'Inter', sans-serif; background:#f8fafc; font-weight:600;">
+                <option value="auto">Auto (AI Global Optimization)</option>
+                <option value="manual">Manual Override (Insert Specific Location)</option>
+            </select>
+            
+            <p id="insert-mode-desc" style="color:var(--text-muted); font-size:13px; margin-bottom:20px;">The AI will evaluate all active trucks and recalculate the global shortest route.</p>
+            
+            <div id="manual-options" style="display:none; margin-bottom:16px;">
+                <label style="font-size:12px; font-weight:600; color:var(--text-muted); display:block; margin-bottom:6px;">Insert After Stop:</label>
+                <select id="manual-target" style="width:100%; padding:12px; border:1px solid var(--border); border-radius:12px; font-family:'Inter', sans-serif;"></select>
+            </div>
+
             <div style="display:flex; flex-direction:column; gap:16px;">
                 <input type="text" id="new-stop-name" placeholder="Customer Name (e.g. John Doe)" style="padding:12px; border:1px solid var(--border); border-radius:12px; font-family:'Inter', sans-serif;">
                 <input type="text" id="new-stop-phone" placeholder="Phone Number (Optional)" style="padding:12px; border:1px solid var(--border); border-radius:12px; font-family:'Inter', sans-serif;">
@@ -754,7 +766,43 @@
         };
 
         // Add Stop Modal Logic
+        window.toggleInsertMode = function() {
+            const mode = document.getElementById('insert-mode').value;
+            if (mode === 'manual') {
+                document.getElementById('manual-options').style.display = 'block';
+                document.getElementById('insert-mode-desc').innerText = 'The stop will be forced exactly where you choose without changing the rest of the route.';
+                document.getElementById('btn-submit-stop').innerText = 'Force Insert Stop';
+            } else {
+                document.getElementById('manual-options').style.display = 'none';
+                document.getElementById('insert-mode-desc').innerText = 'The AI will evaluate all active trucks and recalculate the global shortest route.';
+                document.getElementById('btn-submit-stop').innerText = 'Add & Recalculate';
+            }
+        };
+        
         window.openAddStopModal = function() {
+            // Populate manual target dropdown
+            const select = document.getElementById('manual-target');
+            select.innerHTML = '<option value="">-- First Stop (Start of Route) --</option>';
+            
+            if (data && data.routes) {
+                data.routes.forEach(route => {
+                    let optgroup = document.createElement('optgroup');
+                    optgroup.label = "Truck " + route.truck_id;
+                    
+                    if (route.stops) {
+                        // Sort by sequence
+                        let sorted = Object.values(route.stops).filter(s => s.status === 'PENDING' && parseInt(s.id) > -1000).sort((a,b) => a.sequence - b.sequence);
+                        sorted.forEach(s => {
+                            let opt = document.createElement('option');
+                            opt.value = route.truck_id + "|" + s.sequence;
+                            opt.text = "After Stop " + s.sequence + ": " + s.name;
+                            optgroup.appendChild(opt);
+                        });
+                    }
+                    select.appendChild(optgroup);
+                });
+            }
+            
             document.getElementById('add-stop-modal').style.display = 'flex';
         };
         
@@ -773,6 +821,9 @@
             const address = document.getElementById('new-stop-address').value;
             const location_url = document.getElementById('new-stop-url').value;
             
+            const insert_mode = document.getElementById('insert-mode').value;
+            const manual_target = document.getElementById('manual-target').value;
+            
             if (!address && !location_url) {
                 alert("Please provide either an Address or a Google Maps Link!");
                 return;
@@ -782,33 +833,52 @@
             btn.disabled = true;
             
             try {
+                let reqData = {name, phone, address, location_url, insert_mode};
+                if (insert_mode === 'manual') {
+                    if (manual_target) {
+                        let parts = manual_target.split('|');
+                        reqData.target_truck_id = parseInt(parts[0]);
+                        reqData.target_sequence = parseInt(parts[1]);
+                    } else {
+                        // If no target selected, assume we want it on truck 1, sequence 0 (first)
+                        let firstTruck = data.routes && data.routes.length > 0 ? data.routes[0].truck_id : 1;
+                        reqData.target_truck_id = firstTruck;
+                        reqData.target_sequence = 0;
+                    }
+                }
+            
                 let res = await fetch('/api/add_stop', {
                     method: 'POST',
                     headers: {'Content-Type': 'application/json'},
-                    body: JSON.stringify({name, phone, address, location_url})
+                    body: JSON.stringify(reqData)
                 });
-                let data = await res.json();
+                let resData = await res.json();
                 
-                if (data.success) {
-                    btn.innerHTML = '<i class="fa-solid fa-circle-notch fa-spin"></i> Recalculating Routes...';
-                    let recalcRes = await fetch('/api/dynamic_recalculate', { method: 'POST' });
-                    let recalcData = await recalcRes.json();
-                    
-                    if (recalcData.success) {
+                if (resData.success) {
+                    if (insert_mode === 'manual') {
                         closeAddStopModal();
-                        loadData(); // Reload UI
+                        loadData(); // Manual insertion handles SQL & Firebase directly in Python
                     } else {
-                        alert("Stop added, but recalculation failed: " + recalcData.error);
+                        btn.innerHTML = '<i class="fa-solid fa-circle-notch fa-spin"></i> Recalculating Routes...';
+                        let recalcRes = await fetch('/api/dynamic_recalculate', { method: 'POST' });
+                        let recalcData = await recalcRes.json();
+                        
+                        if (recalcData.success) {
+                            closeAddStopModal();
+                            loadData(); // Reload UI
+                        } else {
+                            alert("Stop added, but recalculation failed: " + recalcData.error);
+                        }
                     }
                 } else {
-                    alert("Error adding stop: " + data.error);
+                    alert("Error adding stop: " + resData.error);
                 }
             } catch (e) {
                 console.error(e);
                 alert("An error occurred. Please check console.");
             }
             
-            btn.innerHTML = 'Add & Recalculate';
+            btn.innerHTML = insert_mode === 'manual' ? 'Force Insert Stop' : 'Add & Recalculate';
             btn.disabled = false;
         };
 

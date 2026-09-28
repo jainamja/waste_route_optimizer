@@ -579,19 +579,70 @@ def add_stop():
         
     try:
         max_id = db.session.query(db.func.max(Customer.id)).scalar() or 0
-        new_cust = Customer(
-            id=max_id + 1,
-            name=name,
-            phone=phone,
-            address=address,
-            location_url=location_url,
-            lat=lat,
-            lng=lng,
-            status='PENDING'
-        )
-        db.session.add(new_cust)
-        db.session.commit()
-        return jsonify({'success': True, 'customer_id': max_id + 1})
+        new_id = max_id + 1
+        
+        insert_mode = data.get('insert_mode', 'auto')
+        target_truck_id = data.get('target_truck_id')
+        target_sequence = data.get('target_sequence', 0)
+        
+        if insert_mode == 'manual' and target_truck_id is not None:
+            # Shift SQL sequences
+            subsequent_stops = Customer.query.filter(
+                Customer.truck_id == target_truck_id,
+                Customer.stop_number > target_sequence,
+                Customer.status == 'PENDING'
+            ).all()
+            for s in subsequent_stops:
+                s.stop_number += 1
+                
+            new_cust = Customer(
+                id=new_id, name=name, phone=phone, address=address,
+                location_url=location_url, lat=lat, lng=lng,
+                status='PENDING', truck_id=target_truck_id, stop_number=target_sequence + 1
+            )
+            db.session.add(new_cust)
+            db.session.commit()
+            
+            # Sync to Firebase
+            import requests
+            firebase_url = "https://wasteroutelive-default-rtdb.firebaseio.com"
+            API_KEY = "AIzaSyAhLnjh0gRa2pf29G90zr-6AMcjLjbQpPg"
+            auth_res = requests.post(f"https://identitytoolkit.googleapis.com/v1/accounts:signUp?key={API_KEY}", json={"returnSecureToken": True})
+            if auth_res.status_code == 200:
+                id_token = auth_res.json().get('idToken')
+                route_key = f"route_{target_truck_id}"
+                
+                stops_res = requests.get(f"{firebase_url}/routes/{route_key}/stops.json?auth={id_token}")
+                stops = stops_res.json() or {}
+                
+                # Shift sequence in firebase
+                for s_id, s_info in stops.items():
+                    if s_info and s_info.get('status') == 'PENDING' and s_info.get('sequence', 0) > target_sequence:
+                        s_info['sequence'] += 1
+                
+                # Add new stop
+                stops[str(new_id)] = {
+                    "name": name,
+                    "address": address,
+                    "lat": lat,
+                    "lng": lng,
+                    "sequence": target_sequence + 1,
+                    "status": "PENDING"
+                }
+                
+                requests.put(f"{firebase_url}/routes/{route_key}/stops.json?auth={id_token}", json=stops)
+                
+            return jsonify({'success': True, 'customer_id': new_id})
+            
+        else:
+            # Auto mode
+            new_cust = Customer(
+                id=new_id, name=name, phone=phone, address=address,
+                location_url=location_url, lat=lat, lng=lng, status='PENDING'
+            )
+            db.session.add(new_cust)
+            db.session.commit()
+            return jsonify({'success': True, 'customer_id': new_id})
     except Exception as e:
         import traceback
         traceback.print_exc()
