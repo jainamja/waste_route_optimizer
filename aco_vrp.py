@@ -139,17 +139,14 @@ class ACO_VRP:
         routing.AddDimension(
             transit_callback_index,
             0,  # no slack
-            300000,  # vehicle maximum travel distance in meters (300 km)
+            3000000,  # vehicle maximum travel distance in meters (3000 km)
             True,  # start cumul to zero
             dimension_name)
-        
-        # We do NOT use GlobalSpanCostCoefficient on distance. 
-        # Forcing equal distances makes trucks drive useless miles (zigzagging) just to match the longest route!
         
         # Stops dimension (to balance the workload)
         routing.AddConstantDimension(
             1, # increment by 1 for every node visited
-            100, # capacity (max stops)
+            3000, # capacity (max stops)
             True, # start at zero
             "Stops"
         )
@@ -173,8 +170,8 @@ class ACO_VRP:
         # AUTOMATIC strategy is better at handling strict bounds than PATH_CHEAPEST_ARC
         search_parameters.first_solution_strategy = routing_enums_pb2.FirstSolutionStrategy.AUTOMATIC
         search_parameters.local_search_metaheuristic = routing_enums_pb2.LocalSearchMetaheuristic.GUIDED_LOCAL_SEARCH
-        # Time limit of 3s aggressively guarantees we beat Gunicorn's 30s timeout on Render cold starts
-        search_parameters.time_limit.FromSeconds(3)
+        # Time limit of 8s guarantees we beat Gunicorn's 30s timeout on Render cold starts while allowing large routes
+        search_parameters.time_limit.FromSeconds(8)
 
         solution = routing.SolveWithParameters(search_parameters)
 
