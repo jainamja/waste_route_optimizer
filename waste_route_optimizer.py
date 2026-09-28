@@ -157,7 +157,15 @@ def read_data_file(filepath):
                     address_col = c
 
     phone_col = next((c for c in cols if 'phone' in c), None)
-    
+    if not phone_col:
+        for c in cols:
+            if c not in [loc_url_col, name_col, coord_col, address_col]:
+                first_val = str(df[c].dropna().head(1).iloc[0]) if len(df[c].dropna()) else ""
+                clean_val = ''.join(filter(str.isdigit, first_val))
+                if len(clean_val) >= 9 and len(clean_val) <= 15:
+                    phone_col = c
+                    break
+                    
     urls_to_resolve = set()
     for _, row in df.iterrows():
         loc_url_raw = row.get(loc_url_col) if loc_url_col and not pd.isna(row.get(loc_url_col)) else ""
