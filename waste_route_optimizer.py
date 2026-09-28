@@ -652,7 +652,7 @@ def dynamic_recalculate():
                                 'lng': float(stop_info['lng'])
                             })
                             
-        unassigned = Customer.query.filter_by(status='PENDING').filter((Customer.truck_id == None) | (Customer.truck_id == '')).all()
+        unassigned = Customer.query.filter_by(status='PENDING').filter(Customer.truck_id == None).all()
         for c in unassigned:
             pending_customers.append({
                 'id': str(c.id),
