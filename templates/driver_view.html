@@ -461,7 +461,10 @@
                 
                 document.getElementById('current-stop-container').innerHTML = `
                     <div class="progress-text">${progressText}</div>
-                    <div class="stop-name">${stop.name}</div>
+                    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
+                        <div class="stop-name" style="margin-bottom: 0;">${stop.name}</div>
+                        ${stop.phone ? `<a href="tel:${stop.phone}" style="background: var(--primary); color: white; width: 40px; height: 40px; border-radius: 50%; display: flex; justify-content: center; align-items: center; text-decoration: none; box-shadow: 0 4px 6px rgba(0,0,0,0.1);"><i class="fa-solid fa-phone"></i></a>` : ''}
+                    </div>
                     <div class="stop-address">
                         <i class="fa-solid fa-location-dot" style="margin-top:4px;"></i>
                         <span>${stop.address || 'No address provided'}</span>

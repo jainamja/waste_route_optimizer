@@ -391,6 +391,7 @@ def upload():
                     routes_payload[route_key][str(c['id'])] = {
                         "name": c['name'],
                         "address": c['address'],
+                        "phone": c.get('phone', ''),
                         "lat": c['lat'],
                         "lng": c['lng'],
                         "sequence": c.get('stop_number', None),
@@ -684,6 +685,7 @@ def add_stop():
                 stops[str(new_id)] = {
                     "name": name,
                     "address": address,
+                    "phone": phone,
                     "lat": lat,
                     "lng": lng,
                     "sequence": target_sequence + 1,
@@ -759,6 +761,7 @@ def dynamic_recalculate():
                                 'id': str(stop_id),
                                 'name': stop_info.get('name', ''),
                                 'address': stop_info.get('address', ''),
+                                'phone': stop_info.get('phone', ''),
                                 'lat': float(stop_info['lat']),
                                 'lng': float(stop_info['lng'])
                             })
@@ -769,6 +772,7 @@ def dynamic_recalculate():
                 'id': str(c.id),
                 'name': c.name,
                 'address': c.address,
+                'phone': c.phone,
                 'lat': c.lat,
                 'lng': c.lng
             })
@@ -826,6 +830,7 @@ def dynamic_recalculate():
                         updates_by_route[route_key][str(cust_id)] = {
                             "name": cust['name'],
                             "address": cust['address'],
+                            "phone": cust.get('phone', ''),
                             "lat": cust['lat'],
                             "lng": cust['lng'],
                             "sequence": start_seq + seq,
@@ -837,6 +842,7 @@ def dynamic_recalculate():
                 updates_by_route[route_key][str(-1000 - idx)] = {
                     "name": "End Location / Depot",
                     "address": "Return to Depot",
+                    "phone": "",
                     "lat": depot_lat,
                     "lng": depot_lng,
                     "sequence": start_seq + len(route),
