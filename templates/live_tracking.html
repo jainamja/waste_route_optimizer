@@ -82,8 +82,8 @@
     
     <script>
         let map = L.map('map').setView([23.0225, 72.5714], 12);
-        L.tileLayer('https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png?hl=en', {
-            maxZoom: 19, attribution: '© OpenStreetMap contributors'
+        L.tileLayer("https://{s}.google.com/vt/lyrs=m&hl=en&x={x}&y={y}&z={z}", {
+            maxZoom: 20, subdomains:["mt0","mt1","mt2","mt3"]
         }).addTo(map);
         
         const firebaseConfig = {
