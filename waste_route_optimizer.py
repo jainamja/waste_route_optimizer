@@ -287,11 +287,29 @@ def logout():
 def index():
     return render_template('select_start_point.html')
 
+@app.route('/dashboard')
+@login_required
+def dashboard():
+    return render_template('admin_dashboard.html')
 
 @app.route('/live')
 @login_required
 def live_tracking():
-    return render_template('live_tracking.html')
+    return render_template('live_dashboard.html')
+
+@app.route('/api/drivers', methods=['GET'])
+@login_required
+def get_drivers():
+    drivers = User.query.filter_by(role='DRIVER').all()
+    drivers_data = []
+    for d in drivers:
+        drivers_data.append({
+            'id': d.id,
+            'username': d.username,
+            'truck_id': d.truck_id,
+            'password_hash': 'redacted'
+        })
+    return jsonify({'drivers': drivers_data})
 
 @app.route('/upload', methods=['POST'])
 @login_required
@@ -473,11 +491,43 @@ def upload():
 
     return redirect(url_for('dashboard'))
 
-@app.route('/dashboard')
-def dashboard():
-    if not Customer.query.first():
-        return redirect(url_for('index'))
-    return render_template('live_dashboard.html')
+@app.route('/api/driver_login', methods=['POST'])
+def driver_login():
+    data = request.json
+    username = data.get('username')
+    password = data.get('password')
+    
+    from werkzeug.security import check_password_hash
+    user = User.query.filter_by(username=username, role='DRIVER').first()
+    
+    if user and check_password_hash(user.password_hash, password):
+        return jsonify({'success': True, 'token': str(user.truck_id)})
+    else:
+        return jsonify({'error': 'Invalid mobile number or password'}), 401
+
+@app.route('/api/admin_create_driver', methods=['POST'])
+@login_required
+def admin_create_driver():
+    data = request.json
+    username = data.get('username')
+    password = data.get('password')
+    if not username or not password:
+        return jsonify({'error': 'Missing fields'}), 400
+    
+    if User.query.filter_by(username=username).first():
+        return jsonify({'error': 'Mobile number already exists'}), 400
+        
+    from werkzeug.security import generate_password_hash
+    existing_truck_ids = [u.truck_id for u in User.query.filter_by(role='DRIVER').all() if u.truck_id is not None]
+    next_truck_id = max(existing_truck_ids) + 1 if existing_truck_ids else 1
+    
+    new_driver = User(username=username, password_hash=generate_password_hash(password), role='DRIVER', truck_id=next_truck_id)
+    db.session.add(new_driver)
+    db.session.commit()
+    
+    return jsonify({'success': True, 'truck_id': next_truck_id})
+
+
 
 @app.route('/driver')
 def driver_view():
