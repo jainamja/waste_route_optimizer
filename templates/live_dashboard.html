@@ -8,6 +8,10 @@
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=Manrope:wght@600;700;800&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
     
+    <!-- Firebase -->
+    <script src="https://www.gstatic.com/firebasejs/10.9.0/firebase-app-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/10.9.0/firebase-auth-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/10.9.0/firebase-database-compat.js"></script>
     <!-- Leaflet -->
     <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
     <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
@@ -466,6 +470,52 @@
     </div>
 
     <script>
+        const firebaseConfig = {
+            apiKey: "AIzaSyAhLnjh0gRa2pf29G90zr-6AMcjLjbQpPg",
+            authDomain: "wasteroutelive.firebaseapp.com",
+            projectId: "wasteroutelive",
+            storageBucket: "wasteroutelive.firebasestorage.app",
+            messagingSenderId: "141692937729",
+            appId: "1:141692937729:web:66398f74c16562c5d58200"
+        };
+        firebase.initializeApp(firebaseConfig);
+        const db = firebase.database();
+        let liveTruckMarkers = {};
+
+        function startLiveTracking() {
+            firebase.auth().signInAnonymously().then(() => {
+                db.ref('trucks').on('value', snap => {
+                    if(!map) return;
+                    let trucks = snap.val();
+                    if(!trucks) return;
+                    
+                    for(let tId in trucks) {
+                        let truck = trucks[tId];
+                        let tNum = tId;
+                        if(truck.status === 'online' && truck.currentLat && truck.currentLng) {
+                            if(liveTruckMarkers[tNum]) {
+                                liveTruckMarkers[tNum].setLatLng([truck.currentLat, truck.currentLng]);
+                            } else {
+                                let truckIcon = L.divIcon({
+                                    className: 'live-truck-icon',
+                                    html: `<div style='background-color:#2F5FFF; width:34px; height:34px; border-radius:50%; border:3px solid white; box-shadow:0 4px 10px rgba(0,0,0,0.4); display:flex; align-items:center; justify-content:center; color:white; font-size:14px;'><i class="fa-solid fa-truck"></i></div>`,
+                                    iconSize: [34, 34],
+                                    iconAnchor: [17, 17]
+                                });
+                                liveTruckMarkers[tNum] = L.marker([truck.currentLat, truck.currentLng], {icon: truckIcon}).addTo(map);
+                                liveTruckMarkers[tNum].bindPopup("<b>Truck " + tNum + "</b> (Live)");
+                            }
+                        } else {
+                            if(liveTruckMarkers[tNum]) {
+                                map.removeLayer(liveTruckMarkers[tNum]);
+                                delete liveTruckMarkers[tNum];
+                            }
+                        }
+                    }
+                });
+            });
+        }
+
         let map;
         let data;
         let currentRenderId = 0;
