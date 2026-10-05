@@ -411,7 +411,7 @@
         <div class="title-area">
             <img src="/static/logo.jpg" alt="Logo" style="height: 32px; border-radius: 8px;">
             <div style="display: flex; flex-direction: column;">
-                <h1 style="margin: 0; line-height: 1;">Live Tracking Dashboard</h1>
+                <h1 style="margin: 0; line-height: 1;">Route Dashboard</h1>
                 <span style="font-size: 11px; color: var(--text-muted); font-weight: 600; letter-spacing: 0.5px; margin-top: 4px;">CREATED BY JAINAM</span>
             </div>
             <div class="live-indicator" id="live-indicator" style="display:none;"><span class="pulse"></span> Live</div>
@@ -419,6 +419,7 @@
         <div style="display:flex; gap:12px; align-items:center;">
             <button onclick="openAddStopModal()" class="btn btn-primary" id="add-stop-btn" style="background:#10b981; border:none; display:none;"><i class="fa-solid fa-plus"></i> Add Stop</button>
             
+            <a href="/live" class="btn btn-primary" target="_blank" style="text-decoration:none;"><i class="fa-solid fa-satellite-dish"></i> Open Live Tracking</a>
             <a href="/download_excel" class="btn btn-outline" id="export-btn" style="display:none; text-decoration:none;">
                 <i class="fa-solid fa-file-excel"></i> Export Report
             </a>

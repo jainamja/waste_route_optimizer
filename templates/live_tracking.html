@@ -4,10 +4,14 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Live Fleet Tracking</title>
+    
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=Manrope:wght@600;700;800&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    
+    <!-- Leaflet -->
     <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
     <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+
     <!-- Firebase -->
     <script src="https://www.gstatic.com/firebasejs/10.9.0/firebase-app-compat.js"></script>
     <script src="https://www.gstatic.com/firebasejs/10.9.0/firebase-auth-compat.js"></script>
@@ -16,124 +20,75 @@
     <style>
         :root {
             --primary: #2F5FFF;
-            --green: #10b981;
-            --amber: #FFA93E;
-            --red: #ef4444;
             --bg: #f8fafc;
             --card-bg: #ffffff;
             --text-main: #0f172a;
             --text-muted: #64748b;
             --border: #e2e8f0;
-            --rad: 16px;
+            --shadow-soft: 0 4px 20px rgba(0, 0, 0, 0.05);
+            --shadow-glow: 0 4px 20px rgba(47, 95, 255, 0.2);
         }
-        body { margin: 0; padding: 0; font-family: 'Inter', sans-serif; background: var(--bg); display: flex; height: 100vh; overflow: hidden; }
-        
-        #sidebar {
-            width: 400px;
-            background: var(--card-bg);
-            border-right: 1px solid var(--border);
-            display: flex;
-            flex-direction: column;
-            box-shadow: 2px 0 10px rgba(0,0,0,0.05);
-            z-index: 1000;
-        }
-        
-        .header {
-            padding: 24px;
-            border-bottom: 1px solid var(--border);
-        }
-        
-        .header h1 { font-family: 'Manrope'; margin: 0; font-size: 20px; display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
-        
-        .live-badge {
-            background: #dcfce7; color: #166534; padding: 4px 8px; border-radius: 4px; font-size: 11px; font-weight: bold; text-transform: uppercase; margin-left: auto; display: flex; align-items: center; gap: 4px;
-        }
-        .pulse { width: 8px; height: 8px; background: #166534; border-radius: 50%; animation: pulse 2s infinite; }
-        @keyframes pulse { 0% { box-shadow: 0 0 0 0 rgba(22, 101, 52, 0.4); } 70% { box-shadow: 0 0 0 6px rgba(22, 101, 52, 0); } 100% { box-shadow: 0 0 0 0 rgba(22, 101, 52, 0); } }
 
-        .truck-list { flex: 1; overflow-y: auto; padding: 16px; }
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+        body { font-family: 'Inter', sans-serif; background: var(--bg); color: var(--text-main); height: 100vh; display: flex; flex-direction: column; }
         
-        .truck-card {
-            background: white; border: 1px solid var(--border); border-radius: 12px; padding: 16px; margin-bottom: 12px; cursor: pointer; transition: 0.2s;
+        .header-bar {
+            background: white; padding: 16px 32px; border-bottom: 1px solid var(--border);
+            display: flex; justify-content: space-between; align-items: center; z-index: 10;
         }
-        .truck-card:hover { border-color: var(--primary); box-shadow: 0 4px 12px rgba(47,95,255,0.1); }
-        .truck-card.active { border-color: var(--primary); border-width: 2px; }
         
-        .truck-header { display: flex; justify-content: space-between; margin-bottom: 12px; gap: 8px; }
-        .truck-name { font-weight: bold; font-size: 16px; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+        .title-area { display: flex; align-items: center; gap: 16px; }
+        .title-area h1 { font-family: 'Manrope', sans-serif; font-size: 24px; color: var(--text-main); margin:0; line-height:1;}
         
-        .status-dot { width: 10px; height: 10px; border-radius: 50%; display: inline-block; }
-        .status-online { background: var(--green); }
-        .status-offline { background: var(--text-muted); }
-        
-        .progress-bar { height: 6px; background: var(--border); border-radius: 3px; overflow: hidden; margin-bottom: 8px; }
-        .progress-fill { height: 100%; background: var(--primary); transition: 0.3s; }
-        
-        .truck-stats { font-size: 12px; color: var(--text-muted); display: flex; justify-content: space-between; }
-        
-        #map-container { flex: 1; position: relative; }
-        #map { position: absolute; top: 0; bottom: 0; left: 0; right: 0; z-index: 1;}
-        
-        .btn { padding: 8px 16px; border-radius: 8px; font-weight: 600; cursor: pointer; border: none; font-size: 13px; }
-        .btn-primary { background: var(--primary); color: white; }
+        .btn {
+            padding: 10px 20px; border-radius: 10px; font-family: 'Inter', sans-serif; font-size: 14px; font-weight: 600;
+            cursor: pointer; text-decoration: none; display: inline-flex; align-items: center; gap: 8px; border:none;
+        }
+        .btn-primary { background: var(--primary); color: white; box-shadow: var(--shadow-glow); }
         .btn-outline { background: white; border: 1px solid var(--border); color: var(--text-main); }
         
-        /* Modal */
-        .modal-overlay { display: none; position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(0,0,0,0.5); z-index: 9999; align-items: center; justify-content: center; }
-        .modal { background: white; padding: 24px; border-radius: 16px; width: 400px; max-width: 90%; }
+        #map { flex: 1; width: 100%; z-index: 1;}
         
-        @media (max-width: 768px) {
-            body { flex-direction: column-reverse; height: auto; overflow: visible; }
-            #sidebar { width: 100%; height: auto; border-right: none; border-top: 1px solid var(--border); box-shadow: none; }
-            #map-container { width: 100%; height: 50vh; min-height: 400px; flex: none; }
-            .truck-list { overflow-y: visible; padding-bottom: 32px; }
+        .pulse {
+            display: inline-block; width: 10px; height: 10px; border-radius: 50%; background: #ef4444; margin-right: 8px;
+            animation: pulse-animation 2s infinite;
+        }
+        @keyframes pulse-animation {
+            0% { box-shadow: 0 0 0 0 rgba(239, 68, 68, 0.7); }
+            70% { box-shadow: 0 0 0 10px rgba(239, 68, 68, 0); }
+            100% { box-shadow: 0 0 0 0 rgba(239, 68, 68, 0); }
         }
     </style>
 </head>
 <body>
-
-    <div id="sidebar">
-        <div class="header">
-            <h1><i class="fa-solid fa-satellite-dish" style="color:var(--primary);"></i> Live Tracking <div class="live-badge"><div class="pulse"></div> Live Sync</div></h1>
-            <p style="margin: 8px 0 0; font-size: 13px; color: var(--text-muted);">Real-time fleet GPS and route progress</p>
-            
-            <div style="display:flex; gap:8px; margin-top:16px;">
-                <button class="btn btn-outline" style="flex:1;" onclick="openReassignModal()"><i class="fa-solid fa-shuffle"></i> Re-balance Routes</button>
+    <div class="header-bar">
+        <div class="title-area">
+            <img src="/static/logo.jpg" alt="Logo" style="height: 32px; border-radius: 8px;">
+            <div style="display: flex; flex-direction: column;">
+                <h1>Live Fleet Tracking</h1>
+                <span style="font-size: 11px; color: var(--text-muted); font-weight: 600; letter-spacing: 0.5px; margin-top: 4px;">REAL-TIME GPS</span>
+            </div>
+            <div style="margin-left:16px; display:flex; align-items:center; font-weight:600; font-size:14px; color:#ef4444;">
+                <span class="pulse"></span> LIVE
             </div>
         </div>
-        
-        <div class="truck-list" id="trucks-container">
-            <!-- Rendered by JS -->
-            <div style="text-align:center; padding:40px; color:var(--text-muted); font-size:14px;">
-                <i class="fa-solid fa-spinner fa-spin" style="font-size:24px; margin-bottom:12px;"></i><br>
-                Connecting to Firebase...
-            </div>
+        <div style="display:flex; gap:12px; align-items:center;">
+            <a href="/" class="btn btn-outline"><i class="fa-solid fa-house"></i> Control Panel</a>
+            <a href="/routes" class="btn btn-primary"><i class="fa-solid fa-route"></i> Route Dashboard</a>
         </div>
     </div>
     
-    <div id="map-container">
-        <div id="map"></div>
-    </div>
+    <div id="map"></div>
     
-    <!-- Reassign Modal -->
-    <div class="modal-overlay" id="reassign-modal">
-        <div class="modal">
-            <h2 style="margin-top:0;">Global Re-route</h2>
-            <p style="font-size:14px; color:var(--text-muted);">This will collect all remaining uncompleted stops from ALL active trucks, and globally recalculate optimal routes starting from each truck's CURRENT GPS location.</p>
-            
-            <div style="margin-top:24px; display:flex; justify-content:flex-end; gap:12px;">
-                <button class="btn btn-outline" onclick="closeReassignModal()">Cancel</button>
-                <button class="btn btn-primary" onclick="triggerGlobalReroute()"><i class="fa-solid fa-bolt"></i> Execute Re-route</button>
-            </div>
-        </div>
-    </div>
-
     <script>
-        // Firebase Config
+        let map = L.map('map').setView([23.0225, 72.5714], 12);
+        L.tileLayer('https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png?hl=en', {
+            maxZoom: 19, attribution: '© OpenStreetMap contributors'
+        }).addTo(map);
+        
         const firebaseConfig = {
             apiKey: "AIzaSyAhLnjh0gRa2pf29G90zr-6AMcjLjbQpPg",
             authDomain: "wasteroutelive.firebaseapp.com",
-            databaseURL: "https://wasteroutelive-default-rtdb.firebaseio.com",
             projectId: "wasteroutelive",
             storageBucket: "wasteroutelive.firebasestorage.app",
             messagingSenderId: "141692937729",
@@ -141,202 +96,49 @@
         };
         firebase.initializeApp(firebaseConfig);
         const db = firebase.database();
-        
-        // Map Setup
-        const map = L.map('map').setView([0, 0], 2);
-        L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-            attribution: '&copy; OpenStreetMap contributors'
-        }).addTo(map);
-        
-        // Force Leaflet to recalculate on mobile layout to prevent grey squares
-        setTimeout(() => { map.invalidateSize(); }, 500);
-        
-        let truckMarkers = {};
-        let selectedTruckId = null;
-        
-        let trucksData = {};
-        let routesData = {};
-
-        // Custom Truck Marker Icon
-        const truckIcon = L.divIcon({
-            className: 'custom-truck-marker',
-            html: `<div style="background:var(--primary); color:white; width:36px; height:36px; border-radius:50%; display:flex; align-items:center; justify-content:center; border:3px solid white; box-shadow:0 4px 8px rgba(0,0,0,0.2);"><i class="fa-solid fa-truck"></i></div>`,
-            iconSize: [36, 36],
-            iconAnchor: [18, 18]
-        });
-
-        let routesLoaded = false;
-        let trucksLoaded = false;
-
-        function updateMapAndSidebar() {
-            if (!routesLoaded || !trucksLoaded) return;
-            
-            // Remove markers for stale trucks
-            for (let id in truckMarkers) {
-                if (!routesData[`route_${id}`]) {
-                    map.removeLayer(truckMarkers[id]);
-                    delete truckMarkers[id];
-                }
-            }
-            
-            let bounds = [];
-            for (let id in trucksData) {
-                if (!routesData[`route_${id}`]) continue; // Stale data safety net
-                
-                let t = trucksData[id];
-                if (t.currentLat && t.currentLng) {
-                    let latlng = [t.currentLat, t.currentLng];
-                    bounds.push(latlng);
-                    
-                    if (!truckMarkers[id]) {
-                        truckMarkers[id] = L.marker(latlng, { icon: truckIcon }).addTo(map);
-                        truckMarkers[id].bindTooltip(t.name || `Truck ${id}`, { permanent: true, direction: 'top', offset: [0, -20] });
-                    } else {
-                        truckMarkers[id].setLatLng(latlng);
-                    }
-                }
-            }
-            
-            if (bounds.length > 0 && selectedTruckId === null) {
-                map.fitBounds(bounds, { padding: [50, 50] });
-            }
-            
-            renderSidebar();
-        }
+        let liveTruckMarkers = {};
 
         firebase.auth().signInAnonymously().then(() => {
-            // 1. Listen to Trucks (GPS)
             db.ref('trucks').on('value', snap => {
-                trucksData = snap.val() || {};
-                trucksLoaded = true;
-                updateMapAndSidebar();
-            });
-            
-            // 2. Listen to Routes (Progress)
-            db.ref('routes').on('value', snap => {
-                routesData = snap.val() || {};
-                routesLoaded = true;
-                updateMapAndSidebar();
-            });
-        }).catch(err => {
-            console.error("Dashboard Auth Error:", err);
-            alert("Database connection blocked. Please check Firebase Rules.");
-        });
-        
-        function selectTruck(id) {
-            selectedTruckId = id;
-            if (trucksData[id] && trucksData[id].currentLat) {
-                map.setView([trucksData[id].currentLat, trucksData[id].currentLng], 14);
-            }
-            renderSidebar();
-        }
-
-        function renderSidebar() {
-            const container = document.getElementById('trucks-container');
-            
-            // Check if there are any ACTIVE trucks
-            let activeTruckCount = 0;
-            for (let id in trucksData) {
-                if (routesData[`route_${id}`]) activeTruckCount++;
-            }
-            
-            if (activeTruckCount === 0) {
-                container.innerHTML = `<div style="text-align:center; padding:40px; color:var(--text-muted); font-size:14px;">No active trucks found.</div>`;
-                return;
-            }
-            
-            let html = '';
-            for (let id in trucksData) {
-                if (!routesData[`route_${id}`]) continue; // Stale data safety net
+                let trucks = snap.val();
+                if(!trucks) return;
                 
-                let t = trucksData[id];
-                let isOnline = t.status === 'online';
+                let bounds = L.latLngBounds();
+                let hasLive = false;
                 
-                // Calculate progress
-                let route = routesData[`route_${id}`];
-                let totalStops = 0;
-                let completedStops = 0;
-                let nextStopName = "No active route";
-                
-                if (route && route.stops) {
-                    let stopsArr = Object.values(route.stops).sort((a,b) => a.sequence - b.sequence);
-                    totalStops = stopsArr.length;
-                    
-                    let firstPending = null;
-                    for (let s of stopsArr) {
-                        if (s.status !== 'PENDING') completedStops++;
-                        if (s.status === 'PENDING' && !firstPending) firstPending = s;
+                for(let tId in trucks) {
+                    let truck = trucks[tId];
+                    if(truck.status === 'online' && truck.currentLat && truck.currentLng) {
+                        hasLive = true;
+                        bounds.extend([truck.currentLat, truck.currentLng]);
+                        
+                        if(liveTruckMarkers[tId]) {
+                            liveTruckMarkers[tId].setLatLng([truck.currentLat, truck.currentLng]);
+                        } else {
+                            let truckIcon = L.divIcon({
+                                className: 'live-truck-icon',
+                                html: `<div style='background-color:#2F5FFF; width:40px; height:40px; border-radius:50%; border:3px solid white; box-shadow:0 4px 10px rgba(0,0,0,0.4); display:flex; align-items:center; justify-content:center; color:white; font-size:18px;'><i class="fa-solid fa-truck"></i></div>`,
+                                iconSize: [40, 40],
+                                iconAnchor: [20, 20]
+                            });
+                            liveTruckMarkers[tId] = L.marker([truck.currentLat, truck.currentLng], {icon: truckIcon}).addTo(map);
+                            liveTruckMarkers[tId].bindPopup("<b>Truck " + tId + "</b><br>Live GPS").openPopup();
+                        }
+                    } else {
+                        if(liveTruckMarkers[tId]) {
+                            map.removeLayer(liveTruckMarkers[tId]);
+                            delete liveTruckMarkers[tId];
+                        }
                     }
-                    if (firstPending) nextStopName = "Next: " + firstPending.name;
-                    else if (totalStops > 0 && completedStops === totalStops) nextStopName = "Route Finished!";
                 }
                 
-                let progressPct = totalStops > 0 ? (completedStops / totalStops) * 100 : 0;
-                
-                let timeAgo = "Unknown";
-                if (t.lastUpdated) {
-                    let diffSeconds = Math.floor((Date.now() - t.lastUpdated) / 1000);
-                    if (diffSeconds < 60) timeAgo = `${diffSeconds}s ago`;
-                    else timeAgo = `${Math.floor(diffSeconds/60)}m ago`;
-                    
-                    if (diffSeconds > 120) isOnline = false; // Mark offline if stale for 2 mins
+                // Only pan if this is the first load and we haven't manually moved the map
+                if (hasLive && !window.hasFitBounds) {
+                    map.fitBounds(bounds, {padding: [50, 50], maxZoom: 15});
+                    window.hasFitBounds = true;
                 }
-                
-                html += `
-                    <div class="truck-card ${selectedTruckId === id ? 'active' : ''}" onclick="selectTruck('${id}')">
-                        <div class="truck-header">
-                            <span class="truck-name" title="${t.name || 'Truck '+id}"><i class="fa-solid fa-truck" style="margin-right:6px; color:var(--primary);"></i> ${t.name || 'Truck '+id}</span>
-                            <span style="font-size:12px; color:var(--text-muted); display:flex; align-items:center; gap:4px; flex-shrink:0;">
-                                <span class="status-dot ${isOnline ? 'status-online' : 'status-offline'}"></span>
-                                ${isOnline ? 'Online' : 'Offline'}
-                            </span>
-                        </div>
-                        
-                        <div class="progress-bar">
-                            <div class="progress-fill" style="width: ${progressPct}%;"></div>
-                        </div>
-                        
-                        <div class="truck-stats">
-                            <span>${completedStops} / ${totalStops} Stops</span>
-                            <span>GPS: ${timeAgo}</span>
-                        </div>
-                        
-                        <div style="font-size:12px; font-weight:600; margin-top:12px; color:var(--text-main); white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">
-                            <i class="fa-solid fa-location-dot" style="color:var(--amber); margin-right:4px;"></i> ${nextStopName}
-                        </div>
-                    </div>
-                `;
-            }
-            
-            container.innerHTML = html;
-        }
-
-        function openReassignModal() { document.getElementById('reassign-modal').style.display = 'flex'; }
-        function closeReassignModal() { document.getElementById('reassign-modal').style.display = 'none'; }
-        
-        async function triggerGlobalReroute() {
-            closeReassignModal();
-            const btn = document.querySelector('.header button');
-            btn.innerHTML = `<i class="fa-solid fa-spinner fa-spin"></i> Calculating...`;
-            btn.disabled = true;
-            
-            try {
-                // Fetch the backend recalculate endpoint
-                let res = await fetch('/api/dynamic_recalculate', { method: 'POST' });
-                let data = await res.json();
-                
-                if (res.ok) {
-                    alert("Success! Routes globally recalculated based on live GPS positions. Drivers will see updates instantly.");
-                } else {
-                    alert("Error: " + data.error);
-                }
-            } catch (e) {
-                alert("Network error: " + e);
-            }
-            
-            btn.innerHTML = `<i class="fa-solid fa-shuffle"></i> Re-balance Routes`;
-            btn.disabled = false;
-        }
+            });
+        });
     </script>
 </body>
 </html>
