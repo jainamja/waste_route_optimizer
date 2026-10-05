@@ -718,15 +718,15 @@
                         
                         ${stopsListHtml}
 
-                        <div style="padding:12px 0 4px 0;">
-                            <label style="font-size:12px;font-weight:600;color:var(--text-muted);display:block;margin-bottom:6px;"><i class="fa-solid fa-user-check"></i> Assign to Driver</label>
-                            <div style="display:flex;gap:8px;">
-                                <a href="${dirUrl}" target="_blank" class="route-link" style="margin-top:0;padding:10px 14px;flex-shrink:0;">
-                                    <i class="fa-solid fa-map-location-dot"></i>
-                                </a>
-                                <select onchange="assignDriver(this.value,'${t}',this)" style="flex:1;padding:10px 12px;border:1px solid var(--border);border-radius:8px;font-family:Inter,sans-serif;font-size:13px;color:var(--text-main);background:white;cursor:pointer;">
+                        <div style="display:flex;gap:10px;margin-top:16px;">
+                            <a href="${dirUrl}" target="_blank" class="route-link" style="margin-top:0;flex:1;justify-content:center;">
+                                <i class="fa-solid fa-map-location-dot"></i> Overview
+                            </a>
+                            <div style="flex:1;position:relative;">
+                                <select onchange="assignDriver(this.value,'${t}',this)" class="route-link" style="margin-top:0;width:100%;background:var(--primary);color:white;border-color:var(--primary);appearance:none;-webkit-appearance:none;padding-right:28px;cursor:pointer;">
                                     ${driverOptions}
                                 </select>
+                                <i class="fa-solid fa-chevron-down" style="position:absolute;right:10px;top:50%;transform:translateY(-50%);color:white;font-size:11px;pointer-events:none;"></i>
                             </div>
                         </div>
                     </div>
