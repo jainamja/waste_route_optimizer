@@ -344,6 +344,21 @@
         </div>
     </div>
     
+    <!-- Assign Driver Modal -->
+    <div id="assign-driver-modal" style="display:none; position:fixed; top:0; left:0; right:0; bottom:0; background:rgba(0,0,0,0.5); z-index:9999; align-items:center; justify-content:center;">
+        <div style="background:white; padding:32px; border-radius:20px; max-width:380px; width:90%;">
+            <h3 style="margin:0 0 6px 0; font-family:'Manrope',sans-serif;">Assign to Driver</h3>
+            <p style="color:var(--text-muted); font-size:14px; margin:0 0 20px 0;">Select a driver for <strong id="assign-modal-truck"></strong></p>
+            <select id="assign-driver-select" style="width:100%; padding:12px; border:1px solid var(--border); border-radius:10px; font-size:14px; font-family:'Inter',sans-serif; margin-bottom:20px; box-sizing:border-box;">
+                <option value="">-- Select Driver --</option>
+            </select>
+            <div style="display:flex; gap:12px;">
+                <button id="btn-assign-confirm" onclick="assignDriver()" style="flex:1; background:var(--primary); color:white; border:none; padding:12px; border-radius:10px; font-weight:700; font-size:15px; cursor:pointer; font-family:'Inter',sans-serif;">Assign</button>
+                <button onclick="document.getElementById('assign-driver-modal').style.display='none'" style="flex:1; background:#f1f5f9; color:var(--text-main); border:none; padding:12px; border-radius:10px; font-weight:600; font-size:15px; cursor:pointer; font-family:'Inter',sans-serif;">Cancel</button>
+            </div>
+        </div>
+    </div>
+
     <!-- Modal for Driver Link -->
     <div id="driver-link-modal" style="display:none; position:fixed; top:0; left:0; right:0; bottom:0; background:rgba(0,0,0,0.5); z-index:9999; align-items:center; justify-content:center;">
         <div style="background:white; padding:32px; border-radius:24px; max-width:450px; width:90%; text-align:center;">
@@ -719,15 +734,12 @@
                         ${stopsListHtml}
 
                         <div style="display:flex;gap:10px;margin-top:16px;">
-                            <a href="${dirUrl}" target="_blank" class="route-link" style="margin-top:0;flex:1;justify-content:center;">
-                                <i class="fa-solid fa-map-location-dot"></i> Overview
+                            <a href="${dirUrl}" target="_blank" style="flex:1;display:flex;align-items:center;justify-content:center;gap:8px;padding:10px 0;border:1px solid var(--border);border-radius:10px;text-decoration:none;color:var(--text-main);font-size:13px;font-weight:600;background:white;">
+                                <i class="fa-solid fa-map-location-dot" style="color:var(--primary);"></i> Overview
                             </a>
-                            <div style="flex:1;position:relative;">
-                                <select onchange="assignDriver(this.value,'${t}',this)" class="route-link" style="margin-top:0;width:100%;background:var(--primary);color:white;border-color:var(--primary);appearance:none;-webkit-appearance:none;padding-right:28px;cursor:pointer;">
-                                    ${driverOptions}
-                                </select>
-                                <i class="fa-solid fa-chevron-down" style="position:absolute;right:10px;top:50%;transform:translateY(-50%);color:white;font-size:11px;pointer-events:none;"></i>
-                            </div>
+                            <button onclick="openAssignModal('${t}')" style="flex:1;display:flex;align-items:center;justify-content:center;gap:8px;padding:10px 0;border:none;border-radius:10px;background:var(--primary);color:white;font-size:13px;font-weight:600;cursor:pointer;font-family:Inter,sans-serif;">
+                                <i class="fa-solid fa-user-check"></i> Assign Driver
+                            </button>
                         </div>
                     </div>
                 `;
@@ -736,10 +748,33 @@
             document.getElementById('truck-stats').innerHTML = html;
         }
 
-                window.assignDriver = async function(driverId, truckId, selectEl) {
-            if (!driverId) return;
-            selectEl.disabled = true;
-            selectEl.style.opacity = '0.6';
+                window.openAssignModal = function(truckId) {
+            let modal = document.getElementById('assign-driver-modal');
+            let select = document.getElementById('assign-driver-select');
+            let title = document.getElementById('assign-modal-truck');
+            title.innerText = 'Truck ' + truckId;
+            select.innerHTML = '<option value="">-- Select Driver --</option>';
+            if (data.drivers) {
+                data.drivers.forEach(function(d) {
+                    let opt = document.createElement('option');
+                    opt.value = d.id;
+                    opt.text = d.name || d.username;
+                    if (String(d.truck_id) === String(truckId)) opt.selected = true;
+                    select.appendChild(opt);
+                });
+            }
+            modal.dataset.truckId = truckId;
+            modal.style.display = 'flex';
+        };
+
+        window.assignDriver = async function() {
+            let modal = document.getElementById('assign-driver-modal');
+            let driverId = document.getElementById('assign-driver-select').value;
+            let truckId = modal.dataset.truckId;
+            let btn = document.getElementById('btn-assign-confirm');
+            if (!driverId) { alert('Please select a driver'); return; }
+            btn.disabled = true;
+            btn.innerHTML = '<i class="fa-solid fa-circle-notch fa-spin"></i>';
             try {
                 let res = await fetch('/api/assign_driver', {
                     method: 'POST',
@@ -748,17 +783,16 @@
                 });
                 let result = await res.json();
                 if (result.success) {
-                    selectEl.style.background = '#ecfdf5';
-                    selectEl.style.borderColor = '#10b981';
-                    setTimeout(() => { selectEl.style.background = 'white'; selectEl.style.borderColor = 'var(--border)'; }, 1500);
+                    modal.style.display = 'none';
+                    loadData(); // Refresh to show updated assignment
                 } else {
                     alert('Error: ' + result.error);
                 }
             } catch(e) {
                 alert('An error occurred');
             }
-            selectEl.disabled = false;
-            selectEl.style.opacity = '1';
+            btn.disabled = false;
+            btn.innerHTML = 'Assign';
         };
 
         window.generateDriverLink = function(truckId, index) {
