@@ -814,7 +814,37 @@
         }
 
 
-                window.openAssignModal = function(truckId) {
+        
+        window.handleManualReorder = function() {
+            let newOrder = {};
+            document.querySelectorAll('.stop-list').forEach(list => {
+                let truckId = list.id.replace('stop-list-', '');
+                newOrder[truckId] = [];
+                list.querySelectorAll('.stop-item').forEach(item => {
+                    let cid = item.getAttribute('data-id');
+                    if (cid && !cid.startsWith('-') && cid !== '-1000') { 
+                        newOrder[truckId].push(parseInt(cid));
+                    }
+                });
+            });
+            
+            fetch('/api/update_route_manual', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({ routes: newOrder })
+            }).then(res => res.json()).then(resData => {
+                if(resData.success) {
+                    loadData();
+                } else {
+                    alert("Error: " + resData.error);
+                }
+            }).catch(e => {
+                console.error(e);
+            });
+        };
+        
+        window.openAssignModal = function(truckId) {
+
             let modal = document.getElementById('assign-driver-modal');
             let select = document.getElementById('assign-driver-select');
             let title = document.getElementById('assign-modal-truck');
