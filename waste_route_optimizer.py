@@ -40,6 +40,7 @@ class User(db.Model):
     password_hash = db.Column(db.String(255))
     role = db.Column(db.String(20))
     truck_id = db.Column(db.Integer)
+    name = db.Column(db.String(100))
 
 class Customer(db.Model):
     __tablename__ = 'customers'
@@ -65,6 +66,12 @@ with app.app_context():
     from sqlalchemy import text
     try:
         db.session.execute(text('ALTER TABLE users ADD COLUMN truck_id INTEGER;'))
+        db.session.commit()
+    except:
+        db.session.rollback()
+        
+    try:
+        db.session.execute(text('ALTER TABLE users ADD COLUMN name VARCHAR(100);'))
         db.session.commit()
     except:
         db.session.rollback()
@@ -306,6 +313,7 @@ def get_drivers():
         drivers_data.append({
             'id': d.id,
             'username': d.username,
+            'name': d.name,
             'truck_id': d.truck_id,
             'password_hash': 'redacted'
         })
@@ -511,7 +519,8 @@ def admin_create_driver():
     data = request.json
     username = data.get('username')
     password = data.get('password')
-    if not username or not password:
+    name = data.get('name')
+    if not username or not password or not name:
         return jsonify({'error': 'Missing fields'}), 400
     
     if User.query.filter_by(username=username).first():
@@ -521,7 +530,7 @@ def admin_create_driver():
     existing_truck_ids = [u.truck_id for u in User.query.filter_by(role='DRIVER').all() if u.truck_id is not None]
     next_truck_id = max(existing_truck_ids) + 1 if existing_truck_ids else 1
     
-    new_driver = User(username=username, password_hash=generate_password_hash(password), role='DRIVER', truck_id=next_truck_id)
+    new_driver = User(username=username, password_hash=generate_password_hash(password), role='DRIVER', truck_id=next_truck_id, name=name)
     db.session.add(new_driver)
     db.session.commit()
     

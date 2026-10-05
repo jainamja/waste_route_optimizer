@@ -96,6 +96,7 @@
         <div class="modal-content">
             <h3 style="margin-top:0; font-family:'Manrope', sans-serif;">Create Driver Account</h3>
             <p style="color:var(--text-muted); font-size:14px; margin-bottom:24px;">The driver will use these credentials to log into the mobile app.</p>
+            <input type="text" id="new-driver-name" placeholder="Driver Full Name">
             <input type="text" id="new-driver-phone" placeholder="Driver Mobile Number">
             <input type="text" id="new-driver-pass" placeholder="Assign Password">
             <div style="display:flex; gap:12px;">
@@ -115,18 +116,18 @@
                         html = '<div style="padding: 24px; text-align: center; color: var(--text-muted);">No drivers created yet.</div>';
                     } else {
                         data.drivers.forEach(d => {
-                            html += 
+                            html += `
                                 <div class="driver-item">
                                     <div class="driver-info">
                                         <div class="driver-avatar"><i class="fa-solid fa-user"></i></div>
                                         <div class="driver-details">
-                                            <h4></h4>
-                                            <p>Password: </p>
+                                            <h4>${d.name || 'Unknown Driver'} <span style="font-size:13px; font-weight:normal; color:var(--text-muted); padding-left:4px;">(${d.username})</span></h4>
+                                            <p>Password: ${d.password_hash === 'redacted' ? '********' : 'Stored securely'}</p>
                                         </div>
                                     </div>
-                                    <div class="driver-badge">Truck ID: </div>
+                                    <div class="driver-badge">Truck ID: ${d.truck_id}</div>
                                 </div>
-                            ;
+                            `;
                         });
                     }
                     document.getElementById('driver-list').innerHTML = html;
@@ -134,11 +135,12 @@
         }
 
         window.submitNewDriver = async function() {
+            const name = document.getElementById('new-driver-name').value;
             const phone = document.getElementById('new-driver-phone').value;
             const pass = document.getElementById('new-driver-pass').value;
             const btn = document.getElementById('btn-submit-driver');
             
-            if(!phone || !pass) { alert("Please fill all fields"); return; }
+            if(!name || !phone || !pass) { alert("Please fill all fields"); return; }
             
             btn.innerHTML = '<i class="fa-solid fa-circle-notch fa-spin"></i> Creating...';
             btn.disabled = true;
@@ -147,11 +149,12 @@
                 let res = await fetch('/api/admin_create_driver', {
                     method: 'POST',
                     headers: {'Content-Type': 'application/json'},
-                    body: JSON.stringify({username: phone, password: pass})
+                    body: JSON.stringify({username: phone, password: pass, name: name})
                 });
                 let data = await res.json();
                 if(data.success) {
                     document.getElementById('add-driver-modal').style.display = 'none';
+                    document.getElementById('new-driver-name').value = '';
                     document.getElementById('new-driver-phone').value = '';
                     document.getElementById('new-driver-pass').value = '';
                     loadDrivers(); // Refresh list
