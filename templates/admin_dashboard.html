@@ -125,7 +125,10 @@
                                             <p>Password: ${d.password_hash === 'redacted' ? '********' : 'Stored securely'}</p>
                                         </div>
                                     </div>
-                                    <div class="driver-badge">Truck ID: ${d.truck_id}</div>
+                                    <div style="display:flex; align-items:center; gap:12px;">
+                                        <div class="driver-badge">Truck ID: ${d.truck_id}</div>
+                                        <button onclick="deleteDriver(${d.id})" style="background:none; border:none; color:var(--red, #ef4444); cursor:pointer; font-size:16px; padding:4px;" title="Delete Driver"><i class="fa-solid fa-trash-can"></i></button>
+                                    </div>
                                 </div>
                             `;
                         });
@@ -133,6 +136,22 @@
                     document.getElementById('driver-list').innerHTML = html;
                 });
         }
+
+        window.deleteDriver = async function(id) {
+            if(!confirm("Are you sure you want to permanently delete this driver?")) return;
+            
+            try {
+                let res = await fetch('/api/admin_delete_driver/' + id, { method: 'DELETE' });
+                let data = await res.json();
+                if(data.success) {
+                    loadDrivers(); // Refresh list
+                } else {
+                    alert("Error: " + data.error);
+                }
+            } catch(e) {
+                alert("An error occurred");
+            }
+        };
 
         window.submitNewDriver = async function() {
             const name = document.getElementById('new-driver-name').value;

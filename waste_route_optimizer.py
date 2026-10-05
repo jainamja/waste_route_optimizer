@@ -536,6 +536,17 @@ def admin_create_driver():
     
     return jsonify({'success': True, 'truck_id': next_truck_id})
 
+@app.route('/api/admin_delete_driver/<int:driver_id>', methods=['DELETE'])
+@login_required
+def admin_delete_driver(driver_id):
+    driver = User.query.get(driver_id)
+    if not driver or driver.role != 'DRIVER':
+        return jsonify({'error': 'Driver not found'}), 404
+        
+    db.session.delete(driver)
+    db.session.commit()
+    return jsonify({'success': True})
+
 
 
 @app.route('/driver')
