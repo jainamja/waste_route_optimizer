@@ -1,0 +1,171 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Admin Dashboard - On Route</title>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=Manrope:wght@600;700;800&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <style>
+        :root {
+            --primary: #2F5FFF;
+            --bg: #f8fafc;
+            --card-bg: #ffffff;
+            --text-main: #0f172a;
+            --text-muted: #64748b;
+            --border: #e2e8f0;
+            --shadow-soft: 0 10px 25px -5px rgba(0,0,0,0.05), 0 8px 10px -6px rgba(0,0,0,0.01);
+        }
+        body { font-family: 'Inter', sans-serif; background: var(--bg); margin: 0; color: var(--text-main); }
+        .header { display: flex; justify-content: space-between; align-items: center; padding: 20px 40px; background: white; border-bottom: 1px solid var(--border); }
+        .header-left { display: flex; align-items: center; gap: 16px; }
+        .header h1 { margin: 0; font-family: 'Manrope', sans-serif; font-size: 22px; }
+        .container { padding: 40px; max-width: 1200px; margin: 0 auto; display: flex; flex-direction: column; gap: 32px; }
+        
+        .quick-actions { display: grid; grid-template-columns: repeat(auto-fit, minmax(250px, 1fr)); gap: 20px; }
+        .action-card { background: white; border-radius: 16px; padding: 24px; border: 1px solid var(--border); text-decoration: none; color: inherit; box-shadow: var(--shadow-soft); transition: transform 0.2s, box-shadow 0.2s; display: flex; flex-direction: column; gap: 12px; }
+        .action-card:hover { transform: translateY(-4px); box-shadow: 0 20px 25px -5px rgba(0,0,0,0.1); border-color: var(--primary); }
+        .action-icon { width: 50px; height: 50px; border-radius: 12px; background: #eff6ff; color: var(--primary); display: flex; align-items: center; justify-content: center; font-size: 24px; }
+        .action-title { font-family: 'Manrope', sans-serif; font-size: 18px; font-weight: 700; margin: 0; }
+        .action-desc { font-size: 14px; color: var(--text-muted); margin: 0; line-height: 1.5; }
+        
+        .section-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px; }
+        .section-header h2 { margin: 0; font-family: 'Manrope', sans-serif; font-size: 20px; }
+        
+        .driver-list { background: white; border-radius: 16px; border: 1px solid var(--border); overflow: hidden; box-shadow: var(--shadow-soft); }
+        .driver-item { display: flex; justify-content: space-between; align-items: center; padding: 16px 24px; border-bottom: 1px solid var(--border); }
+        .driver-item:last-child { border-bottom: none; }
+        .driver-info { display: flex; align-items: center; gap: 16px; }
+        .driver-avatar { width: 40px; height: 40px; border-radius: 50%; background: #f1f5f9; display: flex; align-items: center; justify-content: center; color: var(--text-muted); font-weight: 600; }
+        .driver-details h4 { margin: 0 0 4px 0; font-size: 15px; }
+        .driver-details p { margin: 0; font-size: 13px; color: var(--text-muted); }
+        .driver-badge { background: #ecfdf5; color: #10b981; padding: 4px 10px; border-radius: 20px; font-size: 12px; font-weight: 600; }
+        
+        .btn { padding: 10px 20px; border-radius: 8px; font-weight: 600; font-size: 14px; cursor: pointer; text-decoration: none; border: none; font-family: 'Inter', sans-serif; display: inline-flex; align-items: center; gap: 8px; }
+        .btn-primary { background: var(--primary); color: white; }
+        .btn-outline { background: transparent; border: 1px solid var(--border); color: var(--text-main); }
+        
+        /* Modal */
+        #add-driver-modal { display:none; position:fixed; top:0; left:0; right:0; bottom:0; background:rgba(0,0,0,0.5); z-index:9999; align-items:center; justify-content:center; }
+        .modal-content { background:white; padding:32px; border-radius:24px; max-width:400px; width:90%; }
+        .modal-content input { width: 100%; box-sizing: border-box; padding:12px; margin-bottom:16px; border:1px solid var(--border); border-radius:12px; font-family:'Inter', sans-serif; }
+    </style>
+</head>
+<body>
+    <div class="header">
+        <div class="header-left">
+            <img src="/static/logo.jpg" alt="Logo" style="height: 32px; border-radius: 8px;">
+            <h1>Admin Control Panel</h1>
+        </div>
+        <a href="/logout" class="btn btn-outline"><i class="fa-solid fa-arrow-right-from-bracket"></i> Logout</a>
+    </div>
+    
+    <div class="container">
+        <!-- Quick Actions -->
+        <div>
+            <div class="section-header"><h2>Quick Actions</h2></div>
+            <div class="quick-actions">
+                <a href="/" class="action-card">
+                    <div class="action-icon"><i class="fa-solid fa-route"></i></div>
+                    <h3 class="action-title">Generate New Routes</h3>
+                    <p class="action-desc">Upload a CSV file and let the AI generate optimized routes for your fleet.</p>
+                </a>
+                <a href="/live" class="action-card">
+                    <div class="action-icon" style="background: #ecfdf5; color: #10b981;"><i class="fa-solid fa-satellite-dish"></i></div>
+                    <h3 class="action-title">Live Tracking</h3>
+                    <p class="action-desc">Monitor your active trucks in real-time on the map and view progress.</p>
+                </a>
+            </div>
+        </div>
+
+        <!-- Driver Management -->
+        <div>
+            <div class="section-header">
+                <h2>Driver Management</h2>
+                <button onclick="document.getElementById('add-driver-modal').style.display='flex'" class="btn btn-primary"><i class="fa-solid fa-user-plus"></i> Add New Driver</button>
+            </div>
+            
+            <div class="driver-list" id="driver-list">
+                <div style="padding: 24px; text-align: center; color: var(--text-muted);">Loading drivers...</div>
+            </div>
+        </div>
+    </div>
+    
+    <!-- Modal -->
+    <div id="add-driver-modal">
+        <div class="modal-content">
+            <h3 style="margin-top:0; font-family:'Manrope', sans-serif;">Create Driver Account</h3>
+            <p style="color:var(--text-muted); font-size:14px; margin-bottom:24px;">The driver will use these credentials to log into the mobile app.</p>
+            <input type="text" id="new-driver-phone" placeholder="Driver Mobile Number">
+            <input type="text" id="new-driver-pass" placeholder="Assign Password">
+            <div style="display:flex; gap:12px;">
+                <button class="btn btn-primary" id="btn-submit-driver" onclick="submitNewDriver()" style="flex:1; justify-content:center;">Create</button>
+                <button class="btn btn-outline" onclick="document.getElementById('add-driver-modal').style.display='none'" style="flex:1; justify-content:center;">Cancel</button>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        function loadDrivers() {
+            fetch('/api/drivers')
+                .then(res => res.json())
+                .then(data => {
+                    let html = '';
+                    if (data.drivers.length === 0) {
+                        html = '<div style="padding: 24px; text-align: center; color: var(--text-muted);">No drivers created yet.</div>';
+                    } else {
+                        data.drivers.forEach(d => {
+                            html += 
+                                <div class="driver-item">
+                                    <div class="driver-info">
+                                        <div class="driver-avatar"><i class="fa-solid fa-user"></i></div>
+                                        <div class="driver-details">
+                                            <h4></h4>
+                                            <p>Password: </p>
+                                        </div>
+                                    </div>
+                                    <div class="driver-badge">Truck ID: </div>
+                                </div>
+                            ;
+                        });
+                    }
+                    document.getElementById('driver-list').innerHTML = html;
+                });
+        }
+
+        window.submitNewDriver = async function() {
+            const phone = document.getElementById('new-driver-phone').value;
+            const pass = document.getElementById('new-driver-pass').value;
+            const btn = document.getElementById('btn-submit-driver');
+            
+            if(!phone || !pass) { alert("Please fill all fields"); return; }
+            
+            btn.innerHTML = '<i class="fa-solid fa-circle-notch fa-spin"></i> Creating...';
+            btn.disabled = true;
+            
+            try {
+                let res = await fetch('/api/admin_create_driver', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({username: phone, password: pass})
+                });
+                let data = await res.json();
+                if(data.success) {
+                    document.getElementById('add-driver-modal').style.display = 'none';
+                    document.getElementById('new-driver-phone').value = '';
+                    document.getElementById('new-driver-pass').value = '';
+                    loadDrivers(); // Refresh list
+                } else {
+                    alert("Error: " + data.error);
+                }
+            } catch(e) {
+                alert("An error occurred");
+            }
+            btn.innerHTML = 'Create';
+            btn.disabled = false;
+        };
+
+        window.onload = loadDrivers;
+    </script>
+</body>
+</html>
