@@ -893,6 +893,16 @@
             }
         }
 
+        let isRegisterMode = false;
+        window.toggleAuthMode = function() {
+            isRegisterMode = !isRegisterMode;
+            document.querySelector('#login-box-container h2').innerText = isRegisterMode ? 'Driver Registration' : 'Driver Login';
+            document.querySelector('#login-box-container p').innerText = isRegisterMode ? 'Create a new account' : 'Enter your credentials to start your shift';
+            document.getElementById('login-btn').innerText = isRegisterMode ? 'Register' : 'Sign In';
+            document.getElementById('auth-toggle').innerText = isRegisterMode ? 'Already have an account? Sign In' : 'Need an account? Register here';
+            document.getElementById('login-error').style.display = 'none';
+        };
+
         window.handleDriverLogin = async function() {
             const u = document.getElementById('username').value;
             const p = document.getElementById('password').value;
@@ -905,7 +915,8 @@
             
             try {
                 let backendUrl = window.location.origin.includes('localhost') || window.location.origin.includes('capacitor://') ? 'https://waste-route-optimizer-robn.onrender.com' : window.location.origin;
-                let res = await fetch(backendUrl + '/api/driver_login', {
+                let endpoint = isRegisterMode ? '/api/driver_register' : '/api/driver_login';
+                let res = await fetch(backendUrl + endpoint, {
                     method: 'POST',
                     headers: {'Content-Type': 'application/json'},
                     body: JSON.stringify({username: u, password: p})
