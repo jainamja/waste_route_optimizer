@@ -176,6 +176,9 @@ def read_data_file(filepath):
                 loc_url_col = c
                 break
 
+
+    sr_no_col = next((c for c in cols if 'sr' in c or 'serial' in c or 'no.' in c or c == 'id'), None)
+    
     name_col = next((c for c in cols if 'name' in c), None)
     if not name_col:
         for c in cols:
@@ -250,10 +253,15 @@ def read_data_file(filepath):
                 except: pass
             
         try:
+            try:
+                sr_id = int(row[sr_no_col]) if sr_no_col and not pd.isna(row[sr_no_col]) else idx + 1
+            except:
+                sr_id = idx + 1
+
             lat, lng = float(lat), float(lng)
             if not pd.isna(lat) and not pd.isna(lng):
                 customers.append({
-                    'id': idx + 1,
+                    'id': sr_id,
                     'name': row.get(name_col) if name_col and not pd.isna(row.get(name_col)) else f"Customer {idx+1}",
                     'phone': row.get(phone_col) if phone_col and not pd.isna(row.get(phone_col)) else "",
                     'address': row.get(address_col) if address_col and not pd.isna(row.get(address_col)) else "",
