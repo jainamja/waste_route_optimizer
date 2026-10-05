@@ -679,20 +679,12 @@ def resolve_token():
     if not token:
         return jsonify({'error': 'Missing token'}), 400
         
-    token_meta = Metadata.query.filter_by(key='driver_tokens').first()
-    if not token_meta:
-        return jsonify({'error': 'No tokens found'}), 404
-        
-    import json
-    driver_tokens = json.loads(token_meta.value)
-    
-    # Reverse lookup: find truck_id that has this token
-    truck_id = next((tid for tid, tok in driver_tokens.items() if tok == token), None)
-    
-    if truck_id:
-        return jsonify({'truck_id': truck_id})
+    # In the new authenticated architecture, the token provided by the login API IS the driver's truck_id.
+    # Therefore, we just return it directly. No more UUID lookups needed.
+    if token.isdigit():
+        return jsonify({'truck_id': str(token)})
     else:
-        return jsonify({'error': 'Invalid token'}), 404
+        return jsonify({'error': 'Invalid token format'}), 404
 
 @app.route('/download_excel')
 def download_excel():
