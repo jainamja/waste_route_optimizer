@@ -300,10 +300,15 @@ def index():
 def dashboard():
     return render_template('admin_dashboard.html')
 
+@app.route('/routes')
+@login_required
+def route_dashboard():
+    return render_template('live_dashboard.html')
+
 @app.route('/live')
 @login_required
 def live_tracking():
-    return render_template('live_dashboard.html')
+    return render_template('live_tracking.html')
 
 @app.route('/api/drivers', methods=['GET'])
 @login_required
@@ -498,7 +503,7 @@ def upload():
         print("Firebase sync error:", e)
 
 
-    return redirect(url_for('live_tracking'))
+    return redirect(url_for('route_dashboard'))
 
 @app.route('/api/driver_login', methods=['POST'])
 def driver_login():
