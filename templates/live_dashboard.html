@@ -656,30 +656,33 @@
                 let waypoints = [];
                 let stopsListHtml = '<div class="stop-list">';
                 
-                truckRoute.forEach(customerId => {
-                    let customer = data.customers.find(c => c.id === customerId);
-                    if (customer) {
-                        waypoints.push(`${customer.lat},${customer.lng}`);
-                        let isDone = customer.status === 'COMPLETED';
-                        let isDepot = customer.id < 0 || customer.name === 'End Location / Depot';
-                        let displayName = isDepot ? customer.name : `Stop ${customer.stop_number}: ${customer.name}`;
-                        
-                        stopsListHtml += `
-                            <div class="stop-item ${isDone ? 'completed' : ''}">
-                                <div class="stop-status">
-                                    ${isDone ? '<i class="fa-solid fa-circle-check"></i>' : '<i class="fa-regular fa-circle"></i>'}
-                                </div>
-                                <div class="stop-info" style="flex:1;">
-                                    <div style="display:flex; justify-content:space-between; align-items:flex-start;">
-                                        <div class="stop-name">${displayName}</div>
-                                        ${!isDone && !isDepot ? `<button onclick="removeStop(${customer.id}, ${customer.truck})" style="background:none; border:none; color:#ef4444; cursor:pointer; padding:4px; margin-left:8px;" title="Remove Stop"><i class="fa-solid fa-trash"></i></button>` : ''}
+                if (truckRoute) {
+                    truckRoute.forEach(customerId => {
+                        let customer = data.customers.find(c => c.id === customerId);
+                        if (customer) {
+                            waypoints.push(`${customer.lat},${customer.lng}`);
+                            let isDone = customer.status === 'COMPLETED';
+                            let isDepot = customer.id < 0 || customer.name === 'End Location / Depot';
+                            let displayName = isDepot ? customer.name : `Stop ${customer.stop_number}: ${customer.name}`;
+                            
+                            stopsListHtml += `
+                                <div class="stop-item ${isDone ? 'completed' : ''}">
+                                    <div class="stop-status">
+                                        ${isDone ? '<i class="fa-solid fa-circle-check"></i>' : '<i class="fa-regular fa-circle"></i>'}
                                     </div>
-                                    ${customer.address ? `<div style="color:var(--text-muted); font-size:13px; margin-top:2px;"><i class="fa-solid fa-location-dot"></i> ${customer.address}</div>` : ''}
+                                    <div class="stop-info" style="flex:1;">
+                                        <div style="display:flex; justify-content:space-between; align-items:flex-start;">
+                                            <div class="stop-name">${displayName}</div>
+                                            ${!isDone && !isDepot ? `<button onclick="removeStop(${customer.id}, ${customer.truck})" style="background:none; border:none; color:#ef4444; cursor:pointer; padding:4px; margin-left:8px;" title="Remove Stop"><i class="fa-solid fa-trash"></i></button>` : ''}
+                                        </div>
+                                        ${customer.address ? `<div style="color:var(--text-muted); font-size:13px; margin-top:2px;"><i class="fa-solid fa-location-dot"></i> ${customer.address}</div>` : ''}
+                                    </div>
                                 </div>
-                            </div>
-                        `;
-                    }
-                });
+                            `;
+                        }
+                    });
+                }
+
                 dirUrl += waypoints.join('|');
                 stopsListHtml += '</div>';
                 
@@ -687,6 +690,15 @@
                 if (data.route_distances && data.route_distances.length > i) {
                     let distanceKm = (data.route_distances[i] / 1000).toFixed(1);
                     distStr = `<span style="display:flex;align-items:center;gap:4px;"><i class="fa-solid fa-road" style="color:var(--text-muted);"></i> ${distanceKm} km</span>`;
+                }
+
+                // Build driver dropdown
+                let driverOptions = '<option value="">-- Assign Driver --</option>';
+                if (data.drivers) {
+                    data.drivers.forEach(function(d) {
+                        let sel = (String(d.truck_id) === String(t)) ? 'selected' : '';
+                        driverOptions += '<option value="' + d.id + '" ' + sel + '>' + (d.name || d.username) + '</option>';
+                    });
                 }
 
                 html += `
@@ -705,28 +717,26 @@
                         </div>
                         
                         ${stopsListHtml}
-                    </div>
-`;
-                // Driver dropdown (outside template literal)
-                let driverOptions = '<option value="">-- Assign Driver --</option>';
-                if (data.drivers) {
-                    data.drivers.forEach(function(d) {
-                        let sel = (String(d.truck_id) === String(t)) ? 'selected' : '';
-                        driverOptions += '<option value="' + d.id + '" ' + sel + '>' + (d.name || d.username) + '</option>';
-                    });
-                }
-                html += '<div style="padding:0 16px 16px 16px;">'
-                      + '<label style="font-size:12px;font-weight:600;color:var(--text-muted);display:block;margin-bottom:6px;"><i class="fa-solid fa-user-check"></i> Assign to Driver</label>'
-                      + '<div style="display:flex;gap:8px;">'
-                      + '<a href="' + dirUrl + '" target="_blank" class="route-link" style="margin-top:0;padding:10px 14px;"><i class="fa-solid fa-map-location-dot"></i></a>'
-                      + '<select onchange="assignDriver(this.value,\'' + t + '\',this)" style="flex:1;padding:10px 12px;border:1px solid var(--border);border-radius:8px;font-family:Inter,sans-serif;font-size:13px;font-weight:600;color:var(--text-main);background:white;cursor:pointer;">'
-                      + driverOptions
-                      + '</select></div></div>';
 
-                document.getElementById('truck-stats').innerHTML = html;
+                        <div style="padding:12px 0 4px 0;">
+                            <label style="font-size:12px;font-weight:600;color:var(--text-muted);display:block;margin-bottom:6px;"><i class="fa-solid fa-user-check"></i> Assign to Driver</label>
+                            <div style="display:flex;gap:8px;">
+                                <a href="${dirUrl}" target="_blank" class="route-link" style="margin-top:0;padding:10px 14px;flex-shrink:0;">
+                                    <i class="fa-solid fa-map-location-dot"></i>
+                                </a>
+                                <select onchange="assignDriver(this.value,'${t}',this)" style="flex:1;padding:10px 12px;border:1px solid var(--border);border-radius:8px;font-family:Inter,sans-serif;font-size:13px;color:var(--text-main);background:white;cursor:pointer;">
+                                    ${driverOptions}
+                                </select>
+                            </div>
+                        </div>
+                    </div>
+                `;
+            });
+
+            document.getElementById('truck-stats').innerHTML = html;
         }
 
-        window.assignDriver = async function(driverId, truckId, selectEl) {
+                window.assignDriver = async function(driverId, truckId, selectEl) {
             if (!driverId) return;
             selectEl.disabled = true;
             selectEl.style.opacity = '0.6';
