@@ -73,6 +73,7 @@
             </div>
         </div>
         <div style="display:flex; gap:12px; align-items:center;">
+            <button onclick="aiRebalance()" id="btn-rebalance" class="btn" style="background:#8b5cf6; color:white;"><i class="fa-solid fa-wand-magic-sparkles"></i> AI Re-balance</button>
             <a href="/" class="btn btn-outline"><i class="fa-solid fa-house"></i> Control Panel</a>
             <a href="/routes" class="btn btn-primary"><i class="fa-solid fa-route"></i> Route Dashboard</a>
         </div>
@@ -140,5 +141,31 @@
             });
         });
     </script>
+
+        window.aiRebalance = function() {
+            if(!confirm("Are you sure? This will pause all drivers and completely recalculate their remaining routes based on their CURRENT live GPS locations.")) return;
+            
+            const btn = document.getElementById('btn-rebalance');
+            btn.innerHTML = '<i class="fa-solid fa-circle-notch fa-spin"></i> Re-balancing...';
+            btn.disabled = true;
+            
+            fetch('/api/ai_rebalance', { method: 'POST' })
+                .then(r => r.json())
+                .then(res => {
+                    if(res.success) {
+                        alert("Routes successfully re-balanced! The drivers' apps have been updated.");
+                    } else {
+                        alert("Error: " + res.error);
+                    }
+                })
+                .catch(e => {
+                    alert("Network error.");
+                })
+                .finally(() => {
+                    btn.innerHTML = '<i class="fa-solid fa-wand-magic-sparkles"></i> AI Re-balance';
+                    btn.disabled = false;
+                });
+        }
+
 </body>
 </html>

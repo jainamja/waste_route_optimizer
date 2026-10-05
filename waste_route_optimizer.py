@@ -873,6 +873,237 @@ if __name__ == '__main__':
     app.run(debug=True, port=5000)
 
 
+
+
+@app.route('/api/ai_rebalance', methods=['POST'])
+@login_required
+def ai_rebalance():
+    import requests
+    import json
+    
+    # 1. Fetch current GPS from Firebase
+    firebase_url = "https://wasteroutelive-default-rtdb.firebaseio.com"
+    API_KEY = "AIzaSyAhLnjh0gRa2pf29G90zr-6AMcjLjbQpPg"
+    auth_url = f"https://identitytoolkit.googleapis.com/v1/accounts:signUp?key={API_KEY}"
+    auth_res = requests.post(auth_url, json={"returnSecureToken": True})
+    
+    if auth_res.status_code != 200:
+        return jsonify({'error': 'Firebase auth failed'}), 500
+        
+    id_token = auth_res.json().get('idToken')
+    trucks_res = requests.get(f"{firebase_url}/trucks.json?auth={id_token}")
+    trucks_data = trucks_res.json() if trucks_res.status_code == 200 and trucks_res.json() else {}
+    
+    # 2. Get original metadata for fallback start/end coords
+    metadata_rows = Metadata.query.all()
+    metadata = {row.key: row.value for row in metadata_rows}
+    
+    if 'start_coords' in metadata:
+        original_starts = json.loads(metadata['start_coords'])
+    else:
+        return jsonify({'error': 'No original start locations found to determine fleet size'}), 400
+        
+    if 'end_coords' in metadata:
+        original_ends = json.loads(metadata['end_coords'])
+    else:
+        original_ends = []
+        
+    start_coords = []
+    end_coords = []
+    
+    num_trucks = len(original_starts)
+    
+    # 3. Build live start coords based on Firebase GPS (if available), else fallback to original
+    for i in range(num_trucks):
+        truck_id_str = str(i + 1)
+        lat = float(original_starts[i][0])
+        lng = float(original_starts[i][1])
+        
+        # Override with live GPS if available and truck is not offline
+        if truck_id_str in trucks_data:
+            t = trucks_data[truck_id_str]
+            if t.get('currentLat') and t.get('currentLng'): # Always use their last known position
+                lat = float(t['currentLat'])
+                lng = float(t['currentLng'])
+                
+        start_coords.append((lat, lng))
+        
+        if original_ends and len(original_ends) > i:
+            end_coords.append((float(original_ends[i][0]), float(original_ends[i][1])))
+        elif original_ends:
+            end_coords.append((float(original_ends[0][0]), float(original_ends[0][1])))
+            
+    # 4. Get all PENDING stops (exclude Depot -1000)
+    pending_customers = Customer.query.filter(Customer.status == 'PENDING', Customer.id > -1000).all()
+    if not pending_customers:
+        return jsonify({'error': 'No pending stops to rebalance'}), 400
+        
+    customers_data = [{
+        'id': c.id, 'name': c.name, 'phone': c.phone, 'address': c.address,
+        'location_url': c.location_url, 'lat': c.lat, 'lng': c.lng
+    } for c in pending_customers]
+    
+    # 5. Run AI
+    aco = ACO_VRP(start_coords, end_coords, customers_data, num_trucks=num_trucks)
+    routes, route_times, route_distances = aco.run()
+    
+    active_routes = []
+    active_route_times = []
+    active_route_distances = []
+    for r, t, d in zip(routes, route_times, route_distances):
+        if len(r) > 0:
+            active_routes.append(r)
+            active_route_times.append(t)
+            active_route_distances.append(d)
+            
+    # 6. Apply new routes to DB
+    # First, clear truck assignments for all pending stops
+    for c in pending_customers:
+        c.truck_id = None
+        c.stop_number = None
+        
+    routes_payload = {}
+    
+    for truck_idx, route in enumerate(active_routes):
+        truck_id = truck_idx + 1
+        route_key = f"route_{truck_id}"
+        routes_payload[route_key] = {}
+        
+        for stop_num, cid in enumerate(route):
+            for c in pending_customers:
+                if c.id == cid:
+                    c.truck_id = truck_id
+                    c.stop_number = stop_num + 1
+                    
+                    routes_payload[route_key][str(cid)] = {
+                        "name": c.name,
+                        "address": c.address,
+                        "phone": c.phone or '',
+                        "lat": c.lat,
+                        "lng": c.lng,
+                        "sequence": stop_num + 1,
+                        "status": "PENDING"
+                    }
+                    
+        # Append End Location as the final stop
+        if end_coords:
+            end_idx = min(truck_idx, len(end_coords) - 1)
+            depot_lat, depot_lng = end_coords[end_idx]
+            
+            # Check if depot exists
+            depot_cid = -1000 - truck_idx
+            depot_c = Customer.query.get(depot_cid)
+            if not depot_c:
+                depot_c = Customer(
+                    id=depot_cid, name='End Location / Depot', address='Return to Depot',
+                    lat=depot_lat, lng=depot_lng, status='PENDING'
+                )
+                db.session.add(depot_c)
+                
+            depot_c.truck_id = truck_id
+            depot_c.stop_number = len(route) + 1
+            
+            routes_payload[route_key][str(depot_cid)] = {
+                "name": depot_c.name,
+                "address": depot_c.address,
+                "phone": '',
+                "lat": depot_c.lat,
+                "lng": depot_c.lng,
+                "sequence": len(route) + 1,
+                "status": "PENDING"
+            }
+            
+    # Update Metadata with new times and distances
+    m_times = Metadata.query.filter_by(key='route_times').first()
+    if m_times: m_times.value = json.dumps(active_route_times)
+    m_dist = Metadata.query.filter_by(key='route_distances').first()
+    if m_dist: m_dist.value = json.dumps(active_route_distances)
+    
+    db.session.commit()
+    
+    # Add back COMPLETED stops so driver apps keep their historical progress for the day
+    completed_customers = Customer.query.filter(Customer.status == 'COMPLETED').all()
+    for c in completed_customers:
+        if c.truck_id:
+            route_key = f"route_{c.truck_id}"
+            if route_key not in routes_payload: routes_payload[route_key] = {}
+            routes_payload[route_key][str(c.id)] = {
+                "name": c.name,
+                "address": c.address,
+                "phone": c.phone or '',
+                "lat": c.lat,
+                "lng": c.lng,
+                "sequence": c.stop_number,
+                "status": "COMPLETED"
+            }
+
+    # 7. Push to Firebase
+    requests.delete(f"{firebase_url}/routes.json?auth={id_token}")
+    for route_key, stops in routes_payload.items():
+        requests.put(f"{firebase_url}/routes/{route_key}.json?auth={id_token}", json={"stops": stops})
+        
+    return jsonify({'success': True})
+
+@app.route('/api/update_route_manual', methods=['POST'])
+@login_required
+def update_route_manual():
+    data = request.json.get('routes', {})
+    
+    customers = Customer.query.all()
+    cust_map = {c.id: c for c in customers}
+    
+    routes_payload = {}
+    
+    for truck_id, stop_ids in data.items():
+        truck_id_int = int(truck_id)
+        
+        # We need to preserve depot stops (-1000) which are generated automatically
+        # So we just re-sequence the valid customers based on their new index
+        for idx, cid in enumerate(stop_ids):
+            if cid in cust_map:
+                c = cust_map[cid]
+                c.truck_id = truck_id_int
+                c.stop_number = idx + 1
+                
+                # prepare for firebase sync
+                route_key = f"route_{truck_id_int}"
+                if route_key not in routes_payload:
+                    routes_payload[route_key] = {}
+                    
+                routes_payload[route_key][str(cid)] = {
+                    "name": c.name,
+                    "address": c.address,
+                    "phone": c.phone or '',
+                    "lat": c.lat,
+                    "lng": c.lng,
+                    "sequence": idx + 1,
+                    "status": c.status
+                }
+                
+    db.session.commit()
+    
+    # Sync with Firebase
+    try:
+        import requests
+        firebase_url = "https://wasteroutelive-default-rtdb.firebaseio.com"
+        API_KEY = "AIzaSyAhLnjh0gRa2pf29G90zr-6AMcjLjbQpPg"
+        auth_url = f"https://identitytoolkit.googleapis.com/v1/accounts:signUp?key={API_KEY}"
+        auth_res = requests.post(auth_url, json={"returnSecureToken": True})
+        
+        if auth_res.status_code == 200:
+            id_token = auth_res.json().get('idToken')
+            
+            # Clear all current routes in Firebase so deleted/moved stops vanish instantly
+            requests.delete(f"{firebase_url}/routes.json?auth={id_token}")
+            
+            # Push new route orders
+            for route_key, stops in routes_payload.items():
+                requests.put(f"{firebase_url}/routes/{route_key}.json?auth={id_token}", json={"stops": stops})
+    except Exception as e:
+        print("Firebase sync error on manual reorder:", e)
+        
+    return jsonify({'success': True})
+
 @app.route('/api/dynamic_recalculate', methods=['POST'])
 def dynamic_recalculate():
     import requests

@@ -12,6 +12,7 @@
     <script src="https://www.gstatic.com/firebasejs/10.9.0/firebase-app-compat.js"></script>
     <script src="https://www.gstatic.com/firebasejs/10.9.0/firebase-auth-compat.js"></script>
     <script src="https://www.gstatic.com/firebasejs/10.9.0/firebase-database-compat.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/sortablejs@latest/Sortable.min.js"></script>
     <!-- Leaflet -->
     <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
     <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
@@ -720,7 +721,7 @@
                 
                 let dirUrl = `https://www.google.com/maps/dir/?api=1&origin=${startCoord[0]},${startCoord[1]}&destination=${endCoord[0]},${endCoord[1]}&waypoints=`;
                 let waypoints = [];
-                let stopsListHtml = '<div class="stop-list">';
+                let stopsListHtml = `<div class="stop-list" id="stop-list-${t}">`;
                 
                 if (truckRoute) {
                     truckRoute.forEach(customerId => {
@@ -732,7 +733,7 @@
                             let displayName = isDepot ? customer.name : `Stop ${customer.stop_number}: ${customer.name}`;
                             
                             stopsListHtml += `
-                                <div class="stop-item ${isDone ? 'completed' : ''}">
+                                <div class="stop-item ${isDone ? 'completed' : ''}" data-id="${customer.id}" style="${isDepot ? '' : 'cursor: grab;'}">
                                     <div class="stop-status">
                                         ${isDone ? '<i class="fa-solid fa-circle-check"></i>' : '<i class="fa-regular fa-circle"></i>'}
                                     </div>
@@ -796,8 +797,22 @@
                 `;
             });
 
+            
             document.getElementById('truck-stats').innerHTML = html;
+            
+            Object.keys(trucksInfo).sort().forEach((t) => {
+                let listEl = document.getElementById(`stop-list-${t}`);
+                if (listEl) {
+                    new Sortable(listEl, {
+                        group: 'shared',
+                        animation: 150,
+                        filter: '.completed',
+                        onEnd: window.handleManualReorder
+                    });
+                }
+            });
         }
+
 
                 window.openAssignModal = function(truckId) {
             let modal = document.getElementById('assign-driver-modal');
