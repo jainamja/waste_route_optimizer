@@ -334,6 +334,22 @@
     <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
 </head>
 <body>
+
+    <!-- Modal for Save Template -->
+    <div id="save-template-modal" style="display:none; position:fixed; top:0; left:0; right:0; bottom:0; background:rgba(0,0,0,0.5); z-index:9999; align-items:center; justify-content:center;">
+        <div style="background:white; padding:32px; border-radius:24px; max-width:400px; width:90%;">
+            <h3 style="margin-top:0; font-family:'Manrope', sans-serif;">Save as Template</h3>
+            <p style="color:var(--text-muted); font-size:14px; margin-bottom: 24px;">Save the current routes exactly as they are to deploy them again in the future without uploading a CSV.</p>
+            <div style="display:flex; flex-direction:column; gap:16px; margin-bottom: 24px;">
+                <input type="text" id="template-name" placeholder="e.g. Monday North Route" style="padding:12px; border:1px solid var(--border); border-radius:12px; font-family:'Inter', sans-serif;">
+            </div>
+            <div style="display:flex; gap:12px;">
+                <button class="btn btn-primary" id="btn-save-template" onclick="saveTemplate()" style="flex:1;">Save</button>
+                <button class="btn btn-outline" onclick="document.getElementById('save-template-modal').style.display='none'" style="flex:1;">Cancel</button>
+            </div>
+        </div>
+    </div>
+
     <!-- Modal for Add Driver -->
     <div id="add-driver-modal" style="display:none; position:fixed; top:0; left:0; right:0; bottom:0; background:rgba(0,0,0,0.5); z-index:9999; align-items:center; justify-content:center;">
         <div style="background:white; padding:32px; border-radius:24px; max-width:400px; width:90%;">
@@ -544,6 +560,7 @@
                         document.getElementById('live-indicator').style.display = 'none';
                         document.getElementById('export-btn').style.display = 'none';
                         document.getElementById('add-stop-btn').style.display = 'none';
+                        document.getElementById('save-template-btn').style.display = 'none';
                         return;
                     }
                     data = resData;
@@ -552,6 +569,7 @@
                     document.getElementById('live-indicator').style.display = 'flex';
                     document.getElementById('export-btn').style.display = 'inline-flex';
                     document.getElementById('add-stop-btn').style.display = 'inline-flex';
+                    document.getElementById('save-template-btn').style.display = 'inline-flex';
                     
                     updateHeaderStats();
                     renderMap();
@@ -1101,6 +1119,33 @@
                 console.error(e);
                 alert("An error occurred while removing the stop.");
             }
+        };
+
+        
+        window.saveTemplate = function() {
+            let name = document.getElementById('template-name').value;
+            if(!name) { alert("Enter a name"); return; }
+            
+            let btn = document.getElementById('btn-save-template');
+            btn.disabled = true;
+            btn.innerText = "Saving...";
+            
+            fetch('/api/save_template', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({name: name})
+            }).then(r => r.json()).then(res => {
+                if(res.success) {
+                    alert("Template saved! You can load it anytime from the Control Panel.");
+                    document.getElementById('save-template-modal').style.display = 'none';
+                    document.getElementById('template-name').value = '';
+                } else {
+                    alert("Error: " + res.error);
+                }
+            }).catch(e => alert("Network Error")).finally(() => {
+                btn.disabled = false;
+                btn.innerText = "Save";
+            });
         };
 
         window.submitNewDriver = async function() {

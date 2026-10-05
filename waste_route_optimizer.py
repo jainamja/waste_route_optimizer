@@ -60,6 +60,15 @@ class Metadata(db.Model):
     key = db.Column(db.String(100), primary_key=True)
     value = db.Column(db.Text)
 
+
+class SavedTemplate(db.Model):
+    __tablename__ = 'saved_templates'
+    id = db.Column(db.Integer, primary_key=True)
+    name = db.Column(db.String(200), nullable=False)
+    created_at = db.Column(db.DateTime, server_default=db.func.now())
+    metadata_json = db.Column(db.Text)
+    customers_json = db.Column(db.Text)
+
 with app.app_context():
     db.create_all()
     
@@ -1101,6 +1110,124 @@ def update_route_manual():
                 requests.put(f"{firebase_url}/routes/{route_key}.json?auth={id_token}", json={"stops": stops})
     except Exception as e:
         print("Firebase sync error on manual reorder:", e)
+        
+    return jsonify({'success': True})
+
+
+@app.route('/api/save_template', methods=['POST'])
+@login_required
+def save_template():
+    name = request.json.get('name')
+    if not name: return jsonify({'error': 'Name is required'}), 400
+    
+    import json
+    
+    # Dump Metadata
+    meta_rows = Metadata.query.all()
+    meta_dict = {m.key: m.value for m in meta_rows}
+    
+    # Dump Customers
+    cust_rows = Customer.query.all()
+    cust_list = [{
+        'id': c.id, 'name': c.name, 'phone': c.phone, 'address': c.address,
+        'location_url': c.location_url, 'lat': c.lat, 'lng': c.lng,
+        'status': c.status, 'truck_id': c.truck_id, 'stop_number': c.stop_number
+    } for c in cust_rows]
+    
+    t = SavedTemplate(
+        name=name,
+        metadata_json=json.dumps(meta_dict),
+        customers_json=json.dumps(cust_list)
+    )
+    db.session.add(t)
+    db.session.commit()
+    
+    return jsonify({'success': True})
+
+@app.route('/api/templates', methods=['GET'])
+@login_required
+def get_templates():
+    templates = SavedTemplate.query.order_by(SavedTemplate.created_at.desc()).all()
+    res = []
+    for t in templates:
+        res.append({
+            'id': t.id,
+            'name': t.name,
+            'created_at': t.created_at.strftime('%Y-%m-%d %H:%M:%S') if t.created_at else ''
+        })
+    return jsonify({'success': True, 'templates': res})
+
+@app.route('/api/delete_template/<int:t_id>', methods=['DELETE'])
+@login_required
+def delete_template(t_id):
+    t = SavedTemplate.query.get(t_id)
+    if t:
+        db.session.delete(t)
+        db.session.commit()
+    return jsonify({'success': True})
+
+@app.route('/api/deploy_template/<int:t_id>', methods=['POST'])
+@login_required
+def deploy_template(t_id):
+    t = SavedTemplate.query.get(t_id)
+    if not t: return jsonify({'error': 'Template not found'}), 404
+    
+    import json
+    meta_dict = json.loads(t.metadata_json or '{}')
+    cust_list = json.loads(t.customers_json or '[]')
+    
+    Customer.query.delete()
+    Metadata.query.delete()
+    
+    for k, v in meta_dict.items():
+        db.session.add(Metadata(key=k, value=v))
+        
+    for c in cust_list:
+        new_cust = Customer(
+            id=c['id'], name=c['name'], phone=c['phone'], address=c['address'],
+            location_url=c.get('location_url'), lat=c['lat'], lng=c['lng'],
+            status='PENDING', truck_id=c.get('truck_id'), stop_number=c.get('stop_number')
+        )
+        db.session.add(new_cust)
+        
+    db.session.commit()
+    
+    # Sync with Firebase immediately
+    try:
+        import requests
+        firebase_url = "https://wasteroutelive-default-rtdb.firebaseio.com"
+        API_KEY = "AIzaSyAhLnjh0gRa2pf29G90zr-6AMcjLjbQpPg"
+        auth_url = f"https://identitytoolkit.googleapis.com/v1/accounts:signUp?key={API_KEY}"
+        auth_res = requests.post(auth_url, json={"returnSecureToken": True})
+        
+        if auth_res.status_code == 200:
+            id_token = auth_res.json().get('idToken')
+            
+            requests.delete(f"{firebase_url}/routes.json?auth={id_token}")
+            
+            routes_payload = {}
+            for c in cust_list:
+                tid = c.get('truck_id')
+                if tid:
+                    route_key = f"route_{tid}"
+                    if route_key not in routes_payload: routes_payload[route_key] = {}
+                    
+                    routes_payload[route_key][str(c['id'])] = {
+                        "name": c['name'],
+                        "address": c['address'],
+                        "phone": c.get('phone', ''),
+                        "lat": c['lat'],
+                        "lng": c['lng'],
+                        "sequence": c.get('stop_number'),
+                        "status": "PENDING"
+                    }
+                    
+            for route_key, stops in routes_payload.items():
+                requests.put(f"{firebase_url}/routes/{route_key}.json?auth={id_token}", json={"stops": stops})
+                tid = route_key.split('_')[1]
+                requests.put(f"{firebase_url}/trucks/{tid}.json?auth={id_token}", json={"status": "offline"})
+    except Exception as e:
+        print("Deploy Firebase error:", e)
         
     return jsonify({'success': True})
 
