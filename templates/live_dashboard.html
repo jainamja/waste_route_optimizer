@@ -329,6 +329,21 @@
     <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
 </head>
 <body>
+    <!-- Modal for Add Driver -->
+    <div id="add-driver-modal" style="display:none; position:fixed; top:0; left:0; right:0; bottom:0; background:rgba(0,0,0,0.5); z-index:9999; align-items:center; justify-content:center;">
+        <div style="background:white; padding:32px; border-radius:24px; max-width:400px; width:90%;">
+            <h3 style="margin-top:0; font-family:'Manrope', sans-serif;">Create Driver Account</h3>
+            <div style="display:flex; flex-direction:column; gap:16px; margin-bottom: 24px;">
+                <input type="text" id="new-driver-phone" placeholder="Driver Mobile Number" style="padding:12px; border:1px solid var(--border); border-radius:12px; font-family:'Inter', sans-serif;">
+                <input type="text" id="new-driver-pass" placeholder="Assign Password" style="padding:12px; border:1px solid var(--border); border-radius:12px; font-family:'Inter', sans-serif;">
+            </div>
+            <div style="display:flex; gap:12px;">
+                <button class="btn btn-primary" id="btn-submit-driver" onclick="submitNewDriver()" style="flex:1;">Create</button>
+                <button class="btn btn-outline" onclick="document.getElementById('add-driver-modal').style.display='none'" style="flex:1;">Cancel</button>
+            </div>
+        </div>
+    </div>
+    
     <!-- Modal for Driver Link -->
     <div id="driver-link-modal" style="display:none; position:fixed; top:0; left:0; right:0; bottom:0; background:rgba(0,0,0,0.5); z-index:9999; align-items:center; justify-content:center;">
         <div style="background:white; padding:32px; border-radius:24px; max-width:450px; width:90%; text-align:center;">
@@ -388,6 +403,7 @@
             <a href="/download_excel" class="btn btn-outline" id="export-btn" style="display:none; text-decoration:none;">
                 <i class="fa-solid fa-file-excel"></i> Export Report
             </a>
+            <button onclick="document.getElementById('add-driver-modal').style.display='flex'" class="btn" style="background:#8b5cf6; color:white; border:none; margin-left:8px;"><i class="fa-solid fa-user-plus"></i> Create Driver</button>
             <a href="/logout" class="btn" style="background:var(--border); color:var(--text-main); text-decoration:none; margin-left:8px;"><i class="fa-solid fa-arrow-right-from-bracket"></i> Logout</a>
         </div>
     </div>
@@ -915,6 +931,38 @@
                 console.error(e);
                 alert("An error occurred while removing the stop.");
             }
+        };
+
+        window.submitNewDriver = async function() {
+            const phone = document.getElementById('new-driver-phone').value;
+            const pass = document.getElementById('new-driver-pass').value;
+            const btn = document.getElementById('btn-submit-driver');
+            
+            if(!phone || !pass) { alert("Please fill all fields"); return; }
+            
+            btn.innerHTML = '<i class="fa-solid fa-circle-notch fa-spin"></i> Creating...';
+            btn.disabled = true;
+            
+            try {
+                let res = await fetch('/api/admin_create_driver', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({username: phone, password: pass})
+                });
+                let data = await res.json();
+                if(data.success) {
+                    alert("Driver created successfully!");
+                    document.getElementById('add-driver-modal').style.display = 'none';
+                    document.getElementById('new-driver-phone').value = '';
+                    document.getElementById('new-driver-pass').value = '';
+                } else {
+                    alert("Error: " + data.error);
+                }
+            } catch(e) {
+                alert("An error occurred");
+            }
+            btn.innerHTML = 'Create';
+            btn.disabled = false;
         };
 
         window.onload = loadData;
