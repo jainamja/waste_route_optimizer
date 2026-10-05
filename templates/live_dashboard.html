@@ -706,13 +706,24 @@
                         
                         ${stopsListHtml}
                         
-                        <div style="display:flex; gap:12px; margin-top: 16px;">
-                            <a href="${dirUrl}" target="_blank" class="route-link" style="margin-top:0; flex:1;">
-                                <i class="fa-solid fa-map-location-dot"></i> Overview
-                            </a>
-                            <button onclick="generateDriverLink('${t}', ${i})" class="route-link" style="margin-top:0; flex:1; background:var(--primary); color:white; border-color:var(--primary);">
-                                <i class="fa-solid fa-share-nodes"></i> Send to Driver
-                            </button>
+                        let driverOptions = '<option value="">-- Assign Driver --</option>';
+                        if (data.drivers) {
+                            data.drivers.forEach(d => {
+                                let sel = (String(d.truck_id) === String(t)) ? 'selected' : '';
+                                driverOptions += `<option value="${d.id}" ${sel}>${d.name || d.username}</option>`;
+                            });
+                        }
+                        html += `
+                        <div style="margin-top:16px;">
+                            <label style="font-size:12px; font-weight:600; color:var(--text-muted); display:block; margin-bottom:6px;"><i class="fa-solid fa-user-check"></i> Assign to Driver</label>
+                            <div style="display:flex; gap:8px;">
+                                <a href="${dirUrl}" target="_blank" class="route-link" style="margin-top:0; padding:10px 14px;">
+                                    <i class="fa-solid fa-map-location-dot"></i>
+                                </a>
+                                <select onchange="assignDriver(this.value, '${t}', this)" style="flex:1; padding:10px 12px; border:1px solid var(--border); border-radius:8px; font-family:'Inter',sans-serif; font-size:13px; font-weight:600; color:var(--text-main); background:white; cursor:pointer;">
+                                    ${driverOptions}
+                                </select>
+                            </div>
                         </div>
                     </div>
                 `;
@@ -720,6 +731,31 @@
             
             document.getElementById('truck-stats').innerHTML = html;
         }
+
+        window.assignDriver = async function(driverId, truckId, selectEl) {
+            if (!driverId) return;
+            selectEl.disabled = true;
+            selectEl.style.opacity = '0.6';
+            try {
+                let res = await fetch('/api/assign_driver', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({driver_id: parseInt(driverId), truck_id: parseInt(truckId)})
+                });
+                let result = await res.json();
+                if (result.success) {
+                    selectEl.style.background = '#ecfdf5';
+                    selectEl.style.borderColor = '#10b981';
+                    setTimeout(() => { selectEl.style.background = 'white'; selectEl.style.borderColor = 'var(--border)'; }, 1500);
+                } else {
+                    alert('Error: ' + result.error);
+                }
+            } catch(e) {
+                alert('An error occurred');
+            }
+            selectEl.disabled = false;
+            selectEl.style.opacity = '1';
+        };
 
         window.generateDriverLink = function(truckId, index) {
             let truckRoute = data.routes[index];

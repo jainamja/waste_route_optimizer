@@ -548,6 +548,28 @@ def admin_delete_driver(driver_id):
     db.session.commit()
     return jsonify({'success': True})
 
+@app.route('/api/assign_driver', methods=['POST'])
+@login_required
+def assign_driver():
+    data = request.json
+    driver_id = data.get('driver_id')
+    truck_id = data.get('truck_id')
+    
+    if not driver_id or not truck_id:
+        return jsonify({'error': 'Missing fields'}), 400
+        
+    driver = User.query.get(driver_id)
+    if not driver or driver.role != 'DRIVER':
+        return jsonify({'error': 'Driver not found'}), 404
+        
+    # Remove this truck_id from any other driver to prevent duplicates
+    User.query.filter_by(role='DRIVER', truck_id=truck_id).update({'truck_id': None})
+    
+    driver.truck_id = truck_id
+    db.session.commit()
+    
+    return jsonify({'success': True})
+
 
 
 @app.route('/driver')
@@ -605,6 +627,16 @@ def get_data():
     if 'driver_tokens' in metadata:
         driver_tokens = json.loads(metadata['driver_tokens'])
 
+    drivers = User.query.filter_by(role='DRIVER').all()
+    drivers_data = []
+    for d in drivers:
+        drivers_data.append({
+            'id': d.id,
+            'username': d.username,
+            'name': d.name,
+            'truck_id': d.truck_id
+        })
+
     return jsonify({
         'customers': customers,
         'routes': routes,
@@ -612,7 +644,8 @@ def get_data():
         'route_distances': route_distances,
         'start_coords': start_coords,
         'end_coords': end_coords,
-        'driver_tokens': driver_tokens
+        'driver_tokens': driver_tokens,
+        'drivers': drivers_data
     })
 
 @app.route('/api/mark_completed/<int:customer_id>', methods=['POST'])
