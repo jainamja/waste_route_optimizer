@@ -227,16 +227,53 @@ def read_data_file(filepath):
             
     return customers
 
+from functools import wraps
+from flask import session, redirect, url_for, request
+
+def login_required(f):
+    @wraps(f)
+    def decorated_function(*args, **kwargs):
+        if 'user_id' not in session:
+            return redirect(url_for('login'))
+        return f(*args, **kwargs)
+    return decorated_function
+
+@app.route('/login', methods=['GET', 'POST'])
+def login():
+    error = None
+    if request.method == 'POST':
+        username = request.form['username']
+        password = request.form['password']
+        from werkzeug.security import check_password_hash
+        user = User.query.filter_by(username=username).first()
+        if user and check_password_hash(user.password_hash, password):
+            if user.role != 'ADMIN':
+                error = 'Drivers must log in via the mobile app.'
+            else:
+                session['user_id'] = user.id
+                return redirect(url_for('index'))
+        else:
+            error = 'Invalid username or password.'
+    return render_template('login.html', error=error)
+
+@app.route('/logout')
+def logout():
+    session.pop('user_id', None)
+    return redirect(url_for('login'))
+
 @app.route('/')
+@login_required
 def index():
     return render_template('select_start_point.html')
 
 
 @app.route('/live')
+@login_required
 def live_tracking():
     return render_template('live_tracking.html')
 
 @app.route('/upload', methods=['POST'])
+@login_required
 def upload():
     if 'file' not in request.files: return "No file part", 400
     file = request.files['file']
