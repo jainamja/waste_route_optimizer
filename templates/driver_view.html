@@ -995,16 +995,14 @@
         });
 
     
-        // Hide splash screen after animation completes
-        window.addEventListener('load', () => {
-            setTimeout(() => {
-                let splash = document.getElementById('splash-screen');
-                if (splash) {
-                    splash.style.opacity = '0';
-                    setTimeout(() => splash.remove(), 400);
-                }
-            }, 2500); // 2.5 seconds (gives time for 2s animation + delay)
-        });
+        // Hide splash screen after animation completes (run immediately on script load)
+        setTimeout(() => {
+            let splash = document.getElementById('splash-screen');
+            if (splash) {
+                splash.style.opacity = '0';
+                setTimeout(() => splash.remove(), 400);
+            }
+        }, 2500);
 </script>
 </body>
 </html>
