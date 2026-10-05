@@ -70,11 +70,17 @@ with app.app_context():
         db.session.rollback()
         
     from werkzeug.security import generate_password_hash
-    if not User.query.filter_by(username='admin').first():
+    admin_user = User.query.filter_by(username='admin').first()
+    if not admin_user:
         db.session.add(User(username='admin', password_hash=generate_password_hash('admin'), role='ADMIN'))
         for i in range(1, 11):
             db.session.add(User(username='driver'+str(i), password_hash=generate_password_hash('driver'+str(i)), role='DRIVER', truck_id=i))
         db.session.commit()
+    else:
+        from werkzeug.security import check_password_hash
+        if not check_password_hash(admin_user.password_hash, 'admin'):
+            admin_user.password_hash = generate_password_hash('admin')
+            db.session.commit()
 
 @lru_cache(maxsize=100)
 def resolve_gmaps_url(url):
