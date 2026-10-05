@@ -289,11 +289,12 @@ def logout():
     session.pop('user_id', None)
     return redirect(url_for('login'))
 
-@app.route('/')
+@app.route('/generate')
 @login_required
 def index():
     return render_template('select_start_point.html')
 
+@app.route('/')
 @app.route('/dashboard')
 @login_required
 def dashboard():
