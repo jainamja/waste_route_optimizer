@@ -498,7 +498,7 @@ def upload():
         print("Firebase sync error:", e)
 
 
-    return redirect(url_for('dashboard'))
+    return redirect(url_for('live_tracking'))
 
 @app.route('/api/driver_login', methods=['POST'])
 def driver_login():
