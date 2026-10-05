@@ -910,6 +910,15 @@
 
 
 
+        window.driverLogout = async function() {
+            if (window.Capacitor && window.Capacitor.Plugins && window.Capacitor.Plugins.Preferences) {
+                await window.Capacitor.Plugins.Preferences.remove({ key: 'driver_token' }).catch(e=>{});
+            } else {
+                localStorage.removeItem('driver_token');
+            }
+            window.location.reload();
+        };
+
         window.handleDriverLogin = async function() {
             const u = document.getElementById('username').value;
             const p = document.getElementById('password').value;
