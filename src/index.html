@@ -20,6 +20,25 @@
     <script src="https://www.gstatic.com/firebasejs/10.9.0/firebase-database-compat.js"></script>
     
     <style>
+        #login-overlay {
+            position: fixed; top: 0; left: 0; width: 100%; height: 100%;
+            background: #f8fafc; z-index: 10000; display: flex;
+            flex-direction: column; justify-content: center; align-items: center; padding: 20px;
+        }
+        .login-box {
+            background: white; padding: 30px; border-radius: 16px;
+            box-shadow: 0 4px 20px rgba(0,0,0,0.05); width: 100%; max-width: 360px;
+            text-align: center;
+        }
+        .login-box input {
+            width: 100%; padding: 14px; margin-bottom: 16px;
+            border: 1px solid #e2e8f0; border-radius: 8px; font-size: 16px; box-sizing: border-box;
+        }
+        .login-box button {
+            width: 100%; padding: 14px; background: var(--primary);
+            color: white; border: none; border-radius: 8px; font-size: 16px; font-weight: 600; cursor: pointer;
+        }
+        .error-msg { color: #ef4444; margin-bottom: 16px; font-size: 14px; display: none; }
         :root {
             --primary: #2F5FFF;
             --primary-hover: #1e40af;
@@ -873,6 +892,45 @@
                 document.getElementById('current-stop-container').innerHTML = `<div style="text-align:center; color:#e11d48; padding:20px;"><b>This route has ended</b><br>Please ask dispatch for a new link.</div>`;
             }
         }
+
+        window.handleDriverLogin = async function() {
+            const u = document.getElementById('username').value;
+            const p = document.getElementById('password').value;
+            const btn = document.getElementById('login-btn');
+            const err = document.getElementById('login-error');
+            
+            if(!u || !p) return;
+            btn.innerHTML = '<i class="fa-solid fa-circle-notch fa-spin"></i>';
+            err.style.display = 'none';
+            
+            try {
+                let backendUrl = window.location.origin.includes('localhost') || window.location.origin.includes('capacitor://') ? 'https://waste-route-optimizer-robn.onrender.com' : window.location.origin;
+                let res = await fetch(backendUrl + '/api/driver_login', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({username: u, password: p})
+                });
+                let data = await res.json();
+                
+                if(data.success) {
+                    if (window.Capacitor && window.Capacitor.Plugins && window.Capacitor.Plugins.Preferences) {
+                        await window.Capacitor.Plugins.Preferences.set({ key: 'driver_token', value: data.token });
+                    } else {
+                        localStorage.setItem('driver_token', data.token);
+                    }
+                    document.getElementById('login-overlay').style.display = 'none';
+                    initApp();
+                } else {
+                    err.innerText = data.error;
+                    err.style.display = 'block';
+                    btn.innerText = 'Sign In';
+                }
+            } catch (e) {
+                err.innerText = 'Network Error';
+                err.style.display = 'block';
+                btn.innerText = 'Sign In';
+            }
+        };
 
         // 2. Wrap app startup in Firebase Auth to guarantee permissions
         firebase.auth().signInAnonymously().then(() => {
