@@ -271,11 +271,8 @@ def login():
         from werkzeug.security import check_password_hash
         user = User.query.filter_by(username=username).first()
         if user and check_password_hash(user.password_hash, password):
-            if user.role != 'ADMIN':
-                error = 'Drivers must log in via the mobile app.'
-            else:
-                session['user_id'] = user.id
-                return redirect(url_for('index'))
+            session['user_id'] = user.id
+            return redirect(url_for('index'))
         else:
             error = 'Invalid username or password.'
     return render_template('login.html', error=error)
