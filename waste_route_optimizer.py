@@ -29,9 +29,18 @@ app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
 db = SQLAlchemy(app)
 
 
+app.secret_key = 'super_secret_waste_route_key_123'
 os.makedirs(app.config['UPLOAD_FOLDER'], exist_ok=True)
 
 # Models
+class User(db.Model):
+    __tablename__ = 'users'
+    id = db.Column(db.Integer, primary_key=True)
+    username = db.Column(db.String(50), unique=True)
+    password_hash = db.Column(db.String(255))
+    role = db.Column(db.String(20))
+    truck_id = db.Column(db.Integer)
+
 class Customer(db.Model):
     __tablename__ = 'customers'
     id = db.Column(db.Integer, primary_key=True)
@@ -52,11 +61,13 @@ class Metadata(db.Model):
 
 with app.app_context():
     db.create_all()
-    # Auto-create a default admin user
-
-
-
-
+    
+    from werkzeug.security import generate_password_hash
+    if not User.query.filter_by(username='admin').first():
+        db.session.add(User(username='admin', password_hash=generate_password_hash('admin'), role='ADMIN'))
+        for i in range(1, 11):
+            db.session.add(User(username='driver'+str(i), password_hash=generate_password_hash('driver'+str(i)), role='DRIVER', truck_id=i))
+        db.session.commit()
 
 @lru_cache(maxsize=100)
 def resolve_gmaps_url(url):
