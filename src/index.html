@@ -219,7 +219,10 @@
     <!-- Navbar -->
     <div id="navbar">
         <div class="navbar-title"><i class="fa-solid fa-truck"></i> <span id="truck-title">Loading...</span></div>
-        <button onclick="resetRoute()" style="background:none; border:none; color:var(--text-muted); font-size:14px; font-weight:600; cursor:pointer;">Reset</button>
+        <div style="display:flex; gap:16px; align-items:center;">
+            <button onclick="resetRoute()" style="background:none; border:none; color:var(--text-muted); font-size:14px; font-weight:600; cursor:pointer;"><i class="fa-solid fa-rotate-right"></i></button>
+            <button onclick="driverLogout()" style="background:var(--red); color:white; border:none; border-radius:8px; padding:6px 12px; font-size:14px; font-weight:700; cursor:pointer;"><i class="fa-solid fa-power-off"></i></button>
+        </div>
     </div>
 
     <!-- FAB -->
