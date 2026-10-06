@@ -586,7 +586,7 @@
                     setDisplay('live-indicator', 'flex');
                     setDisplay('export-btn', 'inline-flex');
                     setDisplay('add-stop-btn', 'inline-flex');
-                    setDisplay('save-template-btn', 'inline-flex');
+                    setDisplay('save-template-btn', resData.is_from_template ? 'none' : 'inline-flex');
                     
                     updateHeaderStats();
                     renderMap();

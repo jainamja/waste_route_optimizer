@@ -447,7 +447,8 @@ def upload():
     m3 = Metadata(key='route_times', value=json.dumps(active_route_times))
     m4 = Metadata(key='route_distances', value=json.dumps(active_route_distances))
     m_tokens = Metadata(key='driver_tokens', value=json.dumps(driver_tokens))
-    db.session.add_all([m1, m2, m3, m4, m_tokens])
+    m_template = Metadata(key='is_from_template', value='false')
+    db.session.add_all([m1, m2, m3, m4, m_tokens, m_template])
     
     for c in customers_data:
         new_cust = Customer(
@@ -667,7 +668,8 @@ def get_data():
         'start_coords': start_coords,
         'end_coords': end_coords,
         'driver_tokens': driver_tokens,
-        'drivers': drivers_data
+        'drivers': drivers_data,
+        'is_from_template': metadata.get('is_from_template') == 'true'
     })
 
 @app.route('/api/mark_completed/<int:customer_id>', methods=['POST'])
@@ -1183,6 +1185,7 @@ def delete_template(t_id):
 @app.route('/api/deploy_template/<int:t_id>', methods=['POST'])
 @login_required
 def deploy_template(t_id):
+    mode = request.args.get('mode', 'deploy')
     t = SavedTemplate.query.get(t_id)
     if not t: return jsonify({'error': 'Template not found'}), 404
     
@@ -1194,7 +1197,11 @@ def deploy_template(t_id):
     Metadata.query.delete()
     
     for k, v in meta_dict.items():
-        db.session.add(Metadata(key=k, value=v))
+        if k != 'is_from_template':
+            db.session.add(Metadata(key=k, value=v))
+            
+    is_template_val = 'true' if mode == 'deploy' else 'false'
+    db.session.add(Metadata(key='is_from_template', value=is_template_val))
         
     for c in cust_list:
         new_cust = Customer(
