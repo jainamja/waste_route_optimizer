@@ -526,7 +526,7 @@
                             ${stop.subStops.map((ss, i) => `
                                 <div style="display: flex; justify-content: space-between; align-items: flex-start; ${i !== stop.subStops.length - 1 ? 'border-bottom:1px solid #e2e8f0; padding-bottom:12px; margin-bottom:12px;' : ''}">
                                     <div style="flex:1;">
-                                        <div style="font-weight: 700; font-size: 16px; margin-bottom: 4px; color:var(--text-main);">${ss.name}</div>
+                                        <div style="font-weight: 700; font-size: 16px; margin-bottom: 4px; color:var(--text-main);">${ss.name} ${ss.id && ss.id > 0 ? `(Sr. ${ss.id})` : ''}</div>
                                         <div style="font-size: 13px; color: var(--text-muted); line-height:1.4;"><i class="fa-solid fa-house" style="margin-right:6px; opacity:0.7;"></i>${ss.address || 'No exact address'}</div>
                                     </div>
                                     ${ss.phone ? `<a href="tel:${ss.phone}" style="background: var(--primary); color: white; width: 36px; height: 36px; min-width:36px; border-radius: 50%; display: flex; justify-content: center; align-items: center; text-decoration: none; margin-left:12px;"><i class="fa-solid fa-phone"></i></a>` : ''}
@@ -537,7 +537,7 @@
                 } else {
                     subStopsHtml = `
                         <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
-                            <div class="stop-name" style="margin-bottom: 0;">${stop.name}</div>
+                            <div class="stop-name" style="margin-bottom: 0;">${stop.name} ${stop.id && stop.id > 0 ? `(Sr. ${stop.id})` : ''}</div>
                             ${stop.phone ? `<a href="tel:${stop.phone}" style="background: var(--primary); color: white; width: 40px; height: 40px; border-radius: 50%; display: flex; justify-content: center; align-items: center; text-decoration: none; box-shadow: 0 4px 6px rgba(0,0,0,0.1);"><i class="fa-solid fa-phone"></i></a>` : ''}
                         </div>
                         <div class="stop-address" style="margin-bottom: 16px;">
@@ -576,7 +576,7 @@
                 let isDepot = s.id < 0 || s.name === 'End Location / Depot';
                 let hasSeq = (s.sequence !== undefined && s.sequence !== null);
                 let displaySeq = hasSeq ? s.sequence : '?';
-                let titleText = isDepot ? s.name : `Stop ${displaySeq}: ${s.name}`;
+                let titleText = isDepot ? s.name : `Stop ${displaySeq}: ${s.name} ${s.id && s.id > 0 ? `(Sr. ${s.id})` : ''}`;
                 
                 return `
                     <div class="${classes}">
