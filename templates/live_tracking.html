@@ -184,9 +184,14 @@
         const db = firebase.database();
         let liveTruckMarkers = {};
 
+        let usingFallback = false;
+        let driverMap = {};
+        let routesData = {};
+
         firebase.auth().signInAnonymously().then(() => {
             db.ref('trucks').on('value', snap => {
                 let trucks = snap.val();
+                window.liveTrucks = trucks;
                 if(!trucks) return;
                 
                 let bounds = L.latLngBounds();
@@ -218,23 +223,20 @@
                     }
                 }
                 
-                // Only pan if this is the first load and we haven't manually moved the map
                 if (hasLive && !window.hasFitBounds) {
                     map.fitBounds(bounds, {padding: [50, 50], maxZoom: 15});
                     window.hasFitBounds = true;
                 }
                 
-                // Re-render truck markers with counts
                 updateMapPopups();
                 scheduleRender();
+            }, err => {
+                console.warn("Permission denied reading 'trucks'. Will fall back to individual trucks.");
+                usingFallback = true;
             });
             attachRoutesListener();
             fetchDrivers();
         });
-
-        let usingFallback = false;
-        let driverMap = {};
-        let routesData = {};
 
         function fetchDrivers() {
             fetch('/api/data').then(r => r.json()).then(data => {
@@ -282,11 +284,53 @@
 
         let routeListeners = {};
         function fallbackToIndividualListeners() {
+            if (!window.liveTrucks) window.liveTrucks = {};
             Object.keys(driverMap).forEach(tId => {
                 if (!routeListeners[tId]) {
                     routeListeners[tId] = true;
-                    db.ref('routes/route_' + tId).on('value', snap => {
-                        routesData['route_' + tId] = snap.val() || {};
+                    // Listen to route stops
+                    db.ref('routes/route_' + tId + '/stops').on('value', snap => {
+                        if (!routesData['route_' + tId]) routesData['route_' + tId] = {};
+                        routesData['route_' + tId].stops = snap.val() || {};
+                        updateMapPopups();
+                        scheduleRender();
+                    }, err => {
+                        console.error("Fallback listener also failed for truck", tId, err);
+                    });
+                    
+                    // Listen to individual truck
+                    db.ref('trucks/' + tId).on('value', snap => {
+                        let tData = snap.val();
+                        if (tData) {
+                            window.liveTrucks[tId] = tData;
+                            
+                            // Map update
+                            if (tData.status === 'online' && tData.currentLat && tData.currentLng) {
+                                if (liveTruckMarkers[tId]) {
+                                    liveTruckMarkers[tId].setLatLng([tData.currentLat, tData.currentLng]);
+                                } else {
+                                    let truckIcon = L.divIcon({
+                                        className: 'live-truck-icon',
+                                        html: `<div style='background-color:#2F5FFF; width:40px; height:40px; border-radius:50%; border:3px solid white; box-shadow:0 4px 10px rgba(0,0,0,0.4); display:flex; align-items:center; justify-content:center; color:white; font-size:18px;'><i class="fa-solid fa-truck"></i></div>`,
+                                        iconSize: [40, 40],
+                                        iconAnchor: [20, 20]
+                                    });
+                                    liveTruckMarkers[tId] = L.marker([tData.currentLat, tData.currentLng], {icon: truckIcon}).addTo(map);
+                                    liveTruckMarkers[tId].bindPopup("<b>Truck " + tId + "</b><br>Live GPS").openPopup();
+                                    if (!window.hasFitBounds) {
+                                        map.setView([tData.currentLat, tData.currentLng], 15);
+                                        window.hasFitBounds = true;
+                                    }
+                                }
+                            } else {
+                                if(liveTruckMarkers[tId]) {
+                                    map.removeLayer(liveTruckMarkers[tId]);
+                                    delete liveTruckMarkers[tId];
+                                }
+                            }
+                        } else {
+                            delete window.liveTrucks[tId];
+                        }
                         updateMapPopups();
                         scheduleRender();
                     });
