@@ -646,7 +646,7 @@
             }
             
             let avgTime = 0;
-            if(data.route_times && data.route_times.length > 0) {
+            if(data.route_times && data.route_times.length >= numTrucks && data.route_times.length > 0) {
                 let totalSecs = data.route_times.reduce((a,b) => a+b, 0);
                 avgTime = totalSecs / data.route_times.length;
             }
@@ -654,18 +654,18 @@
             document.getElementById('stat-trucks').innerText = numTrucks;
             document.getElementById('stat-stops').innerText = numStops;
             
-            if(totalDist > 0) {
+            if(data.route_distances && data.route_distances.length >= numTrucks && totalDist > 0) {
                 document.getElementById('stat-dist').innerText = totalDist.toFixed(1) + " km";
             } else {
-                document.getElementById('stat-dist').innerText = "N/A";
+                document.getElementById('stat-dist').innerText = "-";
             }
             
-            if(avgTime > 0) {
+            if(data.route_times && data.route_times.length >= numTrucks && avgTime > 0) {
                 let h = Math.floor(avgTime / 3600);
                 let m = Math.floor((avgTime % 3600) / 60);
                 document.getElementById('stat-time').innerText = h > 0 ? `${h}h ${m}m` : `${m}m`;
             } else {
-                document.getElementById('stat-time').innerText = "N/A";
+                document.getElementById('stat-time').innerText = "-";
             }
         }
 
@@ -833,8 +833,8 @@
                 dirUrl += waypoints.join('|');
                 stopsListHtml += '</div>';
                 
-                let distStr = "";
-                if (data.route_distances && data.route_distances.length > i) {
+                let distStr = `<span style="display:flex;align-items:center;gap:4px;"><i class="fa-solid fa-road" style="color:var(--text-muted);"></i> -</span>`;
+                if (data.route_distances && data.route_distances.length > i && data.route_distances[i] > 0) {
                     let distanceKm = (data.route_distances[i] / 1000).toFixed(1);
                     distStr = `<span style="display:flex;align-items:center;gap:4px;"><i class="fa-solid fa-road" style="color:var(--text-muted);"></i> ${distanceKm} km</span>`;
                 }

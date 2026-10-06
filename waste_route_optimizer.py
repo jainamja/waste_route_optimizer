@@ -293,6 +293,148 @@ def login_required(f):
         return f(*args, **kwargs)
     return decorated_function
 
+leg_cache = {}
+
+def recompute_route_metrics():
+    import json
+    from geopy.distance import geodesic
+    try:
+        start_meta = Metadata.query.filter_by(key='start_coords').first()
+        if not start_meta or not start_meta.value:
+            return
+            
+        start_coords = json.loads(start_meta.value)
+        
+        customers = Customer.query.filter(Customer.truck_id.isnot(None)).order_by(Customer.truck_id, Customer.stop_number).all()
+        truck_map = {}
+        for c in customers:
+            if c.truck_id not in truck_map:
+                truck_map[c.truck_id] = []
+            truck_map[c.truck_id].append(c)
+            
+        if not truck_map:
+            return
+            
+        sorted_trucks = sorted(truck_map.keys())
+        route_times = []
+        route_distances = []
+        
+        gmaps_key = os.environ.get('GMAPS_API_KEY')
+        
+        for idx, truck_id in enumerate(sorted_trucks):
+            stops = truck_map[truck_id]
+            if not stops:
+                route_times.append(0)
+                route_distances.append(0)
+                continue
+                
+            depots = [s for s in stops if s.id <= -1000 or s.name == 'End Location / Depot']
+            real_stops = [s for s in stops if s.id > -1000 and s.name != 'End Location / Depot']
+            depot_stop = depots[-1] if depots else None
+            
+            start_idx = min(idx, len(start_coords) - 1)
+            slat, slng = map(float, start_coords[start_idx].split(','))
+            
+            waypoints = [(slat, slng)]
+            for s in real_stops:
+                waypoints.append((s.lat, s.lng))
+            if depot_stop:
+                waypoints.append((depot_stop.lat, depot_stop.lng))
+                
+            if len(real_stops) == 0:
+                route_times.append(0)
+                route_distances.append(0)
+                continue
+                
+            truck_dist = 0
+            truck_time = 300 * len(real_stops) # 300s per real stop
+            
+            chunk_size = 90
+            for i in range(0, len(waypoints) - 1, chunk_size - 1):
+                chunk = waypoints[i:i + chunk_size]
+                if len(chunk) < 2:
+                    break
+                    
+                success = False
+                if gmaps_key:
+                    try:
+                        for j in range(len(chunk) - 1):
+                            c1 = chunk[j]
+                            c2 = chunk[j+1]
+                            rounded1 = (round(c1[0], 5), round(c1[1], 5))
+                            rounded2 = (round(c2[0], 5), round(c2[1], 5))
+                            key = (rounded1, rounded2)
+                            if key in leg_cache:
+                                t, d = leg_cache[key]
+                                truck_dist += d
+                                truck_time += t
+                            else:
+                                url = f"https://maps.googleapis.com/maps/api/distancematrix/json?origins={c1[0]},{c1[1]}&destinations={c2[0]},{c2[1]}&key={gmaps_key}"
+                                resp = requests.get(url, timeout=8).json()
+                                row = resp.get('rows', [{}])[0].get('elements', [{}])[0]
+                                if row.get('status') == 'OK':
+                                    d = row['distance']['value']
+                                    t = row['duration']['value']
+                                    leg_cache[key] = (t, d)
+                                    truck_dist += d
+                                    truck_time += t
+                                else:
+                                    raise Exception("GMAPS fail")
+                        success = True
+                    except Exception as e:
+                        print(f"GMAPS Error in recompute: {e}")
+                
+                if not success and not gmaps_key:
+                    coords_str = ";".join([f"{lon},{lat}" for lat, lon in chunk])
+                    osrm_url = f"https://router.project-osrm.org/route/v1/driving/{coords_str}?overview=false"
+                    try:
+                        resp = requests.get(osrm_url, timeout=8)
+                        if resp.status_code == 200:
+                            data = resp.json()
+                            if data.get('code') == 'Ok' and data.get('routes'):
+                                legs = data['routes'][0].get('legs', [])
+                                if len(legs) == len(chunk) - 1:
+                                    for leg in legs:
+                                        truck_dist += leg['distance']
+                                        truck_time += leg['duration']
+                                    success = True
+                    except Exception as e:
+                        print(f"OSRM Error in recompute: {e}")
+                
+                if not success:
+                    for j in range(len(chunk) - 1):
+                        c1 = chunk[j]
+                        c2 = chunk[j+1]
+                        rounded1 = (round(c1[0], 5), round(c1[1], 5))
+                        rounded2 = (round(c2[0], 5), round(c2[1], 5))
+                        key = (rounded1, rounded2)
+                        if key not in leg_cache:
+                            dist_m = geodesic(c1, c2).meters
+                            time_s = dist_m / 10.0
+                            leg_cache[key] = (time_s, dist_m)
+                        t, d = leg_cache[key]
+                        truck_dist += d
+                        truck_time += t
+
+            route_times.append(int(truck_time))
+            route_distances.append(int(truck_dist))
+            
+        meta_times = Metadata.query.filter_by(key='route_times').first()
+        if not meta_times:
+            meta_times = Metadata(key='route_times')
+            db.session.add(meta_times)
+        meta_times.value = json.dumps(route_times)
+        
+        meta_dists = Metadata.query.filter_by(key='route_distances').first()
+        if not meta_dists:
+            meta_dists = Metadata(key='route_distances')
+            db.session.add(meta_dists)
+        meta_dists.value = json.dumps(route_distances)
+        
+        db.session.commit()
+    except Exception as e:
+        print(f"Error recomputing route metrics: {e}")
+
 @app.route('/login', methods=['GET', 'POST'])
 def login():
     error = None
@@ -826,6 +968,7 @@ def remove_stop():
                 # Update Firebase
                 requests.put(f"{firebase_url}/routes/{route_key}/stops.json?auth={id_token}", json=stops)
                 
+        recompute_route_metrics()
         return jsonify({'success': True})
     except Exception as e:
         import traceback
@@ -842,11 +985,17 @@ def add_stop():
     address = data.get('address', '')
     location_url = data.get('location_url', '')
     
-    lat, lng = None, None
-    if location_url:
-        url_match = re.search(r'(https?://[^\s]+)', str(location_url))
-        if url_match:
-            lat, lng = resolve_gmaps_url(url_match.group(1))
+    lat_val, lng_val = data.get('lat'), data.get('lng')
+    if lat_val is not None and lng_val is not None:
+        try: lat, lng = float(lat_val), float(lng_val)
+        except ValueError: lat, lng = None, None
+    else: lat, lng = None, None
+    
+    if lat is None or lng is None:
+        if location_url:
+            url_match = re.search(r'(https?://[^\s]+)', str(location_url))
+            if url_match:
+                lat, lng = resolve_gmaps_url(url_match.group(1))
             
     if (lat is None or lng is None) and address:
         search_query = str(address)
@@ -919,6 +1068,7 @@ def add_stop():
                 
                 requests.put(f"{firebase_url}/routes/{route_key}/stops.json?auth={id_token}", json=stops)
                 
+            recompute_route_metrics()
             return jsonify({'success': True, 'customer_id': new_id})
             
         else:
@@ -930,6 +1080,7 @@ def add_stop():
             )
             db.session.add(new_cust)
             db.session.commit()
+            recompute_route_metrics()
             return jsonify({'success': True, 'customer_id': new_id})
     except Exception as e:
         import traceback
@@ -1112,6 +1263,7 @@ def ai_rebalance():
     for route_key, stops in routes_payload.items():
         requests.put(f"{firebase_url}/routes/{route_key}.json?auth={id_token}", json={"stops": stops})
         
+    recompute_route_metrics()
     return jsonify({'success': True})
 
 @app.route('/api/update_route_manual', methods=['POST'])
@@ -1173,6 +1325,7 @@ def update_route_manual():
     except Exception as e:
         print("Firebase sync error on manual reorder:", e)
         
+    recompute_route_metrics()
     return jsonify({'success': True})
 
 
@@ -1305,6 +1458,7 @@ def deploy_template(t_id):
     except Exception as e:
         print("Deploy Firebase error:", e)
         
+    recompute_route_metrics()
     return jsonify({'success': True})
 
 @app.route('/api/dynamic_recalculate', methods=['POST'])
@@ -1467,6 +1621,7 @@ def dynamic_recalculate():
         except Exception as sql_e:
             print("Failed to update SQL assignments:", sql_e)
         
+        recompute_route_metrics()
         return jsonify({'success': True, 'recalculated_stops': len(pending_customers)})
         
     except Exception as e:
