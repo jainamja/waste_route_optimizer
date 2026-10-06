@@ -154,7 +154,7 @@
         <div id="progress-panel" class="progress-panel collapsed">
             <div class="panel-header" onclick="this.parentElement.classList.toggle('collapsed')">
                 <div class="drag-handle"></div>
-                <h3 style="font-size: 16px; font-weight: 800;">Fleet Progress</h3>
+                <h3 style="font-size: 16px; font-weight: 800;">Fleet Progress <span style="font-size:10px;color:#ef4444;" id="v-tag">v2</span></h3>
                 <div class="fleet-summary" id="fleet-summary">
                     <!-- Fleet summary injected here -->
                 </div>
@@ -189,8 +189,10 @@
         let routesData = {};
 
         firebase.auth().signInAnonymously().then(() => {
+            console.log("Firebase Auth success.");
             db.ref('trucks').on('value', snap => {
                 let trucks = snap.val();
+                console.log("Root trucks listener received data:", trucks ? Object.keys(trucks).length + " trucks" : "null");
                 window.liveTrucks = trucks;
                 if(!trucks) return;
                 
@@ -231,21 +233,23 @@
                 updateMapPopups();
                 scheduleRender();
             }, err => {
-                console.warn("Permission denied reading 'trucks'. Will fall back to individual trucks.");
+                console.warn("Permission denied reading 'trucks'. Will fall back to individual trucks.", err);
                 usingFallback = true;
+                fallbackToIndividualListeners();
             });
             attachRoutesListener();
             fetchDrivers();
-        });
+        }).catch(e => console.error("Firebase auth failed:", e));
 
         function fetchDrivers() {
             fetch('/api/data').then(r => r.json()).then(data => {
                 let drvs = data.drivers || [];
+                console.log("Fetched drivers from API:", drvs.length);
                 drvs.forEach(d => { driverMap[d.truck_id] = d.name || d.username; });
                 if (usingFallback) fallbackToIndividualListeners();
                 updateMapPopups();
                 scheduleRender();
-            });
+            }).catch(e => console.error("fetchDrivers failed:", e));
         }
         setInterval(fetchDrivers, 60000);
 
@@ -272,6 +276,7 @@
 
         function attachRoutesListener() {
             db.ref('routes').on('value', snap => {
+                console.log("Root routes listener received data.");
                 routesData = snap.val() || {};
                 updateMapPopups();
                 scheduleRender();
@@ -285,13 +290,18 @@
         let routeListeners = {};
         function fallbackToIndividualListeners() {
             if (!window.liveTrucks) window.liveTrucks = {};
-            Object.keys(driverMap).forEach(tId => {
+            let keys = Object.keys(driverMap);
+            console.log("fallbackToIndividualListeners called for", keys.length, "drivers.");
+            keys.forEach(tId => {
                 if (!routeListeners[tId]) {
                     routeListeners[tId] = true;
+                    console.log("Attaching individual listeners for truck", tId);
                     // Listen to route stops
                     db.ref('routes/route_' + tId + '/stops').on('value', snap => {
+                        let val = snap.val();
+                        console.log(`Received stops for truck ${tId}:`, val ? Object.keys(val).length + " stops" : "null");
                         if (!routesData['route_' + tId]) routesData['route_' + tId] = {};
-                        routesData['route_' + tId].stops = snap.val() || {};
+                        routesData['route_' + tId].stops = val || {};
                         updateMapPopups();
                         scheduleRender();
                     }, err => {
@@ -368,7 +378,9 @@
                 let isOnline = trucks[tId] && trucks[tId].status === 'online';
                 
                 let routeNode = routesData['route_' + tId] || {};
-                let stops = parseStops(routeNode.stops || routeNode);
+                let stopsObj = routeNode.stops || routeNode;
+                let stops = parseStops(stopsObj);
+                console.log(`Truck ${tId}: parsed ${stops.length} stops from object:`, stopsObj);
                 
                 let tTotal = stops.length;
                 let tComp = 0, tSkip = 0, tLeft = 0, tNotConf = 0;
