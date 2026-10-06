@@ -66,6 +66,7 @@
             --text-muted: #64748b;
             --border: #e2e8f0;
             --shadow: 0 4px 20px rgba(0,0,0,0.1);
+            --conf-strip: 8px;
         }
 
         * { box-sizing: border-box; }
@@ -179,6 +180,12 @@
             border-bottom: 1px solid var(--border);
             margin-bottom: 16px;
         }
+
+        /* Current Stop Container - scrollable when needed */
+        #current-stop-container {
+            overflow-y: auto;
+            overscroll-behavior: contain;
+        }
         
         .progress-text { font-size: 12px; font-weight: 700; color: var(--primary); text-transform: uppercase; margin-bottom: 4px;}
         .stop-name { font-size: 22px; font-weight: 800; margin-bottom: 4px; }
@@ -263,8 +270,8 @@
             <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:12px;">
                 <h3 style="margin:0; font-size:16px;">Upcoming Stops</h3>
                 <div style="display:flex; gap:12px; font-size:11px; font-weight:700;">
-                    <div style="display:flex; align-items:center; gap:4px;"><span style="width:12px;height:12px;border-radius:3px;background:#ecfdf5;border-left:2px solid #10b981;"></span> Confirmed</div>
-                    <div style="display:flex; align-items:center; gap:4px;"><span style="width:12px;height:12px;border-radius:3px;background:#eff6ff;border-left:2px solid #2F5FFF;"></span> Not confirmed</div>
+                    <div style="display:flex; align-items:center; gap:4px;"><span style="width:18px;height:12px;border-radius:3px;background:#ecfdf5;border-left:6px solid #10b981;"></span> Confirmed</div>
+                    <div style="display:flex; align-items:center; gap:4px;"><span style="width:18px;height:12px;border-radius:3px;background:#eff6ff;border-left:6px solid #2F5FFF;"></span> Not confirmed</div>
                 </div>
             </div>
             
@@ -529,26 +536,28 @@
                 
                 let subStopsHtml = '';
                 if (stop.subStops && stop.subStops.length > 1) {
-                    subStopsHtml = `<div style="margin-bottom: 16px;">
-                        <div style="font-size: 13px; font-weight: 700; color: var(--primary); text-transform: uppercase; margin-bottom: 8px; letter-spacing: 0.5px;">${stop.subStops.length} Customers at this Location:</div>
-                        <div style="display:flex; flex-direction:column; gap:8px;">
-                            ${stop.subStops.map((ss, i) => {
-                                let cConf = ss.confirmation === 'CONFIRMED';
-                                let bg = cConf ? '#ecfdf5' : '#eff6ff';
-                                let brd = cConf ? '#10b981' : '#2F5FFF';
-                                let txt = cConf ? 'Confirmed' : 'Not confirmed';
-                                return `
-                                <div style="display: flex; justify-content: space-between; align-items: flex-start; background:${bg}; border-left:4px solid ${brd}; padding:12px; border-radius:8px;">
-                                    <div style="flex:1;">
-                                        <div style="font-weight: 700; font-size: 16px; margin-bottom: 4px; color:var(--text-main);">${ss.name} ${ss.id && ss.id > 0 ? `(Sr. ${ss.id})` : ''}</div>
-                                        <div style="font-size: 13px; color: var(--text-muted); line-height:1.4;"><i class="fa-solid fa-house" style="margin-right:6px; opacity:0.7;"></i>${ss.address || 'No exact address'}</div>
-                                        <div style="font-size:10px; font-weight:700; margin-top:6px; color:${brd};">${txt}</div>
-                                    </div>
-                                    ${ss.phone ? `<a href="tel:${ss.phone}" style="background: var(--primary); color: white; width: 36px; height: 36px; min-width:36px; border-radius: 50%; display: flex; justify-content: center; align-items: center; text-decoration: none; margin-left:12px;"><i class="fa-solid fa-phone"></i></a>` : ''}
+                    let pendingCount = stop.subStops.filter(ss => ss.status === 'PENDING').length;
+                    subStopsHtml = `<div id="group-card-header" style="padding-bottom:8px;">
+                        <div style="font-size: 13px; font-weight: 700; color: var(--primary); text-transform: uppercase; margin-bottom: 6px; letter-spacing: 0.5px;">${stop.subStops.length} Customers \u00B7 ${pendingCount} left</div>
+                    </div>
+                    <div id="group-customer-list" style="overflow-y:auto; overscroll-behavior:contain; -webkit-overflow-scrolling:touch; max-height:min(calc(55dvh - 100px), calc(55vh - 100px)); display:flex; flex-direction:column; gap:6px; margin-bottom:8px;">
+                        ${stop.subStops.map((ss, i) => {
+                            let cConf = ss.confirmation === 'CONFIRMED';
+                            let bg = cConf ? '#ecfdf5' : '#eff6ff';
+                            let brd = cConf ? '#10b981' : '#2F5FFF';
+                            let txt = cConf ? 'Confirmed' : 'Not confirmed';
+                            let statusLabel = ss.status === 'COMPLETED' ? ' <span style="color:#10b981;font-size:10px;">\u2713 Done</span>' : (ss.status === 'SKIPPED' ? ' <span style="color:#ef4444;font-size:10px;">\u2717 Skipped</span>' : '');
+                            return `
+                            <div style="display: flex; justify-content: space-between; align-items: flex-start; background:${bg}; border-left: var(--conf-strip) solid ${brd}; padding:8px 10px; border-radius:8px;">
+                                <div style="flex:1; min-width:0;">
+                                    <div style="font-weight: 700; font-size: 14px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; color:var(--text-main);">${ss.name} ${ss.id && ss.id > 0 ? `(Sr. ${ss.id})` : ''}</div>
+                                    <div style="font-size: 12px; color: var(--text-muted); display:-webkit-box; -webkit-line-clamp:2; -webkit-box-orient:vertical; overflow:hidden; margin-top:2px;">${ss.address || 'No exact address'}</div>
+                                    <div style="font-size:10px; font-weight:700; margin-top:4px; color:${brd};">${txt}</div>
                                 </div>
-                            `;
-                            }).join('')}
-                        </div>
+                                ${ss.phone ? `<a href="tel:${ss.phone}" style="background: var(--primary); color: white; width: 32px; height: 32px; min-width:32px; border-radius: 50%; display: flex; justify-content: center; align-items: center; text-decoration: none; margin-left:8px;"><i class="fa-solid fa-phone" style="font-size:13px;"></i></a>` : ''}
+                            </div>
+                        `;
+                        }).join('')}
                     </div>`;
                 } else {
                     let cConf = stop.confirmation === 'CONFIRMED';
@@ -556,7 +565,7 @@
                     let brd = cConf ? '#10b981' : '#2F5FFF';
                     let txt = cConf ? 'Confirmed' : 'Not confirmed';
                     subStopsHtml = `
-                        <div style="margin-bottom:12px; background:${bg}; border-left:4px solid ${brd}; padding:12px; border-radius:8px;">
+                        <div style="margin-bottom:12px; background:${bg}; border-left: var(--conf-strip) solid ${brd}; padding:12px; border-radius:8px;">
                             <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
                                 <div class="stop-name" style="margin-bottom: 0;">${stop.name} ${stop.id && stop.id > 0 ? `(Sr. ${stop.id})` : ''}</div>
                                 ${stop.phone ? `<a href="tel:${stop.phone}" style="background: var(--primary); color: white; width: 40px; height: 40px; border-radius: 50%; display: flex; justify-content: center; align-items: center; text-decoration: none; box-shadow: 0 4px 6px rgba(0,0,0,0.1);"><i class="fa-solid fa-phone"></i></a>` : ''}
@@ -573,7 +582,7 @@
                 document.getElementById('current-stop-container').innerHTML = `
                     <div class="progress-text">${progressText}</div>
                     ${subStopsHtml}
-                    <div class="action-buttons">
+                    <div class="action-buttons" style="position:sticky; bottom:0; background:var(--card-bg); padding-top:8px;">
                         <button class="btn btn-success" onclick="markStop('COMPLETED')">
                             <i class="fa-solid fa-check"></i> ${isLast ? 'Finish' : (stop.subStops ? `Complete ${stop.subStops.filter(ss => ss.status === 'PENDING').length} & Next` : 'Complete & Next')}
                         </button>
@@ -608,13 +617,13 @@
                         let cCount = s.subStops.filter(x => x.confirmation === 'CONFIRMED').length;
                         let nCount = s.subStops.length - cCount;
                         if (nCount === 0) {
-                            confStyle = 'background:#ecfdf5; border-left:4px solid #10b981;';
+                            confStyle = 'background:#ecfdf5; border-left: var(--conf-strip) solid #10b981;';
                             badgeHtml = '<div style="font-size:10px; font-weight:700; margin-top:4px; color:#10b981;">Confirmed</div>';
                         } else if (cCount === 0) {
-                            confStyle = 'background:#eff6ff; border-left:4px solid #2F5FFF;';
+                            confStyle = 'background:#eff6ff; border-left: var(--conf-strip) solid #2F5FFF;';
                             badgeHtml = '<div style="font-size:10px; font-weight:700; margin-top:4px; color:#2F5FFF;">Not confirmed</div>';
                         } else {
-                            confStyle = 'background: linear-gradient(90deg, #ecfdf5 50%, #eff6ff 50%); border-left:4px solid #10b981; border-right:4px solid #2F5FFF;';
+                            confStyle = 'background: linear-gradient(90deg, #ecfdf5 50%, #eff6ff 50%); border-left: var(--conf-strip) solid #10b981; border-right: var(--conf-strip) solid #2F5FFF;';
                             badgeHtml = `<div style="font-size:10px; font-weight:700; margin-top:4px; color:var(--text-main);">${cCount} confirmed \u00B7 ${nCount} not</div>`;
                         }
                     } else {
@@ -622,7 +631,7 @@
                         let bg = cConf ? '#ecfdf5' : '#eff6ff';
                         let brd = cConf ? '#10b981' : '#2F5FFF';
                         let txt = cConf ? 'Confirmed' : 'Not confirmed';
-                        confStyle = `background:${bg}; border-left:4px solid ${brd};`;
+                        confStyle = `background:${bg}; border-left: var(--conf-strip) solid ${brd};`;
                         badgeHtml = `<div style="font-size:10px; font-weight:700; margin-top:4px; color:${brd};">${txt}</div>`;
                     }
                 }
@@ -691,7 +700,7 @@
                                 let brd = cConf ? '#10b981' : '#2F5FFF';
                                 let txt = cConf ? 'Confirmed' : 'Not confirmed';
                                 return `
-                                <label style="display:flex; align-items:center; padding:15px; border:1px solid ${brd}; background:${bg}; border-left:4px solid ${brd}; border-radius:12px; margin-bottom:10px; gap:15px;">
+                                <label style="display:flex; align-items:center; padding:15px; border:1px solid ${brd}; background:${bg}; border-left: var(--conf-strip) solid ${brd}; border-radius:12px; margin-bottom:10px; gap:15px;">
                                     <input type="radio" name="skipCustomerRadio" value="${ss.id}" onchange="document.getElementById('skipSelectedBtn').disabled = false" style="width:20px; height:20px;">
                                     <div style="flex:1;">
                                         <div style="font-weight:600; font-size:16px;">${ss.name} ${ss.id && ss.id > 0 ? `(Sr. ${ss.id})` : ''}</div>
@@ -898,30 +907,48 @@
 
         function calculateSnapPoints() {
             const wHeight = window.innerHeight;
-            const currentCard = document.getElementById('current-stop-container');
-            const handleHeight = 25; // height of handle-area approx
+            const handleHeight = 29;
             
-            // Peek: Handle + Current Card padding
-            const peekContentHeight = currentCard.offsetHeight + handleHeight;
+            sheetHeight = wHeight * 0.9;
             
-            sheetHeight = wHeight * 0.9; // Max height is 90vh
+            const headerEl = document.getElementById('group-card-header');
+            const listEl = document.getElementById('group-customer-list');
+            const actionEl = document.querySelector('.action-buttons');
+            const progressEl = document.querySelector('.progress-text');
             
-            // Coordinates represent the Y translation to apply (0 = fully expanded, sheetHeight = fully hidden)
-            // But let's work in reverse: 0 = fully expanded, max translate = peek
+            let peekContentHeight;
+            if (headerEl && listEl && actionEl) {
+                // Grouped: fixed header + capped list + buttons
+                const headerH = (progressEl ? progressEl.offsetHeight : 0) + headerEl.offsetHeight + 16;
+                const listH = Math.min(listEl.scrollHeight, wHeight * 0.35);
+                const buttonsH = actionEl ? actionEl.offsetHeight + 8 : 64;
+                peekContentHeight = handleHeight + headerH + listH + buttonsH + 32;
+            } else {
+                const currentCard = document.getElementById('current-stop-container');
+                peekContentHeight = (currentCard ? currentCard.offsetHeight : 120) + handleHeight;
+            }
+            
+            // Cap at 85% of viewport
+            peekContentHeight = Math.min(peekContentHeight, wHeight * 0.85);
+            
             snapPoints.full = 0;
-            snapPoints.half = (sheetHeight / 2);
-            snapPoints.peek = sheetHeight - peekContentHeight;
+            snapPoints.peek = Math.max(handleHeight + 20, sheetHeight - peekContentHeight);
+            snapPoints.half = snapPoints.peek * 0.45; // Between full(0) and peek
             
-            // Initial snap
+            // Ensure ordering: 0 = full < half < peek
+            if (snapPoints.half >= snapPoints.peek) snapPoints.half = Math.floor(snapPoints.peek / 2);
+            if (snapPoints.half <= 0) snapPoints.half = Math.max(20, Math.floor(snapPoints.peek / 3));
+            
             if (!isDragging) snapSheet(snapPoints.peek, false);
         }
 
         function updateFabPosition(translateY) {
-            // Distance from bottom of the screen to the top of the sheet
             const sheetTopDistanceFromBottom = sheetHeight - translateY;
-            
-            // Fab sits 16px above the sheet
-            fab.style.bottom = (sheetTopDistanceFromBottom + 16) + 'px';
+            const navbarEl = document.getElementById('navbar');
+            const navbarBottom = navbarEl ? (navbarEl.getBoundingClientRect().bottom + 12) : 80;
+            const desiredBottom = sheetTopDistanceFromBottom + 16;
+            const maxBottom = window.innerHeight - navbarBottom - 56 - 12;
+            fab.style.bottom = Math.min(desiredBottom, maxBottom) + 'px';
         }
 
         function snapSheet(y, animate = true) {
@@ -1011,15 +1038,37 @@
             snapSheet(targetSnap);
         }
 
-        // Attach listeners to handle + current card so user can drag from anywhere except the buttons
-        const currentCard = document.getElementById('current-stop-container');
+        // Attach listeners - handle area always starts drag
+        // Current card: only drag from header, not from scrollable list
+        const currentCardEl = document.getElementById('current-stop-container');
         handleArea.addEventListener('touchstart', onDragStart, {passive: false});
-        currentCard.addEventListener('touchstart', onDragStart, {passive: false});
+        currentCardEl.addEventListener('touchstart', function(e) {
+            if (e.target.closest('button') || e.target.closest('a')) return;
+            const listEl = document.getElementById('group-customer-list');
+            if (listEl && listEl.contains(e.target)) {
+                // Start sheet drag only if list is at top and touch moves downward
+                if (listEl.scrollTop <= 0) {
+                    const startTouchY = e.touches[0].clientY;
+                    let decided = false;
+                    const handleFirstMove = function(ev) {
+                        if (decided) return;
+                        decided = true;
+                        currentCardEl.removeEventListener('touchmove', handleFirstMove);
+                        const dy = ev.touches[0].clientY - startTouchY;
+                        if (dy > 8) onDragStart(e); // Dragging down -> sheet drag
+                    };
+                    currentCardEl.addEventListener('touchmove', handleFirstMove, {passive: true});
+                }
+                return;
+            }
+            onDragStart(e);
+        }, {passive: false});
         
         window.addEventListener('touchmove', onDragMove, {passive: false});
         window.addEventListener('touchend', onDragEnd);
         
         window.addEventListener('resize', () => setTimeout(calculateSnapPoints, 100));
+        window.addEventListener('orientationchange', () => setTimeout(calculateSnapPoints, 200));
 
         async function initApp() {
             const urlParams = new URLSearchParams(window.location.search);
