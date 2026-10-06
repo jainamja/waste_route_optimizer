@@ -58,6 +58,76 @@
             70% { box-shadow: 0 0 0 10px rgba(239, 68, 68, 0); }
             100% { box-shadow: 0 0 0 0 rgba(239, 68, 68, 0); }
         }
+        
+        .main-content {
+            display: flex; flex: 1; overflow: hidden; position: relative;
+        }
+        
+        .progress-panel {
+            width: 380px; background: var(--bg); border-left: 1px solid var(--border);
+            display: flex; flex-direction: column; z-index: 10;
+            box-shadow: -4px 0 20px rgba(0,0,0,0.05); overflow-y: auto;
+            transition: transform 0.3s ease;
+        }
+        
+        @media (max-width: 768px) {
+            .main-content { flex-direction: column; }
+            .progress-panel {
+                position: absolute; bottom: 0; left: 0; right: 0; width: 100%; height: auto; max-height: 80vh;
+                border-left: none; border-top: 1px solid var(--border); box-shadow: 0 -4px 20px rgba(0,0,0,0.15);
+                border-radius: 20px 20px 0 0;
+            }
+            .progress-panel.collapsed {
+                transform: translateY(calc(100% - 70px));
+            }
+            .panel-header { cursor: pointer; }
+        }
+        
+        .panel-header {
+            padding: 16px 20px; background: white; border-bottom: 1px solid var(--border);
+            position: sticky; top: 0; z-index: 2;
+        }
+        
+        .fleet-summary {
+            display: flex; justify-content: space-between; text-align: center; margin-top: 12px;
+        }
+        .fleet-stat { flex: 1; }
+        .fleet-stat-val { font-size: 24px; font-weight: 700; font-family: 'Manrope', sans-serif; }
+        .fleet-stat-label { font-size: 11px; color: var(--text-muted); font-weight: 600; text-transform: uppercase; }
+        
+        .prog-bar-wrap { height: 8px; background: #e2e8f0; border-radius: 4px; display: flex; overflow: hidden; margin-top: 12px; }
+        .prog-bar-comp { background: #10b981; }
+        .prog-bar-skip { background: #ef4444; }
+        
+        .truck-list { padding: 16px; display: flex; flex-direction: column; gap: 12px; }
+        
+        .t-card {
+            background: white; border: 1px solid var(--border); border-radius: 12px; padding: 16px;
+            box-shadow: var(--shadow-soft); cursor: pointer; transition: transform 0.15s, box-shadow 0.15s;
+        }
+        .t-card:hover { transform: translateY(-2px); box-shadow: 0 6px 24px rgba(0,0,0,0.08); }
+        .t-card-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px; }
+        .t-title { font-weight: 700; font-size: 15px; }
+        .t-driver { font-size: 13px; color: var(--text-muted); font-weight:500; }
+        .t-pill { font-size: 11px; font-weight: 700; padding: 3px 8px; border-radius: 10px; }
+        .t-pill.online { background: #dcfce7; color: #166534; }
+        .t-pill.offline { background: #f1f5f9; color: #475569; }
+        .t-pill.finished { background: #10b981; color: white; }
+        
+        .t-stats { font-size: 13px; font-weight: 600; margin-top: 10px; }
+        .t-stats-muted { font-size: 12px; color: var(--text-muted); margin-top: 2px; font-weight:500; }
+        
+        .t-expanded { display: none; margin-top: 12px; padding-top: 12px; border-top: 1px solid var(--border); }
+        .t-card.expanded .t-expanded { display: block; }
+        
+        .list-title { font-size: 11px; font-weight: 700; color: var(--text-muted); text-transform: uppercase; margin-bottom: 8px; letter-spacing: 0.5px; }
+        .cust-row { font-size: 13px; padding: 8px 0; border-bottom: 1px solid #f8fafc; }
+        .cust-row:last-child { border-bottom: none; }
+        .cust-name { font-weight: 600; display: flex; justify-content: space-between; align-items: center; }
+        .cust-addr { color: var(--text-muted); font-size: 12px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; margin-top: 2px;}
+        
+        .drag-handle { width: 40px; height: 4px; background: #cbd5e1; border-radius: 2px; margin: 0 auto 12px auto; display: none; }
+        @media (max-width: 768px) { .drag-handle { display: block; } }
     </style>
 </head>
 <body>
@@ -79,7 +149,22 @@
         </div>
     </div>
     
-    <div id="map"></div>
+    <div class="main-content">
+        <div id="map"></div>
+        <div id="progress-panel" class="progress-panel collapsed">
+            <div class="panel-header" onclick="this.parentElement.classList.toggle('collapsed')">
+                <div class="drag-handle"></div>
+                <h3 style="font-size: 16px; font-weight: 800;">Fleet Progress</h3>
+                <div class="fleet-summary" id="fleet-summary">
+                    <!-- Fleet summary injected here -->
+                </div>
+                <div class="prog-bar-wrap" id="fleet-prog-bar"></div>
+            </div>
+            <div class="truck-list" id="truck-list">
+                <!-- Truck cards injected here -->
+            </div>
+        </div>
+    </div>
     
     <script>
         let map = L.map('map').setView([23.0225, 72.5714], 12);
@@ -138,8 +223,245 @@
                     map.fitBounds(bounds, {padding: [50, 50], maxZoom: 15});
                     window.hasFitBounds = true;
                 }
+                
+                // Re-render truck markers with counts
+                updateMapPopups();
+                scheduleRender();
             });
+            attachRoutesListener();
+            fetchDrivers();
         });
+
+        let usingFallback = false;
+        let driverMap = {};
+        let routesData = {};
+
+        function fetchDrivers() {
+            fetch('/api/data').then(r => r.json()).then(data => {
+                let drvs = data.drivers || [];
+                drvs.forEach(d => { driverMap[d.truck_id] = d.name || d.username; });
+                if (usingFallback) fallbackToIndividualListeners();
+                updateMapPopups();
+                scheduleRender();
+            });
+        }
+        setInterval(fetchDrivers, 60000);
+
+        function parseStops(stopsObj) {
+            let stops = [];
+            if (Array.isArray(stopsObj)) {
+                stopsObj.forEach((val, idx) => {
+                    if (val && val.id > -1000 && val.name !== 'End Location / Depot') {
+                        val.id = val.id || idx;
+                        stops.push(val);
+                    }
+                });
+            } else if (typeof stopsObj === 'object' && stopsObj !== null) {
+                Object.keys(stopsObj).forEach(key => {
+                    let val = stopsObj[key];
+                    if (val && val.id > -1000 && val.name !== 'End Location / Depot') {
+                        val.id = val.id || key;
+                        stops.push(val);
+                    }
+                });
+            }
+            return stops.sort((a,b) => (a.sequence || 0) - (b.sequence || 0));
+        }
+
+        function attachRoutesListener() {
+            db.ref('routes').on('value', snap => {
+                routesData = snap.val() || {};
+                updateMapPopups();
+                scheduleRender();
+            }, err => {
+                console.warn("Permission denied reading 'routes'. Falling back to individual trucks.", err);
+                usingFallback = true;
+                fallbackToIndividualListeners();
+            });
+        }
+
+        let routeListeners = {};
+        function fallbackToIndividualListeners() {
+            Object.keys(driverMap).forEach(tId => {
+                if (!routeListeners[tId]) {
+                    routeListeners[tId] = true;
+                    db.ref('routes/route_' + tId).on('value', snap => {
+                        routesData['route_' + tId] = snap.val() || {};
+                        updateMapPopups();
+                        scheduleRender();
+                    });
+                }
+            });
+        }
+
+        let renderTimer = null;
+        function scheduleRender() {
+            if (renderTimer) return;
+            renderTimer = setTimeout(() => {
+                renderTimer = null;
+                renderProgress();
+            }, 200);
+        }
+        
+        let truckStats = {};
+
+        function renderProgress() {
+            let trucks = window.liveTrucks || {};
+            let activeTruckIds = new Set([
+                ...Object.keys(trucks),
+                ...Object.keys(driverMap),
+                ...Object.keys(routesData).map(k => k.replace('route_', ''))
+            ]);
+            
+            let fleetTotal = 0, fleetComp = 0, fleetSkip = 0;
+            let cardsHtml = '';
+            let tIds = Array.from(activeTruckIds).sort((a,b) => parseInt(a)-parseInt(b));
+            
+            tIds.forEach(tId => {
+                if (!tId || tId === 'undefined' || isNaN(parseInt(tId))) return;
+                
+                let dName = driverMap[tId] || 'Truck ' + tId;
+                let isOnline = trucks[tId] && trucks[tId].status === 'online';
+                
+                let routeNode = routesData['route_' + tId] || {};
+                let stops = parseStops(routeNode.stops || routeNode);
+                
+                let tTotal = stops.length;
+                let tComp = 0, tSkip = 0, tLeft = 0, tNotConf = 0;
+                let skipList = [], leftList = [];
+                
+                stops.forEach(s => {
+                    if (s.status === 'COMPLETED') tComp++;
+                    else if (s.status === 'SKIPPED') { tSkip++; skipList.push(s); }
+                    else {
+                        tLeft++;
+                        if (leftList.length < 5) leftList.push(s);
+                        if (s.confirmation === 'NOT_CONFIRMED') tNotConf++;
+                    }
+                });
+                
+                fleetTotal += tTotal;
+                fleetComp += tComp;
+                fleetSkip += tSkip;
+                
+                truckStats[tId] = { total: tTotal, comp: tComp, skip: tSkip, left: tLeft };
+                
+                let isFinished = (tTotal > 0 && tLeft === 0);
+                
+                let pillHtml = '';
+                if (isFinished) pillHtml = `<span class="t-pill finished">Finished</span>`;
+                else if (isOnline) pillHtml = `<span class="t-pill online">Online</span>`;
+                else pillHtml = `<span class="t-pill offline">Offline</span>`;
+                
+                let statsStr = "";
+                let progStyle = "display:none;";
+                if (tTotal === 0) {
+                    if (Object.keys(routeNode).length === 0) statsStr = "Waiting for routes...";
+                    else statsStr = "No stops";
+                } else {
+                    progStyle = "";
+                    statsStr = `${tComp} done &middot; ${tSkip} skipped &middot; ${tLeft} left`;
+                    if (tNotConf > 0) statsStr += ` <span class="t-stats-muted">(${tNotConf} not confirmed)</span>`;
+                }
+                
+                let pctComp = tTotal > 0 ? (tComp / tTotal) * 100 : 0;
+                let pctSkip = tTotal > 0 ? (tSkip / tTotal) * 100 : 0;
+                
+                let skipHtml = skipList.length > 0 ? `
+                    <div class="list-title" style="color:#ef4444;">Skipped Customers (${skipList.length})</div>
+                    ${skipList.map(s => `
+                        <div class="cust-row">
+                            <div class="cust-name">${s.name} ${s.phone ? `<a href="tel:${s.phone}" style="color:var(--primary);"><i class="fa-solid fa-phone"></i></a>` : ''}</div>
+                            <div class="cust-addr">${s.address}</div>
+                        </div>
+                    `).join('')}
+                    <div style="height:12px;"></div>
+                ` : '';
+                
+                let leftHtml = leftList.length > 0 ? `
+                    <div class="list-title">Next Left (${tLeft})</div>
+                    ${leftList.map(s => `
+                        <div class="cust-row">
+                            <div class="cust-name">${s.name} <span style="font-size:11px; font-weight:700; color:var(--text-muted);">#${s.sequence}</span></div>
+                            <div class="cust-addr">${s.address}</div>
+                        </div>
+                    `).join('')}
+                ` : '';
+                
+                cardsHtml += `
+                    <div class="t-card" onclick="this.classList.toggle('expanded'); panToTruck(${tId});">
+                        <div class="t-card-header">
+                            <div>
+                                <div class="t-title">Truck ${tId}</div>
+                                <div class="t-driver">${dName}</div>
+                            </div>
+                            ${pillHtml}
+                        </div>
+                        <div class="prog-bar-wrap" style="${progStyle} margin-top:8px;">
+                            <div class="prog-bar-comp" style="width: ${pctComp}%"></div>
+                            <div class="prog-bar-skip" style="width: ${pctSkip}%"></div>
+                        </div>
+                        <div class="t-stats">${statsStr}</div>
+                        
+                        <div class="t-expanded">
+                            ${skipHtml}
+                            ${leftHtml}
+                            ${!skipHtml && !leftHtml && tTotal > 0 ? '<div class="t-stats-muted">Route complete</div>' : ''}
+                        </div>
+                    </div>
+                `;
+            });
+            
+            if (activeTruckIds.size === 0) {
+                cardsHtml = `<div style="text-align:center; padding: 20px; color:var(--text-muted); font-size:14px;">Waiting for fleet data...</div>`;
+            }
+            
+            document.getElementById('truck-list').innerHTML = cardsHtml;
+            
+            let fleetLeft = fleetTotal - fleetComp - fleetSkip;
+            let fleetPct = fleetTotal > 0 ? Math.round((fleetComp / fleetTotal) * 100) : 0;
+            
+            document.getElementById('fleet-summary').innerHTML = `
+                <div class="fleet-stat">
+                    <div class="fleet-stat-val" style="color:#10b981;">${fleetComp}</div>
+                    <div class="fleet-stat-label">Done</div>
+                </div>
+                <div class="fleet-stat">
+                    <div class="fleet-stat-val" style="color:#ef4444;">${fleetSkip}</div>
+                    <div class="fleet-stat-label">Skip</div>
+                </div>
+                <div class="fleet-stat">
+                    <div class="fleet-stat-val">${fleetLeft}</div>
+                    <div class="fleet-stat-label">Left</div>
+                </div>
+                <div class="fleet-stat">
+                    <div class="fleet-stat-val" style="color:var(--primary);">${fleetPct}%</div>
+                    <div class="fleet-stat-label">Progress</div>
+                </div>
+            `;
+            
+            document.getElementById('fleet-prog-bar').innerHTML = `
+                <div class="prog-bar-comp" style="width: ${fleetTotal > 0 ? (fleetComp/fleetTotal)*100 : 0}%"></div>
+                <div class="prog-bar-skip" style="width: ${fleetTotal > 0 ? (fleetSkip/fleetTotal)*100 : 0}%"></div>
+            `;
+        }
+        
+        function updateMapPopups() {
+            let trucks = window.liveTrucks || {};
+            for(let tId in liveTruckMarkers) {
+                let dName = driverMap[tId] || '';
+                let st = truckStats[tId];
+                let countsStr = st ? `<br><span style="font-size:12px; color:#64748b;">${st.comp} done &middot; ${st.left} left</span>` : '';
+                liveTruckMarkers[tId].getPopup().setContent(`<b>Truck ${tId}</b> ${dName ? `(${dName})` : ''}<br>Live GPS${countsStr}`);
+            }
+        }
+        
+        function panToTruck(tId) {
+            let trucks = window.liveTrucks || {};
+            if (trucks[tId] && trucks[tId].status === 'online' && trucks[tId].currentLat) {
+                map.flyTo([trucks[tId].currentLat, trucks[tId].currentLng], 15);
+            }
+        }
     </script>
 <script>
         window.aiRebalance = function() {
