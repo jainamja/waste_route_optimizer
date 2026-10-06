@@ -1,271 +1,4 @@
-<!DOCTYPE html>
-<html lang="en">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
-    <title>Driver Navigation</title>
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=Manrope:wght@600;700;800&display=swap" rel="stylesheet">
-    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
-    
-    <!-- Leaflet -->
-    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
-    <link rel="stylesheet" href="https://unpkg.com/leaflet.markercluster@1.4.1/dist/MarkerCluster.css" />
-    <link rel="stylesheet" href="https://unpkg.com/leaflet.markercluster@1.4.1/dist/MarkerCluster.Default.css" />
-    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
-    <script src="https://unpkg.com/leaflet.markercluster@1.4.1/dist/leaflet.markercluster.js"></script>
-    
-    <!-- Firebase -->
-    <script src="https://www.gstatic.com/firebasejs/10.9.0/firebase-app-compat.js"></script>
-    <script src="https://www.gstatic.com/firebasejs/10.9.0/firebase-auth-compat.js"></script>
-    <script src="https://www.gstatic.com/firebasejs/10.9.0/firebase-database-compat.js"></script>
-    
-    <style>
-        #splash-screen {
-            position: fixed; top: 0; left: 0; width: 100%; height: 100%;
-            background: var(--primary); z-index: 99999; display: flex;
-            justify-content: center; align-items: center;
-            transition: opacity 0.4s ease-out;
-        }
-        .splash-logo {
-            width: 100px; height: 100px; fill: white;
-            animation: cinematicZoom 2s cubic-bezier(0.25, 0.46, 0.45, 0.94) forwards;
-        }
-        @keyframes cinematicZoom {
-            0% { transform: scale(0.9); opacity: 0; }
-            20% { transform: scale(1); opacity: 1; }
-            100% { transform: scale(1.15); opacity: 1; }
-        }
-        #login-overlay {
-            position: fixed; top: 0; left: 0; width: 100%; height: 100%;
-            background: #f8fafc; z-index: 10000; display: flex;
-            flex-direction: column; justify-content: center; align-items: center; padding: 20px;
-        }
-        .login-box {
-            background: white; padding: 30px; border-radius: 16px;
-            box-shadow: 0 4px 20px rgba(0,0,0,0.05); width: 100%; max-width: 360px;
-            text-align: center;
-        }
-        .login-box input {
-            width: 100%; padding: 14px; margin-bottom: 16px;
-            border: 1px solid #e2e8f0; border-radius: 8px; font-size: 16px; box-sizing: border-box;
-        }
-        .login-box button {
-            width: 100%; padding: 14px; background: var(--primary);
-            color: white; border: none; border-radius: 8px; font-size: 16px; font-weight: 600; cursor: pointer;
-        }
-        .error-msg { color: #ef4444; margin-bottom: 16px; font-size: 14px; display: none; }
-        :root {
-            --primary: #2F5FFF;
-            --primary-hover: #1e40af;
-            --amber: #FFA93E;
-            --green: #10b981;
-            --red: #ef4444;
-            --bg: #f8fafc;
-            --card-bg: #ffffff;
-            --text-main: #0f172a;
-            --text-muted: #64748b;
-            --border: #e2e8f0;
-            --shadow: 0 4px 20px rgba(0,0,0,0.1);
-        }
 
-        * { box-sizing: border-box; }
-        
-        body, html {
-            margin: 0; padding: 0;
-            width: 100%; height: 100%;
-            overflow: hidden;
-            font-family: 'Inter', sans-serif;
-            color: var(--text-main);
-            background-color: var(--bg);
-        }
-
-        h1, h2, h3, h4 { font-family: 'Manrope', sans-serif; margin: 0; }
-
-        /* Full Screen Map */
-        #map {
-            position: absolute;
-            top: 0; left: 0; right: 0; bottom: 0;
-            z-index: 1;
-        }
-
-        /* Glassmorphism Navbar */
-        #navbar {
-            position: absolute;
-            top: max(env(safe-area-inset-top, 16px), 16px);
-            left: 16px;
-            right: 16px;
-            z-index: 1000;
-            background: rgba(255, 255, 255, 0.7);
-            backdrop-filter: blur(12px);
-            -webkit-backdrop-filter: blur(12px);
-            border: 1px solid rgba(255,255,255,0.5);
-            border-radius: 16px;
-            padding: 12px 20px;
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-            box-shadow: var(--shadow);
-        }
-        
-        @supports not (backdrop-filter: blur(1px)) {
-            #navbar { background: rgba(255, 255, 255, 0.95); }
-        }
-
-        .navbar-title { font-weight: 800; font-size: 18px; display: flex; align-items: center; gap: 8px; }
-        
-        /* Floating Action Button */
-        #fab {
-            position: absolute;
-            bottom: max(env(safe-area-inset-bottom, 16px), 16px); /* Dynamic adjustment via JS */
-            right: 16px;
-            width: 56px;
-            height: 56px;
-            border-radius: 28px;
-            background: var(--primary);
-            color: white;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            font-size: 20px;
-            box-shadow: 0 4px 15px rgba(47, 95, 255, 0.4);
-            border: none;
-            z-index: 1000;
-            cursor: pointer;
-            transition: transform 0.2s;
-        }
-        #fab:active { transform: scale(0.95); }
-
-        /* Bottom Sheet */
-        #bottom-sheet {
-            position: absolute;
-            bottom: 0; left: 0; right: 0;
-            background: var(--card-bg);
-            border-radius: 24px 24px 0 0;
-            box-shadow: 0 -4px 20px rgba(0,0,0,0.15);
-            z-index: 1001; /* Above map and FAB */
-            display: flex;
-            flex-direction: column;
-            transform: translateY(100%); /* Hidden initially */
-            will-change: transform;
-            /* Height is tall enough to cover screen, but peeked */
-            height: 90vh; 
-        }
-
-        .sheet-handle-area {
-            width: 100%;
-            padding: 12px 0 8px;
-            display: flex;
-            justify-content: center;
-            cursor: grab;
-            touch-action: none; /* Prevent native scroll here */
-        }
-        .sheet-handle {
-            width: 40px; height: 5px;
-            background: #cbd5e1;
-            border-radius: 3px;
-        }
-
-        .sheet-content {
-            padding: 0 20px 20px;
-            flex: 1;
-            overflow-y: hidden; /* Scroll enabled when fully expanded */
-            display: flex;
-            flex-direction: column;
-        }
-
-        /* Current Stop Card (Always visible in peek) */
-        .current-stop-card {
-            padding-bottom: 16px;
-            border-bottom: 1px solid var(--border);
-            margin-bottom: 16px;
-        }
-        
-        .progress-text { font-size: 12px; font-weight: 700; color: var(--primary); text-transform: uppercase; margin-bottom: 4px;}
-        .stop-name { font-size: 22px; font-weight: 800; margin-bottom: 4px; }
-        .stop-address { font-size: 14px; color: var(--text-muted); display: flex; gap: 6px; }
-        
-        .action-buttons { display: flex; gap: 12px; margin-top: 16px; }
-        .btn { padding: 12px 16px; border-radius: 12px; font-weight: 700; cursor: pointer; border: none; font-size: 14px; display: flex; align-items: center; justify-content: center; gap: 6px;}
-        .btn-success { background: var(--green); color: white; flex: 2; }
-        .btn-danger { background: #fee2e2; color: var(--red); flex: 1; }
-        .btn:active { opacity: 0.8; }
-
-        /* Stop List */
-        .stop-list {
-            flex: 1;
-            overflow-y: auto;
-            display: flex;
-            flex-direction: column;
-            gap: 12px;
-            padding-bottom: env(safe-area-inset-bottom, 20px);
-        }
-        .stop-item {
-            display: flex; align-items: flex-start; gap: 12px; padding: 12px; background: var(--bg); border-radius: 12px;
-        }
-        .stop-item.active { outline: 2px solid var(--primary); outline-offset: -2px; box-shadow: 0 4px 12px rgba(47, 95, 255, 0.15); }
-        .stop-item.completed { opacity: 0.6; }
-        .status-icon { font-size: 18px; margin-top: 2px; }
-        .status-icon.completed { color: var(--green); }
-        .status-icon.skipped { color: var(--red); }
-        .status-icon.pending { color: var(--text-muted); }
-
-    </style>
-</head>
-<body>
-    <!-- Splash Screen -->
-    <div id="splash-screen">
-        <svg class="splash-logo" viewBox="0 0 24 24">
-            <path d="M20 8h-3V4c0-1.1-.9-2-2-2H5C3.9 2 3 2.9 3 4v11h2c0 1.66 1.34 3 3 3s3-1.34 3-3h6c0 1.66 1.34 3 3 3s3-1.34 3-3h2v-5l-3-4zM8 16c-.55 0-1-.45-1-1s.45-1 1-1 1 .45 1 1-.45 1-1 1zm10 0c-.55 0-1-.45-1-1s.45-1 1-1 1 .45 1 1-.45 1-1 1zm-3-11v6H5V5h10zm3.5 3l1.5 2h-3V8h1.5z"/>
-        </svg>
-    </div>
-
-    <!-- Login Overlay -->
-    <div id="login-overlay">
-        <svg class="splash-logo" viewBox="0 0 24 24" style="margin-bottom:20px; animation:none; transform:scale(1.15); opacity:1;">
-            <path d="M20 8h-3V4c0-1.1-.9-2-2-2H5C3.9 2 3 2.9 3 4v11h2c0 1.66 1.34 3 3 3s3-1.34 3-3h6c0 1.66 1.34 3 3 3s3-1.34 3-3h2v-5l-3-4zM8 16c-.55 0-1-.45-1-1s.45-1 1-1 1 .45 1 1-.45 1-1 1zm10 0c-.55 0-1-.45-1-1s.45-1 1-1 1 .45 1 1-.45 1-1 1zm-3-11v6H5V5h10zm3.5 3l1.5 2h-3V8h1.5z"/>
-        </svg>
-        <div class="login-box">
-            <h3 style="margin:0 0 8px 0;text-align:center;">Driver Login</h3>
-            <p style="text-align:center;color:var(--text-muted);font-size:14px;margin-bottom:24px;">Enter your assigned mobile number to view your route</p>
-            <input type="tel" id="username" placeholder="Mobile Number" autocomplete="tel">
-            <input type="password" id="password" placeholder="Password">
-            <div id="login-error" style="color:var(--red);font-size:13px;margin-bottom:12px;text-align:center;display:none;font-weight:600;"></div>
-            <button id="login-btn" onclick="handleDriverLogin()">Sign In</button>
-        </div>
-    </div>
-
-
-    <!-- Map -->
-    <div id="map"></div>
-
-    <!-- Navbar -->
-    <div id="navbar">
-        <div class="navbar-title"><i class="fa-solid fa-truck"></i> <span id="truck-title">Loading...</span></div>
-        <div style="display:flex; gap:16px; align-items:center;">
-            <button onclick="resetRoute()" style="background:none; border:none; color:var(--text-muted); font-size:14px; font-weight:600; cursor:pointer;"><i class="fa-solid fa-rotate-right"></i></button>
-            <button onclick="driverLogout()" style="background:var(--red); color:white; border:none; border-radius:8px; padding:6px 12px; font-size:14px; font-weight:700; cursor:pointer;"><i class="fa-solid fa-power-off"></i></button>
-        </div>
-    </div>
-
-    <!-- FAB -->
-    <button id="fab" onclick="openNavigation()"><i class="fa-solid fa-location-arrow"></i></button>
-
-    <!-- Bottom Sheet -->
-    <div id="bottom-sheet">
-        <div class="sheet-handle-area" id="drag-handle">
-            <div class="sheet-handle"></div>
-        </div>
-        <div class="sheet-content">
-            <div id="current-stop-container" class="current-stop-card">
-                <!-- Rendered via JS -->
-            </div>
-            <div id="stop-list-container" class="stop-list">
-                <!-- Rendered via JS -->
-            </div>
-        </div>
-    </div>
-
-    <script>
         const firebaseConfig = {
             apiKey: "AIzaSyAhLnjh0gRa2pf29G90zr-6AMcjLjbQpPg",
             authDomain: "wasteroutelive.firebaseapp.com",
@@ -526,7 +259,7 @@
                             ${stop.subStops.map((ss, i) => `
                                 <div style="display: flex; justify-content: space-between; align-items: flex-start; ${i !== stop.subStops.length - 1 ? 'border-bottom:1px solid #e2e8f0; padding-bottom:12px; margin-bottom:12px;' : ''}">
                                     <div style="flex:1;">
-                                        <div style="font-weight: 700; font-size: 16px; margin-bottom: 4px; color:var(--text-main);">${ss.name} ${ss.id && ss.id > 0 ? `(Sr. ${ss.id})` : ''}</div>
+                                        <div style="font-weight: 700; font-size: 16px; margin-bottom: 4px; color:var(--text-main);">${ss.name}</div>
                                         <div style="font-size: 13px; color: var(--text-muted); line-height:1.4;"><i class="fa-solid fa-house" style="margin-right:6px; opacity:0.7;"></i>${ss.address || 'No exact address'}</div>
                                     </div>
                                     ${ss.phone ? `<a href="tel:${ss.phone}" style="background: var(--primary); color: white; width: 36px; height: 36px; min-width:36px; border-radius: 50%; display: flex; justify-content: center; align-items: center; text-decoration: none; margin-left:12px;"><i class="fa-solid fa-phone"></i></a>` : ''}
@@ -537,7 +270,7 @@
                 } else {
                     subStopsHtml = `
                         <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
-                            <div class="stop-name" style="margin-bottom: 0;">${stop.name} ${stop.id && stop.id > 0 ? `(Sr. ${stop.id})` : ''}</div>
+                            <div class="stop-name" style="margin-bottom: 0;">${stop.name}</div>
                             ${stop.phone ? `<a href="tel:${stop.phone}" style="background: var(--primary); color: white; width: 40px; height: 40px; border-radius: 50%; display: flex; justify-content: center; align-items: center; text-decoration: none; box-shadow: 0 4px 6px rgba(0,0,0,0.1);"><i class="fa-solid fa-phone"></i></a>` : ''}
                         </div>
                         <div class="stop-address" style="margin-bottom: 16px;">
@@ -552,7 +285,7 @@
                     ${subStopsHtml}
                     <div class="action-buttons">
                         <button class="btn btn-success" onclick="markStop('COMPLETED')">
-                            <i class="fa-solid fa-check"></i> ${isLast ? 'Finish' : (stop.subStops ? `Complete ${stop.subStops.filter(ss => ss.status === 'PENDING').length} & Next` : 'Complete & Next')}
+                            <i class="fa-solid fa-check"></i> ${isLast ? 'Finish' : 'Complete & Next'}
                         </button>
                         <button class="btn btn-danger" onclick="markStop('SKIPPED')">
                             <i class="fa-solid fa-forward-step"></i> Skip
@@ -576,7 +309,7 @@
                 let isDepot = s.id < 0 || s.name === 'End Location / Depot';
                 let hasSeq = (s.sequence !== undefined && s.sequence !== null);
                 let displaySeq = hasSeq ? s.sequence : '?';
-                let titleText = isDepot ? s.name : `Stop ${displaySeq}: ${s.name} ${s.id && s.id > 0 ? `(Sr. ${s.id})` : ''}`;
+                let titleText = isDepot ? s.name : `Stop ${displaySeq}: ${s.name}`;
                 
                 return `
                     <div class="${classes}">
@@ -599,19 +332,10 @@
             if (currentIndex < stops.length) {
                 const stop = stops[currentIndex];
                 
-                if (status === 'SKIPPED' && stop.subStops && stop.subStops.length > 1) {
-                    // Open Group Skip Modal
-                    openGroupSkipModal(stop);
-                    return;
-                }
-                
                 let updates = {};
                 if (stop.subStops) {
                     stop.subStops.forEach(ss => {
-                        // Only mark as COMPLETED/SKIPPED if still PENDING
-                        if (ss.status === 'PENDING') {
-                            updates[ss.id + "/status"] = status;
-                        }
+                        updates[ss.id + "/status"] = status;
                     });
                 } else {
                     updates[stop.id + "/status"] = status;
@@ -621,88 +345,11 @@
                     console.error("Firebase write failed (markStop):", err);
                     alert("Failed to update stop status. Check connection.");
                 });
+                // Sheet automatically updates via .on('value')
                 
+                // Snap sheet back to peek if they advanced
                 snapSheet(snapPoints.peek);
             }
-        };
-        
-        window.openGroupSkipModal = function(stop) {
-            let pendingSubStops = stop.subStops.filter(ss => ss.status === 'PENDING');
-            if (pendingSubStops.length === 0) return;
-            
-            let modalHtml = `
-                <div id="groupSkipModalOverlay" class="modal-overlay" style="display:flex; position:fixed; top:0; left:0; right:0; bottom:0; background:rgba(0,0,0,0.5); z-index:9999; justify-content:center; align-items:flex-end;" onclick="if(event.target===this) closeGroupSkipModal()">
-                    <div class="modal-content" style="background:var(--surface); width:100%; border-radius:24px 24px 0 0; padding:20px; box-shadow:0 -5px 20px rgba(0,0,0,0.1); max-height:80vh; overflow-y:auto; padding-bottom:max(20px, env(safe-area-inset-bottom));">
-                        <h3 style="margin-top:0; margin-bottom:15px; font-size:18px;">Which stop to skip?</h3>
-                        <div id="skipRadioGroup">
-                            ${pendingSubStops.map(ss => `
-                                <label style="display:flex; align-items:center; padding:15px; border:1px solid #e5e7eb; border-radius:12px; margin-bottom:10px; gap:15px;">
-                                    <input type="radio" name="skipCustomerRadio" value="${ss.id}" onchange="document.getElementById('skipSelectedBtn').disabled = false" style="width:20px; height:20px;">
-                                    <div style="flex:1;">
-                                        <div style="font-weight:600; font-size:16px;">${ss.name} ${ss.id && ss.id > 0 ? `(Sr. ${ss.id})` : ''}</div>
-                                        <div style="font-size:14px; color:var(--text-secondary); margin-top:4px;">${ss.address}</div>
-                                    </div>
-                                </label>
-                            `).join('')}
-                        </div>
-                        
-                        <div style="display:flex; flex-direction:column; gap:10px; margin-top:20px;">
-                            <button id="skipSelectedBtn" class="btn btn-danger" disabled onclick="skipSelectedCustomer(event)" style="border-radius:12px; padding:15px; font-size:16px;">Skip selected customer</button>
-                            <button class="btn" onclick="closeGroupSkipModal()" style="background:#f3f4f6; color:var(--text-primary); border-radius:12px; padding:15px; font-size:16px;">Cancel</button>
-                            <a href="#" onclick="skipAllRemainingCustomers(event)" style="text-align:center; color:var(--text-secondary); margin-top:10px; font-size:14px; text-decoration:underline;">Skip all remaining at this location</a>
-                        </div>
-                    </div>
-                </div>
-            `;
-            
-            // Remove existing modal if any
-            closeGroupSkipModal();
-            document.body.insertAdjacentHTML('beforeend', modalHtml);
-        };
-        
-        window.closeGroupSkipModal = function() {
-            let existing = document.getElementById('groupSkipModalOverlay');
-            if (existing) existing.remove();
-        };
-        
-        window.skipSelectedCustomer = function(e) {
-            e.preventDefault();
-            if (e.target.disabled) return;
-            e.target.disabled = true;
-            
-            let selected = document.querySelector('input[name="skipCustomerRadio"]:checked');
-            if (!selected) return;
-            
-            let customerId = selected.value;
-            let updates = {};
-            updates[customerId + "/status"] = 'SKIPPED';
-            
-            db.ref(`routes/route_${truckId}/stops`).update(updates).then(() => {
-                closeGroupSkipModal();
-            }).catch(err => {
-                console.error("Firebase write failed:", err);
-                alert("Failed to update stop status.");
-                e.target.disabled = false;
-            });
-        };
-        
-        window.skipAllRemainingCustomers = function(e) {
-            e.preventDefault();
-            const stop = stops[currentIndex];
-            let updates = {};
-            stop.subStops.forEach(ss => {
-                if (ss.status === 'PENDING') {
-                    updates[ss.id + "/status"] = 'SKIPPED';
-                }
-            });
-            
-            db.ref(`routes/route_${truckId}/stops`).update(updates).then(() => {
-                closeGroupSkipModal();
-                snapSheet(snapPoints.peek);
-            }).catch(err => {
-                console.error("Firebase write failed:", err);
-                alert("Failed to update stop status.");
-            });
         };
 
         window.openNavigation = function() {
@@ -1015,9 +662,9 @@
                 }
                 
                 document.getElementById('login-overlay').style.display = 'flex';
-                let loginErr = document.getElementById('login-error');
-                loginErr.innerText = "No route assigned yet. Please check back later.";
-                loginErr.style.display = 'block';
+                let err = document.getElementById('login-error');
+                err.innerText = "No route assigned yet. Please check back later.";
+                err.style.display = 'block';
             }
         }
 
@@ -1089,6 +736,3 @@
                 setTimeout(() => splash.remove(), 400);
             }
         }, 2500);
-</script>
-</body>
-</html>

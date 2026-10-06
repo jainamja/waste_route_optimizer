@@ -374,8 +374,39 @@
                 <option value="">-- Select Driver --</option>
             </select>
             <div style="display:flex; gap:12px;">
-                <button id="btn-assign-confirm" onclick="assignDriver()" style="flex:1; background:var(--primary); color:white; border:none; padding:12px; border-radius:10px; font-weight:700; font-size:15px; cursor:pointer; font-family:'Inter',sans-serif;">Assign</button>
+                <button id="btn-assign-next" onclick="openConfirmationsModal()" style="flex:1; background:var(--primary); color:white; border:none; padding:12px; border-radius:10px; font-weight:700; font-size:15px; cursor:pointer; font-family:'Inter',sans-serif;">Next <i class="fa-solid fa-arrow-right"></i></button>
                 <button onclick="document.getElementById('assign-driver-modal').style.display='none'" style="flex:1; background:#f1f5f9; color:var(--text-main); border:none; padding:12px; border-radius:10px; font-weight:600; font-size:15px; cursor:pointer; font-family:'Inter',sans-serif;">Cancel</button>
+            </div>
+        </div>
+    </div>
+
+    
+    <!-- Confirmations Modal -->
+    <div id="confirmations-modal" style="display:none; position:fixed; top:0; left:0; right:0; bottom:0; background:rgba(0,0,0,0.5); z-index:9999; align-items:center; justify-content:center;">
+        <div style="background:white; padding:24px; border-radius:20px; max-width:500px; width:95%; max-height:90vh; display:flex; flex-direction:column;">
+            <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:12px;">
+                <h3 style="margin:0; font-family:'Manrope',sans-serif;" id="conf-modal-title">Confirm customers</h3>
+                <span id="conf-counts" style="font-size:13px; font-weight:600; padding:6px 12px; border-radius:20px; background:#f1f5f9; color:var(--text-main);">0 confirmed &middot; 0 not</span>
+            </div>
+            
+            <div style="display:flex; gap:8px; margin-bottom:16px;">
+                <input type="text" id="conf-search" placeholder="Search..." onkeyup="renderConfList()" style="flex:1; padding:10px 12px; border:1px solid var(--border); border-radius:8px; font-family:'Inter',sans-serif; font-size:14px;">
+                <select id="conf-filter" onchange="renderConfList()" style="padding:10px; border:1px solid var(--border); border-radius:8px; font-family:'Inter',sans-serif; font-size:14px; background:white;">
+                    <option value="all">All</option>
+                    <option value="confirmed">Confirmed</option>
+                    <option value="not">Not confirmed</option>
+                </select>
+                <button onclick="markAllConf()" class="btn btn-outline" style="padding:10px;"><i class="fa-solid fa-check-double"></i></button>
+            </div>
+            
+            <div id="conf-list" style="flex:1; overflow-y:auto; border:1px solid var(--border); border-radius:12px; background:#f8fafc; padding:8px; display:flex; flex-direction:column; gap:8px;">
+                <!-- rows injected via js -->
+            </div>
+            
+            <div style="display:flex; gap:12px; margin-top:20px;">
+                <button id="btn-conf-back" onclick="goBackToAssign()" style="flex:1; background:#f1f5f9; color:var(--text-main); border:none; padding:12px; border-radius:10px; font-weight:600; font-size:15px; cursor:pointer; font-family:'Inter',sans-serif;">Back</button>
+                <button onclick="closeConfModal()" style="flex:1; background:#f1f5f9; color:var(--text-main); border:none; padding:12px; border-radius:10px; font-weight:600; font-size:15px; cursor:pointer; font-family:'Inter',sans-serif;">Cancel</button>
+                <button id="btn-conf-save" onclick="saveConfirmationsAndAssign()" style="flex:1.5; background:var(--primary); color:white; border:none; padding:12px; border-radius:10px; font-weight:700; font-size:15px; cursor:pointer; font-family:'Inter',sans-serif;">Assign & Save</button>
             </div>
         </div>
     </div>
@@ -747,9 +778,13 @@
             
             data.customers.forEach(c => {
                 let t = c.truck;
-                if (!trucksInfo[t]) trucksInfo[t] = { total: 0, completed: 0 };
+                if (!trucksInfo[t]) trucksInfo[t] = { total: 0, completed: 0, confirmed: 0, realCount: 0 };
                 trucksInfo[t].total++;
                 if (c.status === 'COMPLETED') trucksInfo[t].completed++;
+                if (c.id > -1000 && c.name !== 'End Location / Depot') {
+                    trucksInfo[t].realCount++;
+                    if (c.confirmation === 'CONFIRMED') trucksInfo[t].confirmed++;
+                }
             });
 
             Object.keys(trucksInfo).sort().forEach((t, i) => {
@@ -774,6 +809,9 @@
                             let isDepot = customer.id < 0 || customer.name === 'End Location / Depot';
                             let displayName = isDepot ? customer.name : `Stop ${customer.stop_number}: ${customer.name}`;
                             
+                            let isConf = customer.confirmation === 'CONFIRMED';
+                            let confHtml = isDepot ? '' : `<span style="font-size:10px; font-weight:700; padding:2px 6px; border-radius:8px; margin-left:8px; ${isConf ? 'background:#ecfdf5; color:#10b981; border:1px solid #10b981;' : 'background:#eff6ff; color:#2F5FFF; border:1px solid #2F5FFF;'}">${isConf ? 'CONFIRMED' : 'NOT CONFIRMED'}</span>`;
+                            
                             stopsListHtml += `
                                 <div class="stop-item ${isDone ? 'completed' : ''}" data-id="${customer.id}" style="${isDepot ? '' : 'cursor: grab;'}">
                                     <div class="stop-status">
@@ -781,7 +819,7 @@
                                     </div>
                                     <div class="stop-info" style="flex:1;">
                                         <div style="display:flex; justify-content:space-between; align-items:flex-start;">
-                                            <div class="stop-name">${displayName}</div>
+                                            <div class="stop-name" style="display:flex; align-items:center;">${displayName}${confHtml}</div>
                                             ${!isDone && !isDepot ? `<button onclick="removeStop(${customer.id}, ${customer.truck})" style="background:none; border:none; color:#ef4444; cursor:pointer; padding:4px; margin-left:8px;" title="Remove Stop"><i class="fa-solid fa-trash"></i></button>` : ''}
                                         </div>
                                         ${customer.address ? `<div style="color:var(--text-muted); font-size:13px; margin-top:2px;"><i class="fa-solid fa-location-dot"></i> ${customer.address}</div>` : ''}
@@ -819,6 +857,7 @@
                         
                         <div class="truck-meta">
                             ${distStr}
+                            <span style="font-size:12px; font-weight:600; padding:2px 8px; border-radius:12px; background:#f1f5f9; color:var(--text-main);">${info.confirmed} confirmed &middot; ${info.realCount - info.confirmed} not</span>
                         </div>
 
                         <div class="progress-bar-bg">
@@ -828,12 +867,17 @@
                         ${stopsListHtml}
 
                         <div style="display:flex;gap:10px;margin-top:16px;">
-                            <a href="${dirUrl}" target="_blank" style="flex:1;display:flex;align-items:center;justify-content:center;gap:8px;padding:10px 0;border:1px solid var(--border);border-radius:10px;text-decoration:none;color:var(--text-main);font-size:13px;font-weight:600;background:white;">
-                                <i class="fa-solid fa-map-location-dot" style="color:var(--primary);"></i> Overview
-                            </a>
                             <button onclick="openAssignModal('${t}')" style="flex:1;display:flex;align-items:center;justify-content:center;gap:8px;padding:10px 0;border:none;border-radius:10px;background:var(--primary);color:white;font-size:13px;font-weight:600;cursor:pointer;font-family:Inter,sans-serif;">
                                 <i class="fa-solid fa-user-check"></i> Assign Driver
                             </button>
+                        </div>
+                        <div style="display:flex;gap:10px;margin-top:10px;">
+                            <button onclick="openConfirmationsModal('${t}')" style="flex:1;display:flex;align-items:center;justify-content:center;gap:8px;padding:10px 0;border:1px solid var(--border);border-radius:10px;text-decoration:none;color:var(--text-main);font-size:13px;font-weight:600;background:white;cursor:pointer;">
+                                <i class="fa-solid fa-list-check"></i> Edit confirmations
+                            </button>
+                            <a href="${dirUrl}" target="_blank" style="flex:1;display:flex;align-items:center;justify-content:center;gap:8px;padding:10px 0;border:1px solid var(--border);border-radius:10px;text-decoration:none;color:var(--text-main);font-size:13px;font-weight:600;background:white;">
+                                <i class="fa-solid fa-map-location-dot" style="color:var(--primary);"></i> Map
+                            </a>
                         </div>
                     </div>
                 `;
