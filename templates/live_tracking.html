@@ -257,7 +257,7 @@
             let stops = [];
             if (Array.isArray(stopsObj)) {
                 stopsObj.forEach((val, idx) => {
-                    if (val && val.id > -1000 && val.name !== 'End Location / Depot') {
+                    if (val && idx > -1000 && val.name !== 'End Location / Depot') {
                         val.id = val.id || idx;
                         stops.push(val);
                     }
@@ -265,8 +265,8 @@
             } else if (typeof stopsObj === 'object' && stopsObj !== null) {
                 Object.keys(stopsObj).forEach(key => {
                     let val = stopsObj[key];
-                    if (val && val.id > -1000 && val.name !== 'End Location / Depot') {
-                        val.id = val.id || key;
+                    if (val && parseInt(key) > -1000 && val.name !== 'End Location / Depot') {
+                        val.id = val.id || parseInt(key);
                         stops.push(val);
                     }
                 });
@@ -380,7 +380,7 @@
                 let routeNode = routesData['route_' + tId] || {};
                 let stopsObj = routeNode.stops || routeNode;
                 let stops = parseStops(stopsObj);
-                console.log(`Truck ${tId}: parsed ${stops.length} stops from object:`, stopsObj);
+                console.log(`Truck ${tId}: parsed ${stops.length} stops from object:`, JSON.stringify(stopsObj).substring(0, 200));
                 
                 let tTotal = stops.length;
                 let tComp = 0, tSkip = 0, tLeft = 0, tNotConf = 0;
