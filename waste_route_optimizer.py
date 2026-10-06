@@ -1142,12 +1142,18 @@ def save_template():
         'status': c.status, 'truck_id': c.truck_id, 'stop_number': c.stop_number
     } for c in cust_rows]
     
-    t = SavedTemplate(
-        name=name,
-        metadata_json=json.dumps(meta_dict),
-        customers_json=json.dumps(cust_list)
-    )
-    db.session.add(t)
+    t = SavedTemplate.query.filter_by(name=name).first()
+    if t:
+        t.metadata_json = json.dumps(meta_dict)
+        t.customers_json = json.dumps(cust_list)
+        t.created_at = db.func.now()
+    else:
+        t = SavedTemplate(
+            name=name,
+            metadata_json=json.dumps(meta_dict),
+            customers_json=json.dumps(cust_list)
+        )
+        db.session.add(t)
     db.session.commit()
     
     return jsonify({'success': True})
