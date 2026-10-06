@@ -560,21 +560,28 @@
                         }).join('')}
                     </div>`;
                 } else {
-                    let cConf = stop.confirmation === 'CONFIRMED';
+                    let single = stop.subStops ? stop.subStops[0] : stop;
+                    let cConf = single.confirmation === 'CONFIRMED';
                     let bg = cConf ? '#ecfdf5' : '#eff6ff';
                     let brd = cConf ? '#10b981' : '#2F5FFF';
                     let txt = cConf ? 'Confirmed' : 'Not confirmed';
                     subStopsHtml = `
-                        <div style="margin-bottom:12px; background:${bg}; border-left: var(--conf-strip) solid ${brd}; padding:12px; border-radius:8px;">
-                            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
-                                <div class="stop-name" style="margin-bottom: 0;">${stop.name} ${stop.id && stop.id > 0 ? `(Sr. ${stop.id})` : ''}</div>
-                                ${stop.phone ? `<a href="tel:${stop.phone}" style="background: var(--primary); color: white; width: 40px; height: 40px; border-radius: 50%; display: flex; justify-content: center; align-items: center; text-decoration: none; box-shadow: 0 4px 6px rgba(0,0,0,0.1);"><i class="fa-solid fa-phone"></i></a>` : ''}
+                        <div style="background: ${bg}; border-left: var(--conf-strip) solid ${brd}; padding: 16px; border-radius: 8px; margin-bottom: 16px; display: flex; justify-content: space-between; align-items: flex-start;">
+                            <div>
+                                <h2 style="margin: 0 0 8px 0; font-size: 20px; font-weight: 800; color: var(--text-main);">${single.name} ${single.id && single.id > 0 ? `(Sr. ${single.id})` : ''}</h2>
+                                <div style="display: flex; align-items: flex-start; margin-bottom: 12px; color: var(--text-muted); font-size: 14px; line-height: 1.4;">
+                                    <i class="fa-solid fa-location-dot" style="margin-top: 4px; margin-right: 8px; font-size: 14px;"></i>
+                                    <span>${single.address || 'No address provided'}</span>
+                                </div>
+                                <div style="display: inline-block; padding: 4px 10px; border-radius: 20px; font-size: 12px; font-weight: 700; background: ${cConf ? '#10b98120' : '#2F5FFF20'}; color: ${brd};">
+                                    <i class="fa-solid ${cConf ? 'fa-check' : 'fa-clock'}" style="margin-right: 4px;"></i> ${txt}
+                                </div>
                             </div>
-                            <div class="stop-address" style="margin-bottom: 16px;">
-                                <i class="fa-solid fa-location-dot" style="margin-top:4px;"></i>
-                                <span>${stop.address || 'No address provided'}</span>
-                            </div>
-                            <div style="font-size:10px; font-weight:700; margin-top:6px; color:${brd};">${txt}</div>
+                            ${single.phone ? `
+                                <a href="tel:${single.phone}" style="background: var(--primary); color: white; width: 44px; height: 44px; min-width: 44px; border-radius: 50%; display: flex; justify-content: center; align-items: center; text-decoration: none; box-shadow: 0 4px 10px rgba(47, 95, 255, 0.3); margin-left: 12px;">
+                                    <i class="fa-solid fa-phone" style="font-size: 18px;"></i>
+                                </a>
+                            ` : ''}
                         </div>
                     `;
                 }
@@ -584,7 +591,7 @@
                     ${subStopsHtml}
                     <div class="action-buttons" style="position:sticky; bottom:0; background:var(--card-bg); padding-top:8px;">
                         <button class="btn btn-success" onclick="markStop('COMPLETED')">
-                            <i class="fa-solid fa-check"></i> ${isLast ? 'Finish' : (stop.subStops ? `Complete ${stop.subStops.filter(ss => ss.status === 'PENDING').length} & Next` : 'Complete & Next')}
+                            <i class="fa-solid fa-check"></i> ${isLast ? 'Finish' : ((stop.subStops && stop.subStops.length > 1) ? `Complete ${stop.subStops.filter(ss => ss.status === 'PENDING').length} & Next` : 'Complete & Next')}
                         </button>
                         <button class="btn btn-danger" onclick="markStop('SKIPPED')">
                             <i class="fa-solid fa-forward-step"></i> Skip
@@ -920,7 +927,7 @@
             if (headerEl && listEl && actionEl) {
                 // Grouped: fixed header + capped list + buttons
                 const headerH = (progressEl ? progressEl.offsetHeight : 0) + headerEl.offsetHeight + 16;
-                const listH = Math.min(listEl.scrollHeight, wHeight * 0.35);
+                const listH = listEl.offsetHeight;
                 const buttonsH = actionEl ? actionEl.offsetHeight + 8 : 64;
                 peekContentHeight = handleHeight + headerH + listH + buttonsH + 32;
             } else {
