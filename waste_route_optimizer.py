@@ -2,7 +2,7 @@ import os
 import re
 import pandas as pd
 from werkzeug.utils import secure_filename
-from flask import Flask, request, render_template, redirect, url_for, jsonify, send_file, flash
+from flask import Flask, request, render_template, redirect, url_for, jsonify, send_file, flash, make_response
 from docx import Document
 from aco_vrp import ACO_VRP
 import requests
@@ -474,7 +474,11 @@ def route_dashboard():
 @app.route('/live')
 @login_required
 def live_tracking():
-    return render_template('live_tracking.html')
+    resp = make_response(render_template('live_tracking.html'))
+    resp.headers['Cache-Control'] = 'no-cache, no-store, must-revalidate'
+    resp.headers['Pragma'] = 'no-cache'
+    resp.headers['Expires'] = '0'
+    return resp
 
 @app.route('/api/drivers', methods=['GET'])
 @login_required
