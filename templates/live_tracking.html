@@ -128,7 +128,27 @@
         
         .drag-handle { width: 40px; height: 4px; background: #cbd5e1; border-radius: 2px; margin: 0 auto 12px auto; display: none; }
         @media (max-width: 768px) { .drag-handle { display: block; } }
-    </style>
+    
+        /* Mobile overrides added automatically */
+        @media (max-width: 768px) {
+            .header, .header-bar { flex-direction: column !important; align-items: flex-start !important; padding: 16px !important; gap: 12px !important; height: auto !important; }
+            .header-left, .title-area { width: 100% !important; flex-wrap: wrap !important; }
+            .header > div:last-child, .header-bar > div:last-child { width: 100% !important; display: flex !important; flex-wrap: wrap !important; gap: 8px !important; }
+            .header > div:last-child .btn, .header-bar > div:last-child .btn, .header-bar > div:last-child a.btn { flex: 1 1 45% !important; justify-content: center !important; text-align: center !important; padding: 10px 8px !important; font-size: 13px !important; }
+            .container { padding: 16px !important; gap: 16px !important; }
+            .driver-item { flex-direction: column !important; align-items: flex-start !important; gap: 12px !important; }
+            .driver-actions { width: 100% !important; display: flex !important; flex-wrap: wrap !important; gap: 8px !important; }
+            .driver-actions .btn { flex: 1 !important; justify-content: center !important; }
+            .quick-actions { grid-template-columns: 1fr !important; }
+            .main-split { flex-direction: column !important; height: auto !important; }
+            .trucks-panel { width: 100% !important; height: auto !important; overflow: visible !important; }
+            .map-panel { height: 450px !important; flex: none !important; }
+            .login-card { padding: 32px 24px !important; max-width: calc(100% - 32px) !important; box-sizing: border-box !important; }
+            body, html { overflow-x: hidden !important; }
+            .stat-strip { grid-template-columns: 1fr !important; gap: 8px !important; }
+            .stat-card { padding: 12px !important; }
+        }
+</style>
 </head>
 <body>
     <div class="header-bar">
@@ -548,3 +568,4 @@
 
 </body>
 </html>
+
