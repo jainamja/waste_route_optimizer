@@ -688,7 +688,7 @@ def driver_login():
     user = User.query.filter_by(username=username, role='DRIVER').first()
     
     if user and check_password_hash(user.password_hash, password):
-        return jsonify({'success': True, 'token': str(user.truck_id)})
+        return jsonify({'success': True, 'token': str(user.id)})
     else:
         return jsonify({'error': 'Invalid mobile number or password'}), 401
 
@@ -894,12 +894,15 @@ def resolve_token():
     if not token:
         return jsonify({'error': 'Missing token'}), 400
         
-    # In the new authenticated architecture, the token provided by the login API IS the driver's truck_id.
-    # Therefore, we just return it directly. No more UUID lookups needed.
-    if token.isdigit():
-        return jsonify({'truck_id': str(token)})
-    else:
-        return jsonify({'error': 'Invalid token format'}), 404
+    try:
+        user_id = int(token)
+        driver = User.query.get(user_id)
+        if driver and driver.role == 'DRIVER':
+            return jsonify({'truck_id': str(driver.truck_id)})
+    except ValueError:
+        pass
+        
+    return jsonify({'error': 'Invalid or expired token'}), 404
 
 @app.route('/download_excel')
 def download_excel():

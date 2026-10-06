@@ -1114,6 +1114,20 @@
                 document.getElementById('login-overlay').style.display = 'none';
                 document.getElementById('truck-title').innerText = "Truck " + truckId;
                 
+                // Periodically check if token is still valid (e.g. driver not deleted by admin)
+                setInterval(async () => {
+                    try {
+                        let backendUrl = window.location.origin.includes('localhost') || window.location.origin.includes('capacitor://') ? 'https://waste-route-optimizer-robn.onrender.com' : window.location.origin;
+                        let res = await fetch(backendUrl + '/api/resolve_token?token=' + encodeURIComponent(token));
+                        if (res.status === 404 || res.status === 401) {
+                            console.warn("Token became invalid. Forcing logout.");
+                            window.driverLogout();
+                        }
+                    } catch(e) {
+                        // ignore network errors
+                    }
+                }, 60000);
+
                 // Start normal app logic
                 initMap();
                 init();
