@@ -876,7 +876,9 @@ def get_data():
         'end_coords': end_coords,
         'driver_tokens': driver_tokens,
         'drivers': drivers_data,
-        'is_from_template': metadata.get('is_from_template') == 'true'
+        'is_from_template': metadata.get('is_from_template') == 'true',
+        'current_template_id': metadata.get('current_template_id'),
+        'current_template_name': metadata.get('current_template_name')
     })
 
 @app.route('/api/mark_completed/<int:customer_id>', methods=['POST'])
