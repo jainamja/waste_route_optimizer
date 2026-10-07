@@ -745,7 +745,7 @@
                         let isDone = c.status === 'COMPLETED';
                         popupHtml += `
                             <div style="margin-bottom:12px; border-bottom:1px solid var(--border); padding-bottom:12px;">
-                                <h4>${c.name} <span style="color:var(--text-muted); font-size:12px; font-weight:500;">(Stop ${c.stop_number})</span></h4>
+                                <h4>${c.name}</h4>
                                 <p>
                                     ${c.phone ? '<i class="fa-solid fa-phone"></i> ' + c.phone + '<br>' : ''}
                                     ${c.address ? '<i class="fa-solid fa-location-dot"></i> ' + c.address : ''}
@@ -823,13 +823,15 @@
                 let stopsListHtml = `<div class="stop-list" id="stop-list-${t}">`;
                 
                 if (truckRoute) {
+                    let dynSr = 1;
                     truckRoute.forEach(customerId => {
                         let customer = data.customers.find(c => c.id === customerId);
                         if (customer) {
                             waypoints.push(`${customer.lat},${customer.lng}`);
                             let isDone = customer.status === 'COMPLETED';
                             let isDepot = customer.id < 0 || customer.name === 'End Location / Depot';
-                            let displayName = isDepot ? customer.name : `Stop ${customer.stop_number}: ${customer.name}`;
+                            let currentSr = isDepot ? "-" : dynSr++;
+                            let displayName = isDepot ? customer.name : `Stop ${currentSr}: ${customer.name}`;
                             
                             let isConf = customer.confirmation === 'CONFIRMED';
                             let isCanc = customer.confirmation === 'CANCELLED';
@@ -1098,9 +1100,9 @@
                 html += `
                     <div style="background:white; border-radius:10px; padding:12px; display:flex; flex-direction:column; gap:12px; border: 1px solid ${borderColor};">
                         <div style="display:flex; align-items:center; gap:12px;">
-                            <div style="width:28px; height:28px; border-radius:50%; background:#f1f5f9; display:flex; align-items:center; justify-content:center; font-size:12px; font-weight:700; color:var(--text-muted); flex-shrink:0;">${c.stop_number}</div>
+                            <div style="width:28px; height:28px; border-radius:50%; background:#f1f5f9; display:flex; align-items:center; justify-content:center; font-size:12px; font-weight:700; color:var(--text-muted); flex-shrink:0;">${currentSr}</div>
                             <div style="flex:1; overflow:hidden;">
-                                <div style="font-weight:600; font-size:14px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; text-decoration:${isCanc ? 'line-through' : 'none'}; color:${isCanc ? 'var(--text-muted)' : 'var(--text-main)'};">${c.name} (Sr. ${c.id})</div>
+                                <div style="font-weight:600; font-size:14px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; text-decoration:${isCanc ? 'line-through' : 'none'}; color:${isCanc ? 'var(--text-muted)' : 'var(--text-main)'};">${c.name}</div>
                                 <div style="font-size:12px; color:var(--text-muted); white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">${c.address || 'No address'}</div>
                             </div>
                         </div>
