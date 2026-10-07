@@ -624,7 +624,9 @@
                 .then(resData => {
                     window.currentTemplateId = resData.current_template_id;
                     window.currentTemplateName = resData.current_template_name;
-                    window.isEditingTemplate = (window.currentTemplateId != null && !resData.is_from_template);
+                    let urlParams = new URLSearchParams(window.location.search);
+                    let isEditAssigned = urlParams.get('mode') === 'edit_assigned';
+                    window.isEditingTemplate = (window.currentTemplateId != null && (!resData.is_from_template || isEditAssigned));
 
                     let nameInput = document.getElementById('template-name');
                     if (nameInput) {
@@ -855,7 +857,11 @@
                             if (isInactive) itemStyle += ' background: #fef2f2; border: 1px solid #fca5a5;';
                             let nameDec = isInactive ? 'color: #ef4444;' : '';
                             
-                            let toggleHtml = (isDepot || !window.isEditingTemplate) ? '' : `
+                            if (isEditAssigned) {
+                        let btn = document.querySelector('button[onclick="document.getElementById(\'save-template-modal\').style.display=\'flex\'"]');
+                        if (btn) btn.innerHTML = '<i class="fa-solid fa-save"></i> Save Assigned Route';
+                    }
+                    let toggleHtml = (isDepot || !window.isEditingTemplate) ? '' : `
                             <div style="margin-top:8px;">
                                 <select onchange="updateCustomerStatus(${customer.id}, this.value)" style="font-size:11px; padding:4px 8px; border-radius:12px; font-weight:700; cursor:pointer; ${isInactive ? 'background:#ef4444; color:white; border:none;' : 'background:#ecfdf5; color:#10b981; border:1px solid #10b981;'}">
                                     <option value="ACTIVE" ${!isInactive ? 'selected' : ''}>Active</option>

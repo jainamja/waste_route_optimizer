@@ -254,17 +254,50 @@
             }
         };
 
+        function loadAssignedRoutes() {
+            fetch('/api/assigned_routes')
+                .then(res => res.json())
+                .then(data => {
+                    let html = '';
+                    if (!data.assigned_routes || data.assigned_routes.length === 0) {
+                        html = '<div style="padding: 24px; text-align: center; color: var(--text-muted);">No routes are currently assigned.</div>';
+                    } else {
+                        data.assigned_routes.forEach(r => {
+                            html += `
+                                <div class="driver-item" style="border-left: 4px solid var(--primary);">
+                                    <div class="driver-info">
+                                        <div class="driver-details">
+                                            <h4>${r.name}</h4>
+                                            <p style="margin-top:4px; color:var(--text-muted);">${r.stops_count} Stops</p>
+                                        </div>
+                                    </div>
+                                    <div style="display:flex; align-items:center; gap:12px;">
+                                        <button onclick="editAssignedRoute(${r.id}, '${r.truck_ids.join(',')}')" class="btn btn-outline" style="padding:8px 16px; font-size:13px; background:white;"><i class="fa-solid fa-pen"></i> Edit Route</button>
+                                    </div>
+                                </div>
+                            `;
+                        });
+                    }
+                    document.getElementById('assigned-routes-list').innerHTML = html;
+                });
+        }
+
+        window.editAssignedRoute = function(id, truckIdStr) {
+            let truckId = truckIdStr ? truckIdStr.split(',')[0] : '';
+            let url = `/live?mode=edit_assigned`;
+            if (truckId) url += `&truck_id=${truckId}`;
+            window.location.href = url;
+        };
+
         function loadDrivers() {
             fetch('/api/drivers')
                 .then(res => res.json())
                 .then(data => {
                     currentDrivers = data.drivers || [];
                     let html = '';
-                    let assignHtml = '';
                     
                     if (currentDrivers.length === 0) {
                         html = '<div style="padding: 24px; text-align: center; color: var(--text-muted);">No drivers created yet.</div>';
-                        assignHtml = '<div style="padding: 24px; text-align: center; color: var(--text-muted);">No drivers available to assign.</div>';
                     } else {
                         currentDrivers.forEach(d => {
                             html += `
@@ -282,25 +315,9 @@
                                     </div>
                                 </div>
                             `;
-                            
-                            let isUnassigned = !d.assigned_template_id;
-                            assignHtml += `
-                                <div class="driver-item" style="border-left: 4px solid ${isUnassigned ? 'var(--amber, #FFA93E)' : 'var(--primary, #2F5FFF)'}">
-                                    <div class="driver-info">
-                                        <div class="driver-details">
-                                            <h4>${d.name || 'Unknown Driver'} <span style="font-size:13px; font-weight:normal; color:var(--text-muted); padding-left:4px;">(Truck ${d.truck_id})</span></h4>
-                                            <p style="margin-top:4px; font-weight:600; color:${isUnassigned ? 'var(--amber, #FFA93E)' : 'var(--text-main)'}">Assigned Route: ${d.assigned_template_name}</p>
-                                        </div>
-                                    </div>
-                                    <div style="display:flex; align-items:center; gap:12px;">
-                                        <button onclick="openAssignModal(${d.id}, ${d.assigned_template_id || 'null'})" class="btn btn-outline" style="padding:8px 16px; font-size:13px; background:white;"><i class="fa-solid fa-pen"></i> ${isUnassigned ? 'Assign Route' : 'Change Route'}</button>
-                                    </div>
-                                </div>
-                            `;
                         });
                     }
                     document.getElementById('driver-list').innerHTML = html;
-                    document.getElementById('assigned-routes-list').innerHTML = assignHtml;
                 });
         }
         
@@ -395,6 +412,7 @@
         window.onload = function() {
             loadDrivers();
             loadTemplates();
+            loadAssignedRoutes();
         };
     </script>
 </body>
