@@ -89,6 +89,12 @@ with app.app_context():
         db.session.rollback()
         
     try:
+        db.session.execute(text('ALTER TABLE users ADD COLUMN assigned_template_id INTEGER;'))
+        db.session.commit()
+    except:
+        db.session.rollback()
+        
+    try:
         db.session.execute(text("ALTER TABLE customers ADD COLUMN confirmation VARCHAR(20) DEFAULT 'NOT_CONFIRMED';"))
         db.session.commit()
     except:
