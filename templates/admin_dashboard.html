@@ -246,7 +246,13 @@
                 let data = await res.json();
                 if(data.success) {
                     loadTemplates();
+                } else {
+                    alert("Error: " + data.error);
                 }
+            } catch(e) {
+                alert("An error occurred");
+            }
+        };
 
         function loadDrivers() {
             fetch('/api/drivers')
