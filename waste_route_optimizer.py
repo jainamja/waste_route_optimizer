@@ -1531,7 +1531,7 @@ def deploy_template(t_id):
         db.session.rollback()
         import traceback
         traceback.print_exc()
-        return jsonify({'error': f'Database error during deploy: {str(e)}'}), 500
+        return jsonify({'error': f'Database error during deploy: {str(e)}'}), 200
     
     # Sync with Firebase immediately
     try:
