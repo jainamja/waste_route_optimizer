@@ -1507,7 +1507,7 @@ def deploy_template(t_id):
     Metadata.query.delete()
     
     for k, v in meta_dict.items():
-        if k != 'is_from_template':
+        if k not in ['is_from_template', 'current_template_id', 'current_template_name']:
             db.session.add(Metadata(key=k, value=v))
             
     is_template_val = 'true' if mode == 'deploy' else 'false'
@@ -1525,7 +1525,13 @@ def deploy_template(t_id):
         )
         db.session.add(new_cust)
         
-    db.session.commit()
+    try:
+        db.session.commit()
+    except Exception as e:
+        db.session.rollback()
+        import traceback
+        traceback.print_exc()
+        return jsonify({'error': f'Database error during deploy: {str(e)}'}), 500
     
     # Sync with Firebase immediately
     try:
