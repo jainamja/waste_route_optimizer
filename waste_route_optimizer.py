@@ -1510,9 +1510,8 @@ def deploy_template(t_id):
             
     is_template_val = 'true' if mode == 'deploy' else 'false'
     db.session.add(Metadata(key='is_from_template', value=is_template_val))
-    if mode == 'deploy':
-        db.session.add(Metadata(key='current_template_id', value=str(t.id)))
-        db.session.add(Metadata(key='current_template_name', value=str(t.name)))
+    db.session.add(Metadata(key='current_template_id', value=str(t.id)))
+    db.session.add(Metadata(key='current_template_name', value=str(t.name)))
         
     for c in cust_list:
         new_cust = Customer(
