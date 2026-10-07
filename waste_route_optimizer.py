@@ -1427,6 +1427,7 @@ def update_customer_status():
 @login_required
 def save_template():
     name = request.json.get('name')
+    t_id = request.json.get('id')
     if not name: return jsonify({'error': 'Name is required'}), 400
     
     import json
@@ -1445,8 +1446,14 @@ def save_template():
         'customer_status': getattr(c, 'customer_status', 'ACTIVE') or 'ACTIVE'
     } for c in cust_rows]
     
-    t = SavedTemplate.query.filter_by(name=name).first()
+    t = None
+    if t_id:
+        t = SavedTemplate.query.get(t_id)
+    if not t:
+        t = SavedTemplate.query.filter_by(name=name).first()
+        
     if t:
+        t.name = name
         t.metadata_json = json.dumps(meta_dict)
         t.customers_json = json.dumps(cust_list)
         t.created_at = db.func.now()
@@ -1503,6 +1510,9 @@ def deploy_template(t_id):
             
     is_template_val = 'true' if mode == 'deploy' else 'false'
     db.session.add(Metadata(key='is_from_template', value=is_template_val))
+    if mode == 'deploy':
+        db.session.add(Metadata(key='current_template_id', value=str(t.id)))
+        db.session.add(Metadata(key='current_template_name', value=str(t.name)))
         
     for c in cust_list:
         new_cust = Customer(

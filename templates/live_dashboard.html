@@ -622,6 +622,20 @@
             fetch('/api/data')
                 .then(res => res.json())
                 .then(resData => {
+                    if (resData.is_from_template) {
+                        window.currentTemplateId = resData.current_template_id;
+                        window.currentTemplateName = resData.current_template_name;
+                        if (window.currentTemplateName) {
+                            let nameInput = document.getElementById('template-name');
+                            if (nameInput && !nameInput.value) nameInput.value = window.currentTemplateName;
+                        }
+                    } else {
+                        window.currentTemplateId = null;
+                        window.currentTemplateName = null;
+                        let nameInput = document.getElementById('template-name');
+                        if (nameInput) nameInput.value = '';
+                    }
+
                     if (resData.error || !resData.routes || resData.routes.length === 0) {
                         setDisplay('empty-state', 'block');
                         setDisplay('error-state', 'none');
@@ -1411,10 +1425,15 @@
             btn.disabled = true;
             btn.innerText = "Saving...";
             
+            let payload = {name: name};
+            if (window.currentTemplateId) {
+                payload.id = window.currentTemplateId;
+            }
+            
             fetch('/api/save_template', {
                 method: 'POST',
                 headers: {'Content-Type': 'application/json'},
-                body: JSON.stringify({name: name})
+                body: JSON.stringify(payload)
             }).then(r => r.json()).then(res => {
                 if(res.success) {
                     alert("Template saved! You can load it anytime from the Control Panel.");
