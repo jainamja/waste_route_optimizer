@@ -1398,9 +1398,15 @@ def update_customer_status():
     if not c:
         return jsonify({'error': 'Customer not found'}), 404
         
-    c.customer_status = status
-    db.session.commit()
-    
+    try:
+        c.customer_status = status
+        db.session.commit()
+    except Exception as e:
+        db.session.rollback()
+        import traceback
+        traceback.print_exc()
+        return jsonify({'error': f'DB Error: {str(e)}'}), 500
+        
     # Check if assigned to an active route
     if c.truck_id and c.stop_number:
         try:
