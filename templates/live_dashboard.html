@@ -1096,7 +1096,8 @@
             document.getElementById('conf-counts').innerText = `${confirmedCount} confirmed \u00B7 ${notCount} not \u00B7 ${cancelledCount} cancelled`;
             
             let html = '';
-            arr.forEach(c => {
+            arr.forEach((c, idx) => {
+                let currentSr = idx + 1;
                 let match = c.name.toLowerCase().includes(search) || (c.address||'').toLowerCase().includes(search) || (c.phone||'').toLowerCase().includes(search);
                 if (!match) return;
                 
