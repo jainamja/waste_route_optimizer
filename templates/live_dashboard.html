@@ -415,8 +415,10 @@
                     <option value="all">All</option>
                     <option value="confirmed">Confirmed</option>
                     <option value="not">Not confirmed</option>
+                    <option value="cancelled">Cancelled</option>
                 </select>
-                <button onclick="markAllConf()" class="btn btn-outline" style="padding:10px;"><i class="fa-solid fa-check-double"></i></button>
+                <button onclick="markAllConf()" title="Mark all confirmed" class="btn btn-outline" style="padding:10px;"><i class="fa-solid fa-check-double"></i></button>
+                <button onclick="markAllNotConf()" title="Mark all not confirmed" class="btn btn-outline" style="padding:10px;"><i class="fa-solid fa-xmark"></i></button>
             </div>
             
             <div id="conf-list" style="flex:1; overflow-y:auto; border:1px solid var(--border); border-radius:12px; background:#f8fafc; padding:8px; display:flex; flex-direction:column; gap:8px;">
@@ -830,7 +832,8 @@
                             let displayName = isDepot ? customer.name : `Stop ${customer.stop_number}: ${customer.name}`;
                             
                             let isConf = customer.confirmation === 'CONFIRMED';
-                            let confHtml = isDepot ? '' : `<span style="font-size:10px; font-weight:700; padding:2px 6px; border-radius:8px; margin-left:8px; ${isConf ? 'background:#ecfdf5; color:#10b981; border:1px solid #10b981;' : 'background:#eff6ff; color:#2F5FFF; border:1px solid #2F5FFF;'}">${isConf ? 'CONFIRMED' : 'NOT CONFIRMED'}</span>`;
+                            let isCanc = customer.confirmation === 'CANCELLED';
+                            let confHtml = isDepot ? '' : `<span style="font-size:10px; font-weight:700; padding:2px 6px; border-radius:8px; margin-left:8px; ${isConf ? 'background:#ecfdf5; color:#10b981; border:1px solid #10b981;' : (isCanc ? 'background:#fef2f2; color:#ef4444; border:1px solid #ef4444;' : 'background:#eff6ff; color:#2F5FFF; border:1px solid #2F5FFF;')}">${isConf ? 'CONFIRMED' : (isCanc ? 'CANCELLED' : 'NOT CONFIRMED')}</span>`;
                             
                             stopsListHtml += `
                                 <div class="stop-item ${isDone ? 'completed' : ''}" data-id="${customer.id}" style="${isDepot ? '' : 'cursor: grab;'}">
@@ -877,7 +880,7 @@
                         
                         <div class="truck-meta">
                             ${distStr}
-                            <span style="font-size:12px; font-weight:600; padding:2px 8px; border-radius:12px; background:#f1f5f9; color:var(--text-main);">${info.confirmed} confirmed &middot; ${info.realCount - info.confirmed} not</span>
+                            <span style="font-size:12px; font-weight:600; padding:2px 8px; border-radius:12px; background:#f1f5f9; color:var(--text-main);">${info.confirmed} confirmed &middot; ${info.realCount - info.confirmed - info.cancelled} not &middot; ${info.cancelled} cancelled</span>
                         </div>
 
                         <div class="progress-bar-bg">
@@ -1034,14 +1037,20 @@
             document.getElementById('confirmations-modal').style.display = 'none';
         };
         
-        window.toggleConf = function(id) {
+        window.setConf = function(id, val) {
             let c = currentConfData[id];
-            c.confirmation = (c.confirmation === 'CONFIRMED') ? 'NOT_CONFIRMED' : 'CONFIRMED';
+            if (val === 'CANCELLED' && c.status === 'COMPLETED') return;
+            c.confirmation = val;
             renderConfList();
         };
         
         window.markAllConf = function() {
             Object.values(currentConfData).forEach(c => c.confirmation = 'CONFIRMED');
+            renderConfList();
+        };
+        
+        window.markAllNotConf = function() {
+            Object.values(currentConfData).forEach(c => c.confirmation = 'NOT_CONFIRMED');
             renderConfList();
         };
         
@@ -1052,31 +1061,38 @@
             let arr = Object.values(currentConfData).sort((a,b) => (a.stop_number||999) - (b.stop_number||999));
             
             let confirmedCount = arr.filter(c => c.confirmation === 'CONFIRMED').length;
-            let notCount = arr.length - confirmedCount;
-            document.getElementById('conf-counts').innerText = `${confirmedCount} confirmed \u00B7 ${notCount} not`;
+            let cancelledCount = arr.filter(c => c.confirmation === 'CANCELLED').length;
+            let notCount = arr.length - confirmedCount - cancelledCount;
+            document.getElementById('conf-counts').innerText = `${confirmedCount} confirmed \u00B7 ${notCount} not \u00B7 ${cancelledCount} cancelled`;
             
             let html = '';
             arr.forEach(c => {
                 let match = c.name.toLowerCase().includes(search) || (c.address||'').toLowerCase().includes(search) || (c.phone||'').toLowerCase().includes(search);
                 if (!match) return;
-                if (filter === 'confirmed' && c.confirmation !== 'CONFIRMED') return;
-                if (filter === 'not' && c.confirmation === 'CONFIRMED') return;
                 
                 let isConf = c.confirmation === 'CONFIRMED';
+                let isCanc = c.confirmation === 'CANCELLED';
+                let isNot = !isConf && !isCanc;
+                
+                if (filter === 'confirmed' && !isConf) return;
+                if (filter === 'cancelled' && !isCanc) return;
+                if (filter === 'not' && !isNot) return;
+                
+                let borderColor = isConf ? '#10b981' : (isCanc ? '#ef4444' : 'var(--border)');
+                
                 html += `
-                    <div style="background:white; border-radius:10px; padding:12px; display:flex; align-items:center; gap:12px; border: 1px solid ${isConf ? '#10b981' : 'var(--border)'};">
-                        <div style="width:28px; height:28px; border-radius:50%; background:#f1f5f9; display:flex; align-items:center; justify-content:center; font-size:12px; font-weight:700; color:var(--text-muted); flex-shrink:0;">${c.stop_number}</div>
-                        <div style="flex:1; overflow:hidden;">
-                            <div style="font-weight:600; font-size:14px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">${c.name} (Sr. ${c.id})</div>
-                            <div style="font-size:12px; color:var(--text-muted); white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">${c.address || 'No address'}</div>
+                    <div style="background:white; border-radius:10px; padding:12px; display:flex; flex-direction:column; gap:12px; border: 1px solid ${borderColor};">
+                        <div style="display:flex; align-items:center; gap:12px;">
+                            <div style="width:28px; height:28px; border-radius:50%; background:#f1f5f9; display:flex; align-items:center; justify-content:center; font-size:12px; font-weight:700; color:var(--text-muted); flex-shrink:0;">${c.stop_number}</div>
+                            <div style="flex:1; overflow:hidden;">
+                                <div style="font-weight:600; font-size:14px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; text-decoration:${isCanc ? 'line-through' : 'none'}; color:${isCanc ? 'var(--text-muted)' : 'var(--text-main)'};">${c.name} (Sr. ${c.id})</div>
+                                <div style="font-size:12px; color:var(--text-muted); white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">${c.address || 'No address'}</div>
+                            </div>
                         </div>
-                        <div style="flex-shrink:0;">
-                            <label style="position:relative; display:inline-block; width:52px; height:28px;">
-                                <input type="checkbox" ${isConf ? 'checked' : ''} onchange="toggleConf('${c.id}')" style="opacity:0; width:0; height:0;">
-                                <span style="position:absolute; cursor:pointer; top:0; left:0; right:0; bottom:0; background-color:${isConf ? '#10b981' : '#cbd5e1'}; border-radius:28px; transition:.2s;">
-                                    <span style="position:absolute; content:''; height:20px; width:20px; left:4px; bottom:4px; background-color:white; border-radius:50%; transition:.2s; transform:${isConf ? 'translateX(24px)' : 'translateX(0)'};"></span>
-                                </span>
-                            </label>
+                        <div style="display:flex; border-radius:8px; overflow:hidden; border:1px solid var(--border);">
+                            <button onclick="setConf('${c.id}', 'CONFIRMED')" style="flex:1; padding:10px 0; border:none; background:${isConf?'#10b981':'#f8fafc'}; color:${isConf?'white':'#64748b'}; font-size:13px; font-weight:600; cursor:pointer;">Confirmed</button>
+                            <button onclick="setConf('${c.id}', 'NOT_CONFIRMED')" style="flex:1; padding:10px 0; border:none; border-left:1px solid var(--border); border-right:1px solid var(--border); background:${isNot?'#2F5FFF':'#f8fafc'}; color:${isNot?'white':'#64748b'}; font-size:13px; font-weight:600; cursor:pointer;">Not Confirmed</button>
+                            <button onclick="setConf('${c.id}', 'CANCELLED')" ${c.status==='COMPLETED'?'disabled title="Already collected"':''} style="flex:1; padding:10px 0; border:none; background:${isCanc?'#ef4444':'#f8fafc'}; color:${isCanc?'white':'#64748b'}; font-size:13px; font-weight:600; cursor:${c.status==='COMPLETED'?'not-allowed':'pointer'}; opacity:${c.status==='COMPLETED'?'0.5':'1'};">Cancelled</button>
                         </div>
                     </div>
                 `;
@@ -1115,7 +1131,13 @@
                 });
                 let result = await res.json();
                 if(result.success) {
-                    if (result.firebase_synced === false) {
+                    if (result.refused_cancel && result.refused_cancel.length > 0) {
+                        let names = result.refused_cancel.map(id => {
+                            let c = currentConfData[id] || data.customers.find(x => x.id == id);
+                            return c ? c.name : id;
+                        }).join(', ');
+                        alert("Saved, but the following customers could not be cancelled because they are already collected: " + names);
+                    } else if (result.firebase_synced === false) {
                         alert("Saved, but the driver app could not be updated (Firebase sync failed). Please try again.");
                     }
                     currentConfData = null; // Clear so next open is fresh

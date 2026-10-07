@@ -329,7 +329,7 @@ def recompute_route_metrics():
                 continue
                 
             depots = [s for s in stops if s.id <= -1000 or s.name == 'End Location / Depot']
-            real_stops = [s for s in stops if s.id > -1000 and s.name != 'End Location / Depot']
+            real_stops = [s for s in stops if s.id > -1000 and s.name != 'End Location / Depot' and s.confirmation != 'CANCELLED']
             depot_stop = depots[-1] if depots else None
             
             start_idx = min(idx, len(start_coords) - 1)
@@ -746,6 +746,8 @@ def assign_driver():
         User.query.filter_by(role='DRIVER', truck_id=truck_id).update({'truck_id': None})
         driver.truck_id = truck_id
     
+    refused_cancel = []
+    
     # Process confirmations if provided
     firebase_synced = True
     if confirmations is not None:
@@ -756,8 +758,12 @@ def assign_driver():
             if c.id < 0: continue # Ignore depot rows
             
             c_val = confirmations.get(str(c.id))
-            if c_val not in ['CONFIRMED', 'NOT_CONFIRMED']:
+            if c_val not in ['CONFIRMED', 'NOT_CONFIRMED', 'CANCELLED']:
                 c_val = 'NOT_CONFIRMED'
+                
+            if c_val == 'CANCELLED' and c.status == 'COMPLETED':
+                refused_cancel.append(c.id)
+                continue
                 
             c.confirmation = c_val
             firebase_patch_data[f"{c.id}/confirmation"] = c_val
@@ -781,7 +787,7 @@ def assign_driver():
             
     db.session.commit()
     
-    return jsonify({'success': True, 'firebase_synced': firebase_synced})
+    return jsonify({'success': True, 'firebase_synced': firebase_synced, 'refused_cancel': refused_cancel})
 
 
 
@@ -1166,7 +1172,14 @@ def ai_rebalance():
     customers_data = [{
         'id': c.id, 'name': c.name, 'phone': c.phone, 'address': c.address,
         'location_url': c.location_url, 'lat': c.lat, 'lng': c.lng
-    } for c in pending_customers]
+    } for c in pending_customers if c.confirmation != 'CANCELLED']
+    
+    cancelled_customers = [c for c in pending_customers if c.confirmation == 'CANCELLED']
+    cancelled_by_truck = {}
+    for c in cancelled_customers:
+        tid = c.truck_id or 1
+        if tid not in cancelled_by_truck: cancelled_by_truck[tid] = []
+        cancelled_by_truck[tid].append(c)
     
     # 5. Run AI
     aco = ACO_VRP(start_coords, end_coords, customers_data, num_trucks=num_trucks)
@@ -1211,6 +1224,25 @@ def ai_rebalance():
                         "confirmation": c.confirmation or "NOT_CONFIRMED"
                     }
                     
+        # Append cancelled customers
+        if truck_id in cancelled_by_truck:
+            for c in cancelled_by_truck[truck_id]:
+                stop_num = len(route)
+                c.truck_id = truck_id
+                c.stop_number = stop_num + 1
+                
+                routes_payload[route_key][str(c.id)] = {
+                    "name": c.name,
+                    "address": c.address,
+                    "phone": c.phone or '',
+                    "lat": c.lat,
+                    "lng": c.lng,
+                    "sequence": stop_num + 1,
+                    "status": c.status,
+                    "confirmation": "CANCELLED"
+                }
+                route.append(c.id)
+                
         # Append End Location as the final stop
         if end_coords:
             end_idx = min(truck_idx, len(end_coords) - 1)
@@ -1517,7 +1549,10 @@ def dynamic_recalculate():
                                 'address': stop_info.get('address', ''),
                                 'phone': stop_info.get('phone', ''),
                                 'lat': float(stop_info['lat']),
-                                'lng': float(stop_info['lng'])
+                                'lng': float(stop_info['lng']),
+                                'confirmation': stop_info.get('confirmation', 'NOT_CONFIRMED'),
+                                'truck_id': truck_id,
+                                'status': stop_info.get('status', 'PENDING')
                             })
                             
         unassigned = Customer.query.filter_by(status='PENDING').filter(Customer.truck_id == None).all()
@@ -1528,7 +1563,10 @@ def dynamic_recalculate():
                 'address': c.address,
                 'phone': c.phone,
                 'lat': c.lat,
-                'lng': c.lng
+                'lng': c.lng,
+                'confirmation': c.confirmation or 'NOT_CONFIRMED',
+                'truck_id': None,
+                'status': c.status
             })
 
         if not truck_starts:
@@ -1538,7 +1576,14 @@ def dynamic_recalculate():
             return jsonify({'error': 'No pending stops to recalculate.'}), 400
             
         # Filter out end depots from pending_customers so they aren't treated as mid-route stops
-        real_pending_customers = [c for c in pending_customers if int(c['id']) > -1000]
+        real_pending_customers = [c for c in pending_customers if int(c['id']) > -1000 and c['confirmation'] != 'CANCELLED']
+        
+        cancelled_customers = [c for c in pending_customers if c['confirmation'] == 'CANCELLED']
+        cancelled_by_truck = {}
+        for c in cancelled_customers:
+            tid = str(c['truck_id']) if c['truck_id'] else "1"
+            if tid not in cancelled_by_truck: cancelled_by_truck[tid] = []
+            cancelled_by_truck[tid].append(c)
         
         # 3. Fetch true end coords from DB
         import json
@@ -1590,6 +1635,21 @@ def dynamic_recalculate():
                             "sequence": start_seq + seq,
                             "status": "PENDING",
                             "confirmation": cust.get("confirmation", "NOT_CONFIRMED")
+                        }
+                
+                # Append cancelled customers
+                if tid in cancelled_by_truck:
+                    for c in cancelled_by_truck[tid]:
+                        stop_num = len(updates_by_route[route_key])
+                        updates_by_route[route_key][str(c['id'])] = {
+                            "name": c['name'],
+                            "address": c['address'],
+                            "phone": c.get('phone', ''),
+                            "lat": c['lat'],
+                            "lng": c['lng'],
+                            "sequence": stop_num + 1,
+                            "status": c.get('status', 'PENDING'),
+                            "confirmation": "CANCELLED"
                         }
                 
                 # Re-append End Depot at the end of this truck's route

@@ -272,6 +272,7 @@
                 <div style="display:flex; gap:12px; font-size:11px; font-weight:700;">
                     <div style="display:flex; align-items:center; gap:4px;"><span style="width:18px;height:12px;border-radius:3px;background:#ecfdf5;border-left:6px solid #10b981;"></span> Confirmed</div>
                     <div style="display:flex; align-items:center; gap:4px;"><span style="width:18px;height:12px;border-radius:3px;background:#eff6ff;border-left:6px solid #2F5FFF;"></span> Not confirmed</div>
+                    <div style="display:flex; align-items:center; gap:4px;"><span style="width:18px;height:12px;border-radius:3px;background:#fef2f2;border-left:6px solid #ef4444;"></span> Cancelled</div>
                 </div>
             </div>
             
@@ -403,11 +404,18 @@
                     
                     currentIndex = 0;
                     for (let i = 0; i < stops.length; i++) {
-                        if (stops[i].status === 'PENDING') {
+                        let isActionable = false;
+                        if (stops[i].subStops) {
+                            isActionable = stops[i].subStops.some(ss => ss.status === 'PENDING' && ss.confirmation !== 'CANCELLED');
+                        } else {
+                            isActionable = stops[i].status === 'PENDING' && stops[i].confirmation !== 'CANCELLED';
+                        }
+                        
+                        if (isActionable) {
                             currentIndex = i;
                             break;
                         }
-                        if (i === stops.length - 1 && stops[i].status !== 'PENDING') {
+                        if (i === stops.length - 1) {
                             currentIndex = stops.length;
                         }
                     }
@@ -424,6 +432,17 @@
 
         function render() {
             console.log("[RENDER] Running render | Current Index:", currentIndex);
+            
+            let savedScrollTop = 0;
+            let groupListEl = document.getElementById('group-customer-list');
+            if (groupListEl) savedScrollTop = groupListEl.scrollTop;
+            
+            let savedSkipModalVal = null;
+            let skipModal = document.getElementById('groupSkipModalOverlay');
+            if (skipModal) {
+                let checkedRadio = document.querySelector('input[name="skipCustomerRadio"]:checked');
+                if (checkedRadio) savedSkipModalVal = checkedRadio.value;
+            }
             
             currentRenderId++;
             let thisRenderId = currentRenderId;
@@ -450,11 +469,15 @@
             let latlngs = [];
             stops.forEach((s, idx) => {
                 if (s.lat && s.lng) {
+                    let isCanc = false;
+                    if (s.subStops) isCanc = s.subStops.every(ss => ss.confirmation === 'CANCELLED');
+                    else isCanc = s.confirmation === 'CANCELLED';
+                    
                     let isCompleted = s.status !== 'PENDING';
                     let isCurrent = idx === currentIndex;
-                    let color = isCurrent ? '#2F5FFF' : (isCompleted ? '#10b981' : '#64748b');
+                    let color = isCurrent ? '#2F5FFF' : (isCompleted ? '#10b981' : (isCanc ? '#fca5a5' : '#64748b'));
                     
-                    if (s.status !== 'SKIPPED') latlngs.push([s.lat, s.lng]);
+                    if (s.status !== 'SKIPPED' && !isCanc) latlngs.push([s.lat, s.lng]);
                     
                     let isDepot = s.id < 0 || s.name === 'End Location / Depot';
                     let hasSeq = (s.sequence !== undefined && s.sequence !== null);
@@ -591,7 +614,7 @@
                     ${subStopsHtml}
                     <div class="action-buttons" style="position:sticky; bottom:0; background:var(--card-bg); padding-top:8px;">
                         <button class="btn btn-success" onclick="markStop('COMPLETED')">
-                            <i class="fa-solid fa-check"></i> ${isLast ? 'Finish' : ((stop.subStops && stop.subStops.length > 1) ? `Complete ${stop.subStops.filter(ss => ss.status === 'PENDING').length} & Next` : 'Complete & Next')}
+                            <i class="fa-solid fa-check"></i> ${isLast ? 'Finish' : ((stop.subStops && stop.subStops.length > 1) ? `Complete ${stop.subStops.filter(ss => ss.status === 'PENDING' && ss.confirmation !== 'CANCELLED').length} & Next` : 'Complete & Next')}
                         </button>
                         <button class="btn btn-danger" onclick="markStop('SKIPPED')">
                             <i class="fa-solid fa-forward-step"></i> Skip
@@ -665,6 +688,8 @@
             if (currentIndex < stops.length) {
                 const stop = stops[currentIndex];
                 
+                let actionableSubStops = stop.subStops ? stop.subStops.filter(ss => ss.status === 'PENDING' && ss.confirmation !== 'CANCELLED') : [];
+                
                 if (status === 'SKIPPED' && stop.subStops && stop.subStops.length > 1) {
                     // Open Group Skip Modal
                     openGroupSkipModal(stop);
@@ -674,13 +699,15 @@
                 let updates = {};
                 if (stop.subStops) {
                     stop.subStops.forEach(ss => {
-                        // Only mark as COMPLETED/SKIPPED if still PENDING
-                        if (ss.status === 'PENDING') {
+                        // Only mark actionable as COMPLETED/SKIPPED
+                        if (ss.status === 'PENDING' && ss.confirmation !== 'CANCELLED') {
                             updates[ss.id + "/status"] = status;
                         }
                     });
                 } else {
-                    updates[stop.id + "/status"] = status;
+                    if (stop.confirmation !== 'CANCELLED') {
+                        updates[stop.id + "/status"] = status;
+                    }
                 }
                 
                 db.ref(`routes/route_${truckId}/stops`).update(updates).catch(err => {
@@ -693,7 +720,7 @@
         };
         
         window.openGroupSkipModal = function(stop) {
-            let pendingSubStops = stop.subStops.filter(ss => ss.status === 'PENDING');
+            let pendingSubStops = stop.subStops.filter(ss => ss.status === 'PENDING' && ss.confirmation !== 'CANCELLED');
             if (pendingSubStops.length === 0) return;
             
             let modalHtml = `
@@ -764,7 +791,7 @@
             const stop = stops[currentIndex];
             let updates = {};
             stop.subStops.forEach(ss => {
-                if (ss.status === 'PENDING') {
+                if (ss.status === 'PENDING' && ss.confirmation !== 'CANCELLED') {
                     updates[ss.id + "/status"] = 'SKIPPED';
                 }
             });
@@ -833,6 +860,28 @@
                 </div>
             `;
             document.getElementById('truck-title').innerText = "Offline";
+            
+            // Restore scroll and modal
+            let newGroupListEl = document.getElementById('group-customer-list');
+            if (newGroupListEl && savedScrollTop > 0) newGroupListEl.scrollTop = savedScrollTop;
+            
+            if (skipModal && currentIndex < stops.length) {
+                let stop = stops[currentIndex];
+                if (stop.subStops && stop.subStops.length > 1) {
+                    openGroupSkipModal(stop);
+                    if (savedSkipModalVal) {
+                        let radio = document.querySelector(`input[name="skipCustomerRadio"][value="${savedSkipModalVal}"]`);
+                        if (radio) {
+                            radio.checked = true;
+                            document.getElementById('skipSelectedBtn').disabled = false;
+                        }
+                    }
+                } else {
+                    closeGroupSkipModal();
+                }
+            } else if (skipModal) {
+                closeGroupSkipModal();
+            }
         };
 
         async function startGpsPolling() {
