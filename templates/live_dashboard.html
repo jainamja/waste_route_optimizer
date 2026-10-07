@@ -1393,7 +1393,7 @@
                 });
                 let data = await res.json();
                 if(data.success) {
-                    refreshData();
+                    loadData();
                 } else {
                     alert("Failed to update status: " + data.error);
                 }
