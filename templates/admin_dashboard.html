@@ -205,6 +205,49 @@
                 });
         }
 
+        window.deployTemplate = async function(id) {
+            if(!confirm("Are you sure you want to deploy this template? This will OVERWRITE your currently active routes!")) return;
+            
+            try {
+                let res = await fetch('/api/deploy_template/' + id + '?mode=deploy', { method: 'POST' });
+                let data = await res.json();
+                if(data.success) {
+                    alert("Template deployed successfully! Drivers can now see it in their app.");
+                    window.location.href = '/routes';
+                } else {
+                    alert("Error: " + data.error);
+                }
+            } catch(e) {
+                alert("An error occurred");
+            }
+        };
+
+        window.editTemplate = async function(id) {
+            if(!confirm("Are you sure you want to edit this template? This will OVERWRITE your currently active routes and take you to the Route Dashboard to make changes.")) return;
+            
+            try {
+                let res = await fetch('/api/deploy_template/' + id + '?mode=edit', { method: 'POST' });
+                let data = await res.json();
+                if(data.success) {
+                    window.location.href = '/routes';
+                } else {
+                    alert("Error: " + data.error);
+                }
+            } catch(e) {
+                alert("An error occurred");
+            }
+        };
+
+        window.deleteTemplate = async function(id) {
+            if(!confirm("Are you sure you want to permanently delete this template?")) return;
+            
+            try {
+                let res = await fetch('/api/delete_template/' + id, { method: 'DELETE' });
+                let data = await res.json();
+                if(data.success) {
+                    loadTemplates();
+                }
+
         function loadDrivers() {
             fetch('/api/drivers')
                 .then(res => res.json())
