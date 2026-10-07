@@ -55,6 +55,7 @@ class Customer(db.Model):
     truck_id = db.Column(db.Integer)
     stop_number = db.Column(db.Integer)
     confirmation = db.Column(db.String(20), default='NOT_CONFIRMED')
+    customer_status = db.Column(db.String(20), default='ACTIVE')
 
 class Metadata(db.Model):
     __tablename__ = 'metadata_store'
@@ -88,6 +89,12 @@ with app.app_context():
         
     try:
         db.session.execute(text("ALTER TABLE customers ADD COLUMN confirmation VARCHAR(20) DEFAULT 'NOT_CONFIRMED';"))
+        db.session.commit()
+    except:
+        db.session.rollback()
+        
+    try:
+        db.session.execute(text("ALTER TABLE customers ADD COLUMN customer_status VARCHAR(20) DEFAULT 'ACTIVE';"))
         db.session.commit()
     except:
         db.session.rollback()
@@ -275,7 +282,8 @@ def read_data_file(filepath):
                     'location_url': loc_url_clean,
                     'lat': lat,
                     'lng': lng,
-                    'status': 'PENDING'
+                    'status': 'PENDING',
+                    'customer_status': 'ACTIVE'
                 })
         except (ValueError, TypeError):
             pass
@@ -658,7 +666,8 @@ def upload():
                         "lng": c['lng'],
                         "sequence": c.get('stop_number', None),
                         "status": "PENDING",
-                        "confirmation": c.get("confirmation", "NOT_CONFIRMED")
+                        "confirmation": c.get("confirmation", "NOT_CONFIRMED"),
+                        "customer_status": c.get("customer_status", "ACTIVE")
                     }
                     
             for route_key, stops in routes_payload.items():
@@ -827,7 +836,8 @@ def get_data():
             'id': r.id, 'name': r.name, 'phone': r.phone, 'address': r.address,
             'location_url': r.location_url, 'lat': r.lat, 'lng': r.lng,
             'status': r.status, 'truck': r.truck_id, 'stop_number': r.stop_number,
-            'confirmation': r.confirmation if r.confirmation else 'NOT_CONFIRMED'
+            'confirmation': r.confirmation if r.confirmation else 'NOT_CONFIRMED',
+            'customer_status': getattr(r, 'customer_status', 'ACTIVE') or 'ACTIVE'
         })
         t_id = r.truck_id
         if t_id not in routes_dict: routes_dict[t_id] = []
@@ -1076,7 +1086,8 @@ def add_stop():
                     "lng": lng,
                     "sequence": target_sequence + 1,
                     "status": "PENDING",
-                    "confirmation": "NOT_CONFIRMED"
+                    "confirmation": "NOT_CONFIRMED",
+                    "customer_status": "ACTIVE"
                 }
                 
                 requests.put(f"{firebase_url}/routes/{route_key}/stops.json?auth={id_token}", json=stops)
@@ -1221,7 +1232,8 @@ def ai_rebalance():
                         "lng": c.lng,
                         "sequence": stop_num + 1,
                         "status": "PENDING",
-                        "confirmation": c.confirmation or "NOT_CONFIRMED"
+                        "confirmation": c.confirmation or "NOT_CONFIRMED",
+                        "customer_status": getattr(c, "customer_status", "ACTIVE") or "ACTIVE"
                     }
                     
         # Append cancelled customers
@@ -1239,7 +1251,8 @@ def ai_rebalance():
                     "lng": c.lng,
                     "sequence": stop_num + 1,
                     "status": c.status,
-                    "confirmation": "CANCELLED"
+                    "confirmation": "CANCELLED",
+                    "customer_status": getattr(c, "customer_status", "ACTIVE") or "ACTIVE"
                 }
                 route.append(c.id)
                 
@@ -1269,7 +1282,8 @@ def ai_rebalance():
                 "lng": depot_c.lng,
                 "sequence": len(route) + 1,
                 "status": "PENDING",
-                "confirmation": "NOT_CONFIRMED"
+                "confirmation": "NOT_CONFIRMED",
+                "customer_status": "ACTIVE"
             }
             
     # Update Metadata with new times and distances
@@ -1294,7 +1308,8 @@ def ai_rebalance():
                 "lng": c.lng,
                 "sequence": c.stop_number,
                 "status": "COMPLETED",
-                "confirmation": c.confirmation or "NOT_CONFIRMED"
+                "confirmation": c.confirmation or "NOT_CONFIRMED",
+                "customer_status": getattr(c, "customer_status", "ACTIVE") or "ACTIVE"
             }
 
     # 7. Push to Firebase
@@ -1339,7 +1354,8 @@ def update_route_manual():
                     "lng": c.lng,
                     "sequence": idx + 1,
                     "status": c.status,
-                    "confirmation": c.confirmation or "NOT_CONFIRMED"
+                    "confirmation": c.confirmation or "NOT_CONFIRMED",
+                    "customer_status": getattr(c, "customer_status", "ACTIVE") or "ACTIVE"
                 }
                 
     db.session.commit()
@@ -1368,6 +1384,32 @@ def update_route_manual():
     return jsonify({'success': True})
 
 
+@app.route('/api/update_customer_status', methods=['POST'])
+@login_required
+def update_customer_status():
+    data = request.json
+    cust_id = data.get('id')
+    status = data.get('customer_status')
+    
+    if not cust_id or not status:
+        return jsonify({'error': 'Missing parameters'}), 400
+        
+    c = Customer.query.get(cust_id)
+    if not c:
+        return jsonify({'error': 'Customer not found'}), 404
+        
+    c.customer_status = status
+    db.session.commit()
+    
+    # Check if assigned to an active route
+    if c.truck_id and c.stop_number:
+        id_token = get_firebase_token()
+        if id_token:
+            payload = { "customer_status": status }
+            requests.patch(f"{firebase_url}/routes/route_{c.truck_id}/stops/{c.id}.json?auth={id_token}", json=payload)
+            
+    return jsonify({'success': True})
+
 @app.route('/api/save_template', methods=['POST'])
 @login_required
 def save_template():
@@ -1386,7 +1428,8 @@ def save_template():
         'id': c.id, 'name': c.name, 'phone': c.phone, 'address': c.address,
         'location_url': c.location_url, 'lat': c.lat, 'lng': c.lng,
         'status': c.status, 'truck_id': c.truck_id, 'stop_number': c.stop_number,
-        'confirmation': c.confirmation if c.confirmation else 'NOT_CONFIRMED'
+        'confirmation': c.confirmation if c.confirmation else 'NOT_CONFIRMED',
+        'customer_status': getattr(c, 'customer_status', 'ACTIVE') or 'ACTIVE'
     } for c in cust_rows]
     
     t = SavedTemplate.query.filter_by(name=name).first()
@@ -1453,7 +1496,8 @@ def deploy_template(t_id):
             id=c['id'], name=c['name'], phone=c['phone'], address=c['address'],
             location_url=c.get('location_url'), lat=c['lat'], lng=c['lng'],
             status='PENDING', truck_id=c.get('truck_id'), stop_number=c.get('stop_number'),
-            confirmation=c.get('confirmation', 'NOT_CONFIRMED')
+            confirmation=c.get('confirmation', 'NOT_CONFIRMED'),
+            customer_status=c.get('customer_status', 'ACTIVE')
         )
         db.session.add(new_cust)
         
@@ -1487,7 +1531,8 @@ def deploy_template(t_id):
                         "lng": c['lng'],
                         "sequence": c.get('stop_number'),
                         "status": "PENDING",
-                        "confirmation": c.get("confirmation", "NOT_CONFIRMED")
+                        "confirmation": c.get("confirmation", "NOT_CONFIRMED"),
+                        "customer_status": c.get("customer_status", "ACTIVE")
                     }
                     
             for route_key, stops in routes_payload.items():
@@ -1551,6 +1596,7 @@ def dynamic_recalculate():
                                 'lat': float(stop_info['lat']),
                                 'lng': float(stop_info['lng']),
                                 'confirmation': stop_info.get('confirmation', 'NOT_CONFIRMED'),
+                                'customer_status': stop_info.get('customer_status', 'ACTIVE'),
                                 'truck_id': truck_id,
                                 'status': stop_info.get('status', 'PENDING')
                             })
@@ -1565,6 +1611,7 @@ def dynamic_recalculate():
                 'lat': c.lat,
                 'lng': c.lng,
                 'confirmation': c.confirmation or 'NOT_CONFIRMED',
+                'customer_status': getattr(c, 'customer_status', 'ACTIVE') or 'ACTIVE',
                 'truck_id': None,
                 'status': c.status
             })
@@ -1634,7 +1681,8 @@ def dynamic_recalculate():
                             "lng": cust['lng'],
                             "sequence": start_seq + seq,
                             "status": "PENDING",
-                            "confirmation": cust.get("confirmation", "NOT_CONFIRMED")
+                            "confirmation": cust.get("confirmation", "NOT_CONFIRMED"),
+                            "customer_status": cust.get("customer_status", "ACTIVE") or "ACTIVE"
                         }
                 
                 # Append cancelled customers
@@ -1649,7 +1697,8 @@ def dynamic_recalculate():
                             "lng": c['lng'],
                             "sequence": stop_num + 1,
                             "status": c.get('status', 'PENDING'),
-                            "confirmation": "CANCELLED"
+                            "confirmation": "CANCELLED",
+                            "customer_status": getattr(c, "customer_status", "ACTIVE") if not isinstance(c, dict) else c.get("customer_status", "ACTIVE")
                         }
                 
                 # Re-append End Depot at the end of this truck's route

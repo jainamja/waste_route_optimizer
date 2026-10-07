@@ -566,9 +566,10 @@
                     <div id="group-customer-list" style="overflow-y:auto; overscroll-behavior:contain; -webkit-overflow-scrolling:touch; max-height:min(calc(55dvh - 100px), calc(55vh - 100px)); display:flex; flex-direction:column; gap:6px; margin-bottom:8px;">
                         ${stop.subStops.map((ss, i) => {
                             let cConf = ss.confirmation === 'CONFIRMED';
-                            let bg = cConf ? '#ecfdf5' : '#eff6ff';
-                            let brd = cConf ? '#10b981' : '#2F5FFF';
-                            let txt = cConf ? 'Confirmed' : 'Not confirmed';
+                            let isInactive = ss.customer_status === 'INACTIVE';
+                            let bg = isInactive ? '#fef2f2' : (cConf ? '#ecfdf5' : '#eff6ff');
+                            let brd = isInactive ? '#ef4444' : (cConf ? '#10b981' : '#2F5FFF');
+                            let txt = isInactive ? 'INACTIVE' : (cConf ? 'Confirmed' : 'Not confirmed');
                             let statusLabel = ss.status === 'COMPLETED' ? ' <span style="color:#10b981;font-size:10px;">\u2713 Done</span>' : (ss.status === 'SKIPPED' ? ' <span style="color:#ef4444;font-size:10px;">\u2717 Skipped</span>' : '');
                             return `
                             <div style="display: flex; justify-content: space-between; align-items: flex-start; background:${bg}; border-left: var(--conf-strip) solid ${brd}; padding:8px 10px; border-radius:8px;">
@@ -585,9 +586,10 @@
                 } else {
                     let single = stop.subStops ? stop.subStops[0] : stop;
                     let cConf = single.confirmation === 'CONFIRMED';
-                    let bg = cConf ? '#ecfdf5' : '#eff6ff';
-                    let brd = cConf ? '#10b981' : '#2F5FFF';
-                    let txt = cConf ? 'Confirmed' : 'Not confirmed';
+                    let isInactive = single.customer_status === 'INACTIVE';
+                    let bg = isInactive ? '#fef2f2' : (cConf ? '#ecfdf5' : '#eff6ff');
+                    let brd = isInactive ? '#ef4444' : (cConf ? '#10b981' : '#2F5FFF');
+                    let txt = isInactive ? 'INACTIVE' : (cConf ? 'Confirmed' : 'Not confirmed');
                     subStopsHtml = `
                         <div style="background: ${bg}; border-left: var(--conf-strip) solid ${brd}; padding: 16px; border-radius: 8px; margin-bottom: 16px; display: flex; justify-content: space-between; align-items: flex-start;">
                             <div>
@@ -658,9 +660,10 @@
                         }
                     } else {
                         let cConf = s.confirmation === 'CONFIRMED';
-                        let bg = cConf ? '#ecfdf5' : '#eff6ff';
-                        let brd = cConf ? '#10b981' : '#2F5FFF';
-                        let txt = cConf ? 'Confirmed' : 'Not confirmed';
+                        let isInactive = s.customer_status === 'INACTIVE';
+                        let bg = isInactive ? '#fef2f2' : (cConf ? '#ecfdf5' : '#eff6ff');
+                        let brd = isInactive ? '#ef4444' : (cConf ? '#10b981' : '#2F5FFF');
+                        let txt = isInactive ? 'INACTIVE' : (cConf ? 'Confirmed' : 'Not confirmed');
                         confStyle = `background:${bg}; border-left: var(--conf-strip) solid ${brd};`;
                         badgeHtml = `<div style="font-size:10px; font-weight:700; margin-top:4px; color:${brd};">${txt}</div>`;
                     }
@@ -730,9 +733,10 @@
                         <div id="skipRadioGroup">
                             ${pendingSubStops.map(ss => {
                                 let cConf = ss.confirmation === 'CONFIRMED';
-                                let bg = cConf ? '#ecfdf5' : '#eff6ff';
-                                let brd = cConf ? '#10b981' : '#2F5FFF';
-                                let txt = cConf ? 'Confirmed' : 'Not confirmed';
+                                let isInactive = ss.customer_status === 'INACTIVE';
+                                let bg = isInactive ? '#fef2f2' : (cConf ? '#ecfdf5' : '#eff6ff');
+                                let brd = isInactive ? '#ef4444' : (cConf ? '#10b981' : '#2F5FFF');
+                                let txt = isInactive ? 'INACTIVE' : (cConf ? 'Confirmed' : 'Not confirmed');
                                 return `
                                 <label style="display:flex; align-items:center; padding:15px; border:1px solid ${brd}; background:${bg}; border-left: var(--conf-strip) solid ${brd}; border-radius:12px; margin-bottom:10px; gap:15px;">
                                     <input type="radio" name="skipCustomerRadio" value="${ss.id}" onchange="document.getElementById('skipSelectedBtn').disabled = false" style="width:20px; height:20px;">
