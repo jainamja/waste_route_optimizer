@@ -221,7 +221,15 @@
                 
                 for(let tId in trucks) {
                     let truck = trucks[tId];
-                    if(truck.status === 'online' && truck.currentLat && truck.currentLng) {
+                    
+                    // Do not render GPS markers for phantom trucks
+                    let hasRealRoute = false;
+                    let routeNode = routesData['route_' + tId] || {};
+                    let stopsObj = routeNode.stops || routeNode;
+                    let stops = parseStops(stopsObj);
+                    if (stops.filter(s => s.id > -1000 && s.name !== 'End Location / Depot').length > 0) hasRealRoute = true;
+                    
+                    if(hasRealRoute && truck.status === 'online' && truck.currentLat && truck.currentLng) {
                         hasLive = true;
                         bounds.extend([truck.currentLat, truck.currentLng]);
                         
@@ -250,7 +258,6 @@
                     window.hasFitBounds = true;
                 }
                 
-                updateMapPopups();
                 scheduleRender();
             }, err => {
                 console.warn("Permission denied reading 'trucks'. Will fall back to individual trucks.", err);
@@ -267,7 +274,6 @@
                 console.log("Fetched drivers from API:", drvs.length);
                 drvs.forEach(d => { driverMap[d.truck_id] = d.name || d.username; });
                 if (usingFallback) fallbackToIndividualListeners();
-                updateMapPopups();
                 scheduleRender();
             }).catch(e => console.error("fetchDrivers failed:", e));
         }
@@ -298,7 +304,6 @@
             db.ref('routes').on('value', snap => {
                 console.log("Root routes listener received data.");
                 routesData = snap.val() || {};
-                updateMapPopups();
                 scheduleRender();
             }, err => {
                 console.warn("Permission denied reading 'routes'. Falling back to individual trucks.", err);
@@ -322,7 +327,6 @@
                         console.log(`Received stops for truck ${tId}:`, val ? Object.keys(val).length + " stops" : "null");
                         if (!routesData['route_' + tId]) routesData['route_' + tId] = {};
                         routesData['route_' + tId].stops = val || {};
-                        updateMapPopups();
                         scheduleRender();
                     }, err => {
                         console.error("Fallback listener also failed for truck", tId, err);
@@ -335,7 +339,13 @@
                             window.liveTrucks[tId] = tData;
                             
                             // Map update
-                            if (tData.status === 'online' && tData.currentLat && tData.currentLng) {
+                            let hasRealRoute = false;
+                            let routeNode = routesData['route_' + tId] || {};
+                            let stopsObj = routeNode.stops || routeNode;
+                            let stops = parseStops(stopsObj);
+                            if (stops.filter(s => s.id > -1000 && s.name !== 'End Location / Depot').length > 0) hasRealRoute = true;
+
+                            if (hasRealRoute && tData.status === 'online' && tData.currentLat && tData.currentLng) {
                                 if (liveTruckMarkers[tId]) {
                                     liveTruckMarkers[tId].setLatLng([tData.currentLat, tData.currentLng]);
                                 } else {
@@ -361,7 +371,6 @@
                         } else {
                             delete window.liveTrucks[tId];
                         }
-                        updateMapPopups();
                         scheduleRender();
                     });
                 }
@@ -391,22 +400,34 @@
             let cardsHtml = '';
             let tIds = Array.from(activeTruckIds).sort((a,b) => parseInt(a)-parseInt(b));
             
+            // To properly track markers, we should know which ones are valid
+            let validTruckIds = new Set();
+            
             tIds.forEach(tId => {
                 if (!tId || tId === 'undefined' || isNaN(parseInt(tId))) return;
-                
-                let dName = driverMap[tId] || 'Truck ' + tId;
-                let isOnline = trucks[tId] && trucks[tId].status === 'online';
                 
                 let routeNode = routesData['route_' + tId] || {};
                 let stopsObj = routeNode.stops || routeNode;
                 let stops = parseStops(stopsObj);
+                
+                // CRITICAL FILTER: Must have real customer stops!
+                let realStops = stops.filter(s => s.id > -1000 && s.name !== 'End Location / Depot');
+                if (realStops.length === 0) return;
+                
+                validTruckIds.add(tId.toString());
+                
+                let dName = driverMap[tId];
+                if (!dName) dName = 'Unassigned';
+                
+                let isOnline = trucks[tId] && trucks[tId].status === 'online';
+                
                 console.log(`Truck ${tId}: parsed ${stops.length} stops from object:`, JSON.stringify(stopsObj).substring(0, 200));
                 
-                let tTotal = stops.length;
+                let tTotal = realStops.length;
                 let tComp = 0, tSkip = 0, tCanc = 0, tLeft = 0, tNotConf = 0;
                 let skipList = [], leftList = [], compList = [], cancList = [];
                 
-                stops.forEach(s => {
+                realStops.forEach(s => {
                     if (s.confirmation === 'CANCELLED') { tCanc++; cancList.push(s); }
                     else if (s.status === 'COMPLETED') { tComp++; compList.push(s); }
                     else if (s.status === 'SKIPPED') { tSkip++; skipList.push(s); }
@@ -548,11 +569,38 @@
         
         function updateMapPopups() {
             let trucks = window.liveTrucks || {};
+            
+            // Sync all active trucks that have real routes
+            for(let tId in truckStats) {
+                let truck = trucks[tId];
+                if (truck && truck.status === 'online' && truck.currentLat && truck.currentLng) {
+                    if (liveTruckMarkers[tId]) {
+                        liveTruckMarkers[tId].setLatLng([truck.currentLat, truck.currentLng]);
+                    } else {
+                        let truckIcon = L.divIcon({
+                            className: 'live-truck-icon',
+                            html: `<div style='background-color:#2F5FFF; width:40px; height:40px; border-radius:50%; border:3px solid white; box-shadow:0 4px 10px rgba(0,0,0,0.4); display:flex; align-items:center; justify-content:center; color:white; font-size:18px;'><i class="fa-solid fa-truck"></i></div>`,
+                            iconSize: [40, 40],
+                            iconAnchor: [20, 20]
+                        });
+                        liveTruckMarkers[tId] = L.marker([truck.currentLat, truck.currentLng], {icon: truckIcon}).addTo(map);
+                        liveTruckMarkers[tId].bindPopup("<b>Truck " + tId + "</b><br>Live GPS").openPopup();
+                    }
+                }
+            }
+            
+            // Update popups and remove invalid markers
             for(let tId in liveTruckMarkers) {
-                let dName = driverMap[tId] || '';
                 let st = truckStats[tId];
-                let countsStr = st ? `<br><span style="font-size:12px; color:#64748b;">${st.comp} done &middot; ${st.left} left</span>` : '';
-                liveTruckMarkers[tId].getPopup().setContent(`<b>Truck ${tId}</b> ${dName ? `(${dName})` : ''}<br>Live GPS${countsStr}`);
+                let truck = trucks[tId];
+                if (!st || !truck || truck.status !== 'online') {
+                    map.removeLayer(liveTruckMarkers[tId]);
+                    delete liveTruckMarkers[tId];
+                    continue;
+                }
+                let dName = driverMap[tId] || 'Unassigned';
+                let countsStr = `<br><span style="font-size:12px; color:#64748b;">${st.comp} done &middot; ${st.left} left</span>`;
+                liveTruckMarkers[tId].getPopup().setContent(`<b>Truck ${tId}</b> (${dName})<br>Live GPS${countsStr}`);
             }
         }
         
