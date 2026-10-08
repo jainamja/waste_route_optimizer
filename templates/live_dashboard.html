@@ -619,11 +619,11 @@
                 if (el) el.style.display = val;
             };
 
-            let dataUrl = '/api/data';
+            let dataUrl = '/api/data?_t=' + Date.now();
             if (window.isEditAssigned && window.editingAssignedRouteId) {
-                dataUrl += '?template_id=' + window.editingAssignedRouteId;
+                dataUrl += '&template_id=' + window.editingAssignedRouteId;
             }
-            fetch(dataUrl)
+            fetch(dataUrl, { cache: 'no-store' })
                 .then(res => res.json())
                 .then(resData => {
                     window.currentTemplateId = resData.current_template_id;
@@ -720,11 +720,20 @@
             let end_coords = data.end_coords.map(c => [parseFloat(c.split(',')[0]), parseFloat(c.split(',')[1])]);
 
             data.routes.forEach((truckRoute, i) => {
-                let color = colors[i % colors.length];
                 let latlngs = [];
                 
-                let startCoord = start_coords[i] || start_coords[0];
-                let endCoord = end_coords[i] || end_coords[0];
+                // Find the actual truck ID for this route to correctly match its depot
+                let actualTruckId = 1;
+                for (let cid of truckRoute) {
+                    if (cid > 0) {
+                        let c = data.customers.find(x => x.id === cid);
+                        if (c && c.truck) { actualTruckId = c.truck; break; }
+                    }
+                }
+                
+                let color = colors[(actualTruckId - 1) % colors.length];
+                let startCoord = start_coords[actualTruckId - 1] || start_coords[0];
+                let endCoord = end_coords[actualTruckId - 1] || end_coords[0];
                 
                 allLats.push(startCoord[0], endCoord[0]);
                 allLngs.push(startCoord[1], endCoord[1]);
@@ -734,8 +743,8 @@
                 let startIcon = L.divIcon({className: 'custom-div-icon', html: `<div style='background-color:var(--green); width:16px; height:16px; border-radius:50%; border:3px solid white; box-shadow:0 2px 4px rgba(0,0,0,0.3);'></div>`});
                 let endIcon = L.divIcon({className: 'custom-div-icon', html: `<div style='background-color:var(--amber); width:16px; height:16px; border-radius:50%; border:3px solid white; box-shadow:0 2px 4px rgba(0,0,0,0.3);'></div>`});
                 
-                L.marker(startCoord, {icon: startIcon}).bindPopup("<b>Start - Truck " + (i+1) + "</b>").addTo(map);
-                L.marker(endCoord, {icon: endIcon}).bindPopup("<b>End - Truck " + (i+1) + "</b>").addTo(map);
+                L.marker(startCoord, {icon: startIcon}).bindPopup("<b>Start - Truck " + actualTruckId + "</b>").addTo(map);
+                L.marker(endCoord, {icon: endIcon}).bindPopup("<b>End - Truck " + actualTruckId + "</b>").addTo(map);
 
                 let stopsMap = {};
                 truckRoute.forEach(customerId => {
@@ -829,11 +838,12 @@
             Object.keys(trucksInfo).sort().forEach((t, i) => {
                 let info = trucksInfo[t];
                 let pct = Math.round((info.completed / info.total) * 100) || 0;
-                let color = colors[i % colors.length];
+                let actualTruckId = parseInt(t);
+                let color = colors[(actualTruckId - 1) % colors.length];
                 
                 let truckRoute = data.routes[i];
-                let startCoord = start_coords[i] || start_coords[0];
-                let endCoord = end_coords[i] || end_coords[0];
+                let startCoord = start_coords[actualTruckId - 1] || start_coords[0];
+                let endCoord = end_coords[actualTruckId - 1] || end_coords[0];
                 
                 let dirUrl = `https://www.google.com/maps/dir/?api=1&origin=${startCoord[0]},${startCoord[1]}&destination=${endCoord[0]},${endCoord[1]}&waypoints=`;
                 let waypoints = [];
@@ -852,7 +862,17 @@
                             
                             let isConf = customer.confirmation === 'CONFIRMED';
                             let isCanc = customer.confirmation === 'CANCELLED';
-                            let confHtml = isDepot ? '' : `<span style="font-size:10px; font-weight:700; padding:2px 6px; border-radius:8px; margin-left:8px; ${isConf ? 'background:#ecfdf5; color:#10b981; border:1px solid #10b981;' : (isCanc ? 'background:#fef2f2; color:#ef4444; border:1px solid #ef4444;' : 'background:#eff6ff; color:#2F5FFF; border:1px solid #2F5FFF;')}">${isConf ? 'CONFIRMED' : (isCanc ? 'CANCELLED' : 'NOT CONFIRMED')}</span>`;
+                            let isSkip = customer.status === 'SKIPPED';
+                            let isComp = customer.status === 'COMPLETED';
+                            
+                            let badgeText = isComp ? 'COMPLETED' : (isSkip ? 'SKIPPED' : (isConf ? 'CONFIRMED' : (isCanc ? 'CANCELLED' : 'NOT CONFIRMED')));
+                            let badgeStyle = isComp ? 'background:#ecfdf5; color:#10b981; border:1px solid #10b981;' : 
+                                             (isSkip ? 'background:#fef2f2; color:#ef4444; border:1px solid #ef4444;' : 
+                                             (isConf ? 'background:#ecfdf5; color:#10b981; border:1px solid #10b981;' : 
+                                             (isCanc ? 'background:#fef2f2; color:#ef4444; border:1px solid #ef4444;' : 
+                                             'background:#eff6ff; color:#2F5FFF; border:1px solid #2F5FFF;')));
+                                             
+                            let confHtml = isDepot ? '' : `<span style="font-size:10px; font-weight:700; padding:2px 6px; border-radius:8px; margin-left:8px; ${badgeStyle}">${badgeText}</span>`;
                             
                             let isInactive = customer.customer_status === 'INACTIVE';
                             let itemStyle = isDepot ? '' : 'cursor: grab;';

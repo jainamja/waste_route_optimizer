@@ -818,9 +818,78 @@ def assign_driver():
 def driver_view():
     return render_template('driver_view.html')
 
+def sync_firebase_to_sql(template_id=None):
+    try:
+        import requests
+        firebase_url = "https://wasteroutelive-default-rtdb.firebaseio.com"
+        API_KEY = "AIzaSyAhLnjh0gRa2pf29G90zr-6AMcjLjbQpPg"
+        
+        # Determine which truck IDs we need to sync
+        from app import User, Customer, db
+        truck_ids_to_sync = None
+        if template_id:
+            drivers = User.query.filter_by(assigned_template_id=template_id).all()
+            truck_ids_to_sync = [str(d.truck_id) for d in drivers] if drivers else []
+        
+        # If no specific template is given, we sync all trucks
+        # To do this efficiently, we query Firebase /routes.json
+        # But wait, Firebase auth is needed
+        auth_url = f"https://identitytoolkit.googleapis.com/v1/accounts:signUp?key={API_KEY}"
+        auth_res = requests.post(auth_url, json={"returnSecureToken": True})
+        if auth_res.status_code == 200:
+            id_token = auth_res.json().get('idToken')
+            res = requests.get(f"{firebase_url}/routes.json?auth={id_token}")
+            if res.status_code == 200:
+                routes_data = res.json()
+                if routes_data:
+                    for route_key, route_info in routes_data.items():
+                        if not route_key.startswith('route_'): continue
+                        tid_str = route_key.split('_')[1]
+                        if truck_ids_to_sync is not None and tid_str not in truck_ids_to_sync:
+                            continue
+                        
+                        try:
+                            truck_id_int = int(tid_str)
+                        except:
+                            continue
+                            
+                        stops = route_info.get('stops')
+                        if stops:
+                            for stop_id_str, stop_data in stops.items():
+                                try:
+                                    stop_id = int(stop_id_str)
+                                except:
+                                    continue
+                                
+                                if stop_id < 0:
+                                    continue
+                                
+                                c = Customer.query.get(stop_id)
+                                if c and c.truck_id == truck_id_int:
+                                    fb_status = stop_data.get('status')
+                                    fb_conf = stop_data.get('confirmation')
+                                    fb_cust_status = stop_data.get('customer_status')
+                                    fb_seq = stop_data.get('sequence')
+                                    
+                                    if fb_status and c.status != fb_status:
+                                        c.status = fb_status
+                                    if fb_conf and c.confirmation != fb_conf:
+                                        c.confirmation = fb_conf
+                                    if fb_cust_status and getattr(c, 'customer_status', None) != fb_cust_status:
+                                        c.customer_status = fb_cust_status
+                                    if fb_seq is not None and c.stop_number != fb_seq:
+                                        c.stop_number = fb_seq
+                    db.session.commit()
+    except Exception as e:
+        print("Error syncing Firebase to SQL inside get_data:", e)
+
 @app.route('/api/data')
 def get_data():
     template_id = request.args.get('template_id')
+    
+    # Sync LIVE data from Firebase to SQL before returning
+    sync_firebase_to_sql(template_id)
+
     metadata_rows = Metadata.query.all()
     metadata = {row.key: row.value for row in metadata_rows}
     
@@ -990,8 +1059,7 @@ def remove_stop():
         # Shift subsequent stops in SQL
         subsequent_stops = Customer.query.filter(
             Customer.truck_id == truck_id,
-            Customer.stop_number > target_seq,
-            Customer.status == 'PENDING'
+            Customer.stop_number > target_seq
         ).all()
         for s in subsequent_stops:
             s.stop_number -= 1
@@ -1015,7 +1083,7 @@ def remove_stop():
                 del stops[str(cust_id)]
                 
                 for s_id, s_info in stops.items():
-                    if s_info and s_info.get('status') == 'PENDING' and s_info.get('sequence', 0) > target_seq:
+                    if s_info and s_info.get('sequence', 0) > target_seq:
                         s_info['sequence'] -= 1
                         
                 # Update Firebase
@@ -1075,9 +1143,7 @@ def add_stop():
             # Shift SQL sequences
             subsequent_stops = Customer.query.filter(
                 Customer.truck_id == target_truck_id,
-                Customer.stop_number > target_sequence,
-                Customer.status == 'PENDING'
-            ).all()
+                Customer.stop_number > target_sequence).all()
             for s in subsequent_stops:
                 s.stop_number += 1
                 
@@ -1104,7 +1170,7 @@ def add_stop():
                 
                 # Shift sequence in firebase
                 for s_id, s_info in stops.items():
-                    if s_info and s_info.get('status') == 'PENDING' and s_info.get('sequence', 0) > target_sequence:
+                    if s_info and s_info.get('sequence', 0) > target_sequence:
                         s_info['sequence'] += 1
                 
                 # Add new stop
