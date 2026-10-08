@@ -820,6 +820,7 @@ def driver_view():
 
 @app.route('/api/data')
 def get_data():
+    template_id = request.args.get('template_id')
     metadata_rows = Metadata.query.all()
     metadata = {row.key: row.value for row in metadata_rows}
     
@@ -840,7 +841,13 @@ def get_data():
     else:
         end_coords = []
         
-    customers_db = Customer.query.order_by(Customer.truck_id.asc(), Customer.stop_number.asc()).all()
+    query = Customer.query
+    if template_id:
+        drivers = User.query.filter_by(assigned_template_id=template_id).all()
+        truck_ids = [d.truck_id for d in drivers] if drivers else [-1]
+        query = query.filter(Customer.truck_id.in_(truck_ids))
+        
+    customers_db = query.order_by(Customer.truck_id.asc(), Customer.stop_number.asc()).all()
     
     customers = []
     routes_dict = {}
@@ -1535,7 +1542,15 @@ def save_template():
     meta_dict = {m.key: m.value for m in meta_rows}
     
     # Dump Customers
-    cust_rows = Customer.query.all()
+    if t_id:
+        drivers = User.query.filter_by(assigned_template_id=t_id).all()
+        if drivers:
+            truck_ids = [d.truck_id for d in drivers]
+            cust_rows = Customer.query.filter(Customer.truck_id.in_(truck_ids)).all()
+        else:
+            cust_rows = Customer.query.all()
+    else:
+        cust_rows = Customer.query.all()
     cust_list = [{
         'id': c.id, 'name': c.name, 'phone': c.phone, 'address': c.address,
         'location_url': c.location_url, 'lat': c.lat, 'lng': c.lng,

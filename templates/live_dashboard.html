@@ -619,14 +619,16 @@
                 if (el) el.style.display = val;
             };
 
-            fetch('/api/data')
+            let dataUrl = '/api/data';
+            if (window.isEditAssigned && window.editingAssignedRouteId) {
+                dataUrl += '?template_id=' + window.editingAssignedRouteId;
+            }
+            fetch(dataUrl)
                 .then(res => res.json())
                 .then(resData => {
                     window.currentTemplateId = resData.current_template_id;
                     window.currentTemplateName = resData.current_template_name;
-                    let urlParams = new URLSearchParams(window.location.search);
-                    let isEditAssigned = urlParams.get('mode') === 'edit_assigned';
-                    window.isEditingTemplate = (window.currentTemplateId != null && (!resData.is_from_template || isEditAssigned));
+                    window.isEditingTemplate = (window.currentTemplateId != null && (!resData.is_from_template || window.isEditAssigned));
 
                     let nameInput = document.getElementById('template-name');
                     if (nameInput) {
@@ -857,9 +859,21 @@
                             if (isInactive) itemStyle += ' background: #fef2f2; border: 1px solid #fca5a5;';
                             let nameDec = isInactive ? 'color: #ef4444;' : '';
                             
-                            if (isEditAssigned) {
+                            if (window.isEditAssigned) {
                         let btn = document.querySelector('button[onclick="document.getElementById(\'save-template-modal\').style.display=\'flex\'"]');
-                        if (btn) btn.innerHTML = '<i class="fa-solid fa-save"></i> Save Assigned Route';
+                        if (btn) {
+                            btn.innerHTML = '<i class="fa-solid fa-save"></i> Save Assigned Route';
+                            btn.onclick = function() {
+                                fetch('/api/save_template', {
+                                    method: 'POST',
+                                    headers: {'Content-Type': 'application/json'},
+                                    body: JSON.stringify({id: window.editingAssignedRouteId, name: window.currentTemplateName || 'Assigned Route'})
+                                }).then(r => r.json()).then(res => {
+                                    if(res.success) window.location.href = '/admin';
+                                    else alert('Error: ' + res.error);
+                                });
+                            };
+                        }
                     }
                     let toggleHtml = (isDepot || !window.isEditingTemplate) ? '' : `
                             <div style="margin-top:8px;">

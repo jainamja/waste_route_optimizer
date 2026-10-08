@@ -284,7 +284,7 @@
 
         window.editAssignedRoute = function(id, truckIdStr) {
             let truckId = truckIdStr ? truckIdStr.split(',')[0] : '';
-            let url = `/live?mode=edit_assigned`;
+            let url = `/routes?mode=edit_assigned&template_id=${id}`;
             if (truckId) url += `&truck_id=${truckId}`;
             window.location.href = url;
         };
