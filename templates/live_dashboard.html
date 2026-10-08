@@ -551,6 +551,10 @@
     </div>
 
     <script>
+        const urlParams = new URLSearchParams(window.location.search);
+        window.isEditAssigned = urlParams.get('mode') === 'edit_assigned';
+        window.editingAssignedRouteId = urlParams.get('template_id') || null;
+
         const firebaseConfig = {
             apiKey: "AIzaSyAhLnjh0gRa2pf29G90zr-6AMcjLjbQpPg",
             authDomain: "wasteroutelive.firebaseapp.com",

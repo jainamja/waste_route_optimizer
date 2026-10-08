@@ -268,11 +268,15 @@
                                     <div class="driver-info">
                                         <div class="driver-details">
                                             <h4>${r.name}</h4>
-                                            <p style="margin-top:4px; color:var(--text-muted);">${r.stops_count} Stops</p>
+                                            <p style="margin-top:4px; color:var(--text-muted);">
+                                                <b>${r.stops_count} Stops</b><br>
+                                                Assigned to: ${r.driver_name}<br>
+                                                Truck: ${r.truck_id}
+                                            </p>
                                         </div>
                                     </div>
                                     <div style="display:flex; align-items:center; gap:12px;">
-                                        <button onclick="editAssignedRoute(${r.id}, '${r.truck_ids.join(',')}')" class="btn btn-outline" style="padding:8px 16px; font-size:13px; background:white;"><i class="fa-solid fa-pen"></i> Edit Route</button>
+                                        <button onclick="editAssignedRoute(${r.id}, '${r.truck_id}')" class="btn btn-outline" style="padding:8px 16px; font-size:13px; background:white;"><i class="fa-solid fa-pen"></i> Edit Route</button>
                                     </div>
                                 </div>
                             `;
