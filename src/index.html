@@ -322,6 +322,7 @@
         }
 
         let truckId = null;
+        let driverId = null;
         let stops = [];
         let currentIndex = 0;
         let map, routeLine, routeMarkers = [];
@@ -914,8 +915,14 @@
                         pos = await new Promise((res, rej) => navigator.geolocation.getCurrentPosition(res, rej, { enableHighAccuracy: true, timeout: 5000 }));
                     }
                     if (pos) {
-                        db.ref(`trucks/${truckId}`).update({
-                            currentLat: pos.coords.latitude, currentLng: pos.coords.longitude, lastUpdated: firebase.database.ServerValue.TIMESTAMP
+                        // GPS goes strictly to driver_locations/ to separate it from truck assignments
+                        db.ref(`driver_locations/${driverId}`).update({
+                            currentLat: pos.coords.latitude, 
+                            currentLng: pos.coords.longitude, 
+                            accuracy: pos.coords.accuracy,
+                            lastUpdated: firebase.database.ServerValue.TIMESTAMP,
+                            truckId: truckId,
+                            status: 'online'
                         }).catch(err => console.error("Firebase write failed (GPS update):", err));
                     }
                 } catch (err) { console.error("GPS Error", err); }
@@ -927,12 +934,17 @@
             const truckRef = db.ref(`trucks/${truckId}`);
             db.ref('.info/connected').on('value', (snap) => {
                 if (snap.val() === true) {
-                    // Arm the disconnect hook immediately upon connection
+                    // Arm the disconnect hook for the driver's location node
+                    db.ref(`driver_locations/${driverId}/status`).onDisconnect().set('offline');
+                    
+                    // Mark as online in both places for legacy compat
+                    db.ref(`driver_locations/${driverId}/status`).set('online');
+                    db.ref(`driver_locations/${driverId}/lastUpdated`).set(firebase.database.ServerValue.TIMESTAMP);
+                    
                     truckRef.child('status').onDisconnect().set('offline');
-                    // Mark as online
-                    truckRef.child('status').set('online').catch(err => console.error("Firebase write failed (status):", err));
-                    truckRef.child('name').set('Truck ' + truckId).catch(err => console.error("Firebase write failed (name):", err));
-                    truckRef.child('lastUpdated').set(firebase.database.ServerValue.TIMESTAMP).catch(e=>{});
+                    truckRef.child('status').set('online');
+                    truckRef.child('name').set('Truck ' + truckId);
+                    truckRef.child('lastUpdated').set(firebase.database.ServerValue.TIMESTAMP);
                 }
             });
             
@@ -1177,6 +1189,7 @@
                 }
                 
                 truckId = data.truck_id;
+                driverId = token;
                 document.getElementById('login-overlay').style.display = 'none';
                 document.getElementById('truck-title').innerText = "Truck " + truckId;
                 

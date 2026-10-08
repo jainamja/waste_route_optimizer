@@ -206,13 +206,14 @@
 
         let usingFallback = false;
         let driverMap = {};
+        let truckToDriver = {};
         let routesData = {};
 
         firebase.auth().signInAnonymously().then(() => {
             console.log("Firebase Auth success.");
-            db.ref('trucks').on('value', snap => {
+            db.ref('driver_locations').on('value', snap => {
                 let trucks = snap.val();
-                console.log("Root trucks listener received data:", trucks ? Object.keys(trucks).length + " trucks" : "null");
+                console.log("Root driver_locations listener received data:", trucks ? Object.keys(trucks).length + " trucks" : "null");
                 window.liveTrucks = trucks;
                 if(!trucks) return;
                 
@@ -272,7 +273,7 @@
             fetch('/api/data').then(r => r.json()).then(data => {
                 let drvs = data.drivers || [];
                 console.log("Fetched drivers from API:", drvs.length);
-                drvs.forEach(d => { driverMap[d.truck_id] = d.name || d.username; });
+                drvs.forEach(d => { driverMap[d.truck_id] = d.name || d.username; truckToDriver[d.truck_id] = d.id; });
                 if (usingFallback) fallbackToIndividualListeners();
                 scheduleRender();
             }).catch(e => console.error("fetchDrivers failed:", e));
@@ -332,11 +333,13 @@
                         console.error("Fallback listener also failed for truck", tId, err);
                     });
                     
-                    // Listen to individual truck
-                    db.ref('trucks/' + tId).on('value', snap => {
+                    // Listen to individual driver
+                    let driverId = truckToDriver[tId];
+                    if (driverId) {
+                        db.ref('driver_locations/' + driverId).on('value', snap => {
                         let tData = snap.val();
                         if (tData) {
-                            window.liveTrucks[tId] = tData;
+                            window.liveTrucks[driverId] = tData;
                             
                             // Map update
                             let hasRealRoute = false;
@@ -369,10 +372,11 @@
                                 }
                             }
                         } else {
-                            delete window.liveTrucks[tId];
+                            delete window.liveTrucks[driverId];
                         }
                         scheduleRender();
                     });
+                    }
                 }
             });
         }
@@ -391,7 +395,6 @@
         function renderProgress() {
             let trucks = window.liveTrucks || {};
             let activeTruckIds = new Set([
-                ...Object.keys(trucks),
                 ...Object.keys(driverMap),
                 ...Object.keys(routesData).map(k => k.replace('route_', ''))
             ]);
@@ -419,7 +422,8 @@
                 let dName = driverMap[tId];
                 if (!dName) dName = 'Unassigned';
                 
-                let isOnline = trucks[tId] && trucks[tId].status === 'online';
+                let driverIdForThisTruck = truckToDriver[tId];
+                let isOnline = driverIdForThisTruck && trucks[driverIdForThisTruck] && trucks[driverIdForThisTruck].status === 'online';
                 
                 console.log(`Truck ${tId}: parsed ${stops.length} stops from object:`, JSON.stringify(stopsObj).substring(0, 200));
                 
@@ -572,7 +576,8 @@
             
             // Sync all active trucks that have real routes
             for(let tId in truckStats) {
-                let truck = trucks[tId];
+                let driverIdForThisTruck = truckToDriver[tId];
+                let truck = driverIdForThisTruck ? trucks[driverIdForThisTruck] : null;
                 if (truck && truck.status === 'online' && truck.currentLat && truck.currentLng) {
                     if (liveTruckMarkers[tId]) {
                         liveTruckMarkers[tId].setLatLng([truck.currentLat, truck.currentLng]);
@@ -592,7 +597,8 @@
             // Update popups and remove invalid markers
             for(let tId in liveTruckMarkers) {
                 let st = truckStats[tId];
-                let truck = trucks[tId];
+                let driverIdForThisTruck = truckToDriver[tId];
+                let truck = driverIdForThisTruck ? trucks[driverIdForThisTruck] : null;
                 if (!st || !truck || truck.status !== 'online') {
                     map.removeLayer(liveTruckMarkers[tId]);
                     delete liveTruckMarkers[tId];
@@ -601,11 +607,12 @@
                 let dName = driverMap[tId] || 'Unassigned';
                 let countsStr = `<br><span style="font-size:12px; color:#64748b;">${st.comp} done &middot; ${st.left} left</span>`;
                 let timeStr = "Offline";
-                if (truck.timestamp) {
-                    let diffSeconds = Math.floor((Date.now() - truck.timestamp) / 1000);
-                    if (diffSeconds < 15) timeStr = `<span style="color:#10b981;font-weight:700;">LIVE</span>`;
-                    else if (diffSeconds < 60) timeStr = `LIVE (${diffSeconds}s ago)`;
-                    else timeStr = `Updated ${Math.floor(diffSeconds/60)}m ago`;
+                let latestTime = truck.lastUpdated || truck.timestamp;
+                if (latestTime) {
+                    let diffSeconds = Math.floor((Date.now() - latestTime) / 1000);
+                    if (diffSeconds < 30) timeStr = `<span style="color:#10b981;font-weight:700;">LIVE (${diffSeconds}s ago)</span>`;
+                    else if (diffSeconds < 120) timeStr = `<span style="color:#f59e0b;font-weight:700;">RECENT (${Math.floor(diffSeconds/60)}m ago)</span>`;
+                    else timeStr = `<span style="color:#ef4444;font-weight:700;">STALE (${Math.floor(diffSeconds/60)}m ago)</span>`;
                 } else if (truck.status === 'online') {
                     timeStr = `<span style="color:#10b981;font-weight:700;">LIVE</span>`;
                 }
