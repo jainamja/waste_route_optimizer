@@ -600,7 +600,16 @@
                 }
                 let dName = driverMap[tId] || 'Unassigned';
                 let countsStr = `<br><span style="font-size:12px; color:#64748b;">${st.comp} done &middot; ${st.left} left</span>`;
-                liveTruckMarkers[tId].getPopup().setContent(`<b>Truck ${tId}</b> (${dName})<br>Live GPS${countsStr}`);
+                let timeStr = "Offline";
+                if (truck.timestamp) {
+                    let diffSeconds = Math.floor((Date.now() - truck.timestamp) / 1000);
+                    if (diffSeconds < 15) timeStr = `<span style="color:#10b981;font-weight:700;">LIVE</span>`;
+                    else if (diffSeconds < 60) timeStr = `LIVE (${diffSeconds}s ago)`;
+                    else timeStr = `Updated ${Math.floor(diffSeconds/60)}m ago`;
+                } else if (truck.status === 'online') {
+                    timeStr = `<span style="color:#10b981;font-weight:700;">LIVE</span>`;
+                }
+                liveTruckMarkers[tId].getPopup().setContent(`<b>Truck ${tId}</b> (${dName})<br>${timeStr}${countsStr}`);
             }
         }
         

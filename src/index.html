@@ -902,6 +902,10 @@
                 try { await window.Capacitor.Plugins.Geolocation.requestPermissions(); } catch(e){}
             }
             const updateGps = async () => {
+                // If native plugin exists and is active, let native handle it.
+                // If web fallback, we handle it here.
+                if (!window.isTrackingActive) return;
+                
                 try {
                     let pos;
                     if (window.Capacitor && window.Capacitor.Plugins && window.Capacitor.Plugins.Geolocation) {
@@ -1219,6 +1223,51 @@
                 localStorage.removeItem('driver_token');
             }
             window.location.reload();
+        };
+
+        window.toggleTracking = async function() {
+            if (window.isTrackingActive) {
+                // Stop tracking
+                if (window.Capacitor && window.Capacitor.Plugins.BackgroundLocation) {
+                    await window.Capacitor.Plugins.BackgroundLocation.stop();
+                }
+                window.isTrackingActive = false;
+                document.getElementById('tracking-dot').style.background = '#94a3b8';
+                document.getElementById('tracking-label').innerText = '⚪ LOCATION NOT ACTIVE';
+                document.getElementById('btn-tracking').innerText = 'Start Route';
+                document.getElementById('btn-tracking').style.background = 'var(--primary)';
+                if (window.currentTruckId) {
+                    db.ref(`trucks/${window.currentTruckId}`).update({ status: 'offline' });
+                }
+            } else {
+                // Start tracking
+                if (window.Capacitor && window.Capacitor.Plugins.BackgroundLocation) {
+                    try {
+                        // Request permissions first via Capacitor Geolocation
+                        if (window.Capacitor.Plugins.Geolocation) {
+                            await window.Capacitor.Plugins.Geolocation.requestPermissions();
+                        }
+                        await window.Capacitor.Plugins.BackgroundLocation.start({
+                            truckId: window.currentTruckId.toString(),
+                            idToken: window.currentToken
+                        });
+                        window.isTrackingActive = true;
+                        document.getElementById('tracking-dot').style.background = '#10b981';
+                        document.getElementById('tracking-label').innerText = '🟢 LIVE LOCATION ACTIVE';
+                        document.getElementById('btn-tracking').innerText = 'Stop';
+                        document.getElementById('btn-tracking').style.background = 'var(--red)';
+                    } catch(e) {
+                        alert("Please grant Location permissions (Allow all the time if requested) to track your route in the background.");
+                    }
+                } else {
+                    alert("Native background tracking not available in browser. Will use web fallback.");
+                    window.isTrackingActive = true;
+                    document.getElementById('tracking-dot').style.background = '#10b981';
+                    document.getElementById('tracking-label').innerText = '🟢 LIVE LOCATION ACTIVE (WEB)';
+                    document.getElementById('btn-tracking').innerText = 'Stop';
+                    document.getElementById('btn-tracking').style.background = 'var(--red)';
+                }
+            }
         };
 
         window.handleDriverLogin = async function() {
