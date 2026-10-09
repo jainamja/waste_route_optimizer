@@ -311,30 +311,30 @@ def read_data_file(filepath):
                         from geopy.geocoders import Nominatim
                         nom = Nominatim(user_agent="waste_route_123")
                         parts = [p.strip() for p in search_query.split(',')]
-                          queries = [search_query]
-                          if len(parts) >= 5: queries.append(", ".join(parts[-5:]))
-                          if len(parts) >= 4: queries.append(", ".join(parts[-4:]))
+                        queries = [search_query]
+                        if len(parts) >= 5: queries.append(", ".join(parts[-5:]))
+                        if len(parts) >= 4: queries.append(", ".join(parts[-4:]))
                           
-                          # Progressive Nominatim (strict but accurate)
-                          for short_q in queries:
-                              try:
-                                  loc = nom.geocode(short_q, timeout=3)
-                                  if loc:
-                                      lat, lng = loc.latitude, loc.longitude
-                                      break
-                              except: pass
+                        # Progressive Nominatim (strict but accurate)
+                        for short_q in queries:
+                            try:
+                                loc = nom.geocode(short_q, timeout=3)
+                                if loc:
+                                    lat, lng = loc.latitude, loc.longitude
+                                    break
+                            except: pass
                               
-                          # If still none, fallback to progressive ArcGIS
-                          if lat is None or lng is None:
-                              from geopy.geocoders import ArcGIS
-                              arc = ArcGIS()
-                              for short_q in queries:
-                                  try:
-                                      loc = arc.geocode(short_q, timeout=3)
-                                      if loc:
-                                          lat, lng = loc.latitude, loc.longitude
-                                          break
-                                  except: pass
+                        # If still none, fallback to progressive ArcGIS
+                        if lat is None or lng is None:
+                            from geopy.geocoders import ArcGIS
+                            arc = ArcGIS()
+                            for short_q in queries:
+                                try:
+                                    loc = arc.geocode(short_q, timeout=3)
+                                    if loc:
+                                        lat, lng = loc.latitude, loc.longitude
+                                        break
+                                except: pass
                     except: pass
             
         try:
@@ -1205,30 +1205,30 @@ def add_stop():
                         from geopy.geocoders import Nominatim
                         nom = Nominatim(user_agent="waste_route_123")
                         parts = [p.strip() for p in search_query.split(',')]
-                          queries = [search_query]
-                          if len(parts) >= 5: queries.append(", ".join(parts[-5:]))
-                          if len(parts) >= 4: queries.append(", ".join(parts[-4:]))
+                        queries = [search_query]
+                        if len(parts) >= 5: queries.append(", ".join(parts[-5:]))
+                        if len(parts) >= 4: queries.append(", ".join(parts[-4:]))
                           
-                          # Progressive Nominatim (strict but accurate)
-                          for short_q in queries:
-                              try:
-                                  loc = nom.geocode(short_q, timeout=3)
-                                  if loc:
-                                      lat, lng = loc.latitude, loc.longitude
-                                      break
-                              except: pass
+                        # Progressive Nominatim (strict but accurate)
+                        for short_q in queries:
+                            try:
+                                loc = nom.geocode(short_q, timeout=3)
+                                if loc:
+                                    lat, lng = loc.latitude, loc.longitude
+                                    break
+                            except: pass
                               
-                          # If still none, fallback to progressive ArcGIS
-                          if lat is None or lng is None:
-                              from geopy.geocoders import ArcGIS
-                              arc = ArcGIS()
-                              for short_q in queries:
-                                  try:
-                                      loc = arc.geocode(short_q, timeout=3)
-                                      if loc:
-                                          lat, lng = loc.latitude, loc.longitude
-                                          break
-                                  except: pass
+                        # If still none, fallback to progressive ArcGIS
+                        if lat is None or lng is None:
+                            from geopy.geocoders import ArcGIS
+                            arc = ArcGIS()
+                            for short_q in queries:
+                                try:
+                                    loc = arc.geocode(short_q, timeout=3)
+                                    if loc:
+                                        lat, lng = loc.latitude, loc.longitude
+                                        break
+                                except: pass
                     except: pass
         
     if lat is None or lng is None:
