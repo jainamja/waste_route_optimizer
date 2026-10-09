@@ -939,7 +939,7 @@ def get_data():
         if t_id not in routes_dict: routes_dict[t_id] = []
         routes_dict[t_id].append(r.id)
         
-    routes = [routes_dict[t_id] for t_id in sorted(routes_dict.keys())]
+    routes = [routes_dict[t_id] for t_id in sorted(routes_dict.keys(), key=lambda x: x if x is not None else 999999)]
     
     route_times = []
     if 'route_times' in metadata:

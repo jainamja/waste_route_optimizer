@@ -138,21 +138,7 @@
     </div>
     
     
-    <!-- Deploy Template Modal -->
-    <div id="deploy-template-modal" style="display:none; position:fixed; top:0; left:0; width:100%; height:100%; background:rgba(0,0,0,0.5); z-index:9999; align-items:center; justify-content:center;">
-        <div class="modal-content" style="background:white; padding:24px; border-radius:16px; max-width:400px; width:90%; box-shadow:0 10px 25px rgba(0,0,0,0.2);">
-            <h3 style="margin-top:0; font-family:'Manrope', sans-serif;">Deploy Saved Route</h3>
-            <p style="color:var(--text-muted); font-size:14px; margin-bottom:24px;">Select the driver who will execute this route. They must be assigned to a truck.</p>
-            <input type="hidden" id="deploy-template-id">
-            <select id="deploy-driver-select" onchange="document.getElementById('deploy-truck-id').value = this.options[this.selectedIndex].getAttribute('data-truck') || ''" style="width:100%; padding:12px; border:1px solid var(--border); border-radius:8px; margin-bottom:16px; font-family:'Inter', sans-serif;">
-            </select>
-            <p style="color:var(--text-muted); font-size:12px; margin-bottom:4px;">Target Truck ID (Required)</p>
-            <input type="number" id="deploy-truck-id" placeholder="e.g. 1" style="width:100%; padding:12px; border:1px solid var(--border); border-radius:8px; margin-bottom:24px; font-family:'Inter', sans-serif;">
-            <div style="display:flex; gap:12px;">
-                <button class="btn btn-primary" onclick="confirmDeploy()" style="flex:1; justify-content:center;">Deploy to Driver</button>
-                <button class="btn btn-outline" onclick="document.getElementById('deploy-template-modal').style.display='none'" style="flex:1; justify-content:center;">Cancel</button>
-            </div>
-        </div>
+    
     </div>
 
     <!-- Assign Route Modal -->
@@ -223,48 +209,20 @@
                 });
         }
 
-        window.deployTemplate = function(templateId) {
-            document.getElementById('deploy-template-id').value = templateId;
-            let select = document.getElementById('deploy-driver-select');
-            select.innerHTML = '<option value="" data-truck="">Select a Driver...</option>';
-            currentDrivers.forEach(d => {
-                select.innerHTML += `<option value="${d.id}" data-truck="${d.truck_id || ''}">${d.name || d.username} ${d.truck_id ? '(Truck ' + d.truck_id + ')' : '(No Truck)'}</option>`;
-            });
-            document.getElementById('deploy-truck-id').value = '';
-            document.getElementById('deploy-template-modal').style.display = 'flex';
-        };
-
-        window.confirmDeploy = function() {
-            let templateId = document.getElementById('deploy-template-id').value;
-            let driverId = document.getElementById('deploy-driver-select').value;
-            let truckId = document.getElementById('deploy-truck-id').value;
-            
-            if(!driverId) {
-                alert("Please select a driver to deploy this route to.");
-                return;
-            }
-            if(!truckId) {
-                alert("Please enter a Target Truck ID.");
-                return;
-            }
-            
-            fetch('/api/assign_route', {
-                method: 'POST',
-                headers: {'Content-Type': 'application/json'},
-                body: JSON.stringify({
-                    driver_id: driverId,
-                    template_id: templateId,
-                    truck_id: truckId
-                })
-            }).then(r => r.json()).then(res => {
-                if(res.success) {
-                    document.getElementById('deploy-template-modal').style.display = 'none';
-                    alert("Route deployed successfully to the selected driver.");
+                window.deployTemplate = async function(id) {
+            if(!confirm("Deploying this route will overwrite any currently active global route on the Route Dashboard. Continue?")) return;
+            try {
+                let res = await fetch('/api/deploy_template/' + id + '?mode=deploy', { method: 'POST' });
+                if (!res.ok) { let text = await res.text(); throw new Error(text); }
+                let data = await res.json();
+                if(data.success) {
                     window.location.href = '/routes';
                 } else {
-                    alert("Deploy Error: " + res.error);
+                    alert("Error: " + data.error);
                 }
-            }).catch(e => alert("Network Error during deployment."));
+            } catch(e) {
+                alert("An error occurred: " + e.message);
+            }
         };
 
         window.editTemplate = async function(id) {
