@@ -144,9 +144,10 @@
             <h3 style="margin-top:0; font-family:'Manrope', sans-serif;">Deploy Saved Route</h3>
             <p style="color:var(--text-muted); font-size:14px; margin-bottom:24px;">Select the driver who will execute this route. They must be assigned to a truck.</p>
             <input type="hidden" id="deploy-template-id">
-            <select id="deploy-driver-select" style="width:100%; padding:12px; border:1px solid var(--border); border-radius:8px; margin-bottom:24px; font-family:'Inter', sans-serif;">
-                <!-- Drivers populated via JS -->
+            <select id="deploy-driver-select" onchange="document.getElementById('deploy-truck-id').value = this.options[this.selectedIndex].getAttribute('data-truck') || ''" style="width:100%; padding:12px; border:1px solid var(--border); border-radius:8px; margin-bottom:16px; font-family:'Inter', sans-serif;">
             </select>
+            <p style="color:var(--text-muted); font-size:12px; margin-bottom:4px;">Target Truck ID (Required)</p>
+            <input type="number" id="deploy-truck-id" placeholder="e.g. 1" style="width:100%; padding:12px; border:1px solid var(--border); border-radius:8px; margin-bottom:24px; font-family:'Inter', sans-serif;">
             <div style="display:flex; gap:12px;">
                 <button class="btn btn-primary" onclick="confirmDeploy()" style="flex:1; justify-content:center;">Deploy to Driver</button>
                 <button class="btn btn-outline" onclick="document.getElementById('deploy-template-modal').style.display='none'" style="flex:1; justify-content:center;">Cancel</button>
@@ -236,9 +237,14 @@
         window.confirmDeploy = function() {
             let templateId = document.getElementById('deploy-template-id').value;
             let driverId = document.getElementById('deploy-driver-select').value;
+            let truckId = document.getElementById('deploy-truck-id').value;
             
             if(!driverId) {
                 alert("Please select a driver to deploy this route to.");
+                return;
+            }
+            if(!truckId) {
+                alert("Please enter a Target Truck ID.");
                 return;
             }
             
@@ -247,7 +253,8 @@
                 headers: {'Content-Type': 'application/json'},
                 body: JSON.stringify({
                     driver_id: driverId,
-                    template_id: templateId
+                    template_id: templateId,
+                    truck_id: truckId
                 })
             }).then(r => r.json()).then(res => {
                 if(res.success) {
