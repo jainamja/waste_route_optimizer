@@ -1216,7 +1216,7 @@ def repair_database():
         dry_run = data.get('dry_run', True)
         
         # 1. Clean up Ghost Assignments (Drivers with assigned_template_id but no truck)
-        ghost_drivers = User.query.filter(User.assigned_template_id.isnot(None), User.truck_id.is(None)).all()
+        ghost_drivers = User.query.filter(User.assigned_template_id.isnot(None), User.truck_id.is_(None)).all()
         ghost_count = len(ghost_drivers)
         ghost_details = [{"driver_id": d.id, "driver_name": d.name or d.username, "template_id": d.assigned_template_id} for d in ghost_drivers]
         
