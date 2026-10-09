@@ -225,10 +225,11 @@
         window.deployTemplate = function(templateId) {
             document.getElementById('deploy-template-id').value = templateId;
             let select = document.getElementById('deploy-driver-select');
-            select.innerHTML = '<option value="">Select a Driver...</option>';
+            select.innerHTML = '<option value="" data-truck="">Select a Driver...</option>';
             currentDrivers.forEach(d => {
-                select.innerHTML += `<option value="${d.id}">${d.name || d.username} ${d.truck_id ? '(Truck ' + d.truck_id + ')' : '(No Truck - Cannot Deploy)'}</option>`;
+                select.innerHTML += `<option value="${d.id}" data-truck="${d.truck_id || ''}">${d.name || d.username} ${d.truck_id ? '(Truck ' + d.truck_id + ')' : '(No Truck)'}</option>`;
             });
+            document.getElementById('deploy-truck-id').value = '';
             document.getElementById('deploy-template-modal').style.display = 'flex';
         };
 

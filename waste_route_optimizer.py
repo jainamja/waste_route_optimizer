@@ -1591,10 +1591,21 @@ def update_customer_status():
 def assign_route():
     driver_id = request.json.get('driver_id')
     template_id = request.json.get('template_id')
+    requested_truck_id = request.json.get('truck_id')
     
     driver = User.query.get(driver_id)
     if not driver: return jsonify({'error': 'Driver not found'}), 404
-    if not driver.truck_id: return jsonify({'error': 'Driver must have a truck assigned before deploying a route.'}), 400
+    
+    # If a new truck ID was provided in the UI, assign it to the driver
+    if requested_truck_id:
+        truck_id_int = int(requested_truck_id)
+        # Prevent duplicates
+        User.query.filter(User.role == 'DRIVER', User.truck_id == truck_id_int, User.id != driver.id).update({'truck_id': None})
+        driver.truck_id = truck_id_int
+        db.session.commit()
+        
+    if not driver.truck_id: 
+        return jsonify({'error': 'Driver must have a truck assigned before deploying a route.'}), 400
     
     try:
         import requests
