@@ -297,11 +297,21 @@ def read_data_file(filepath):
                 search_query = str(address)
                 if "ahmedabad" not in search_query.lower() and "gujarat" not in search_query.lower():
                     search_query += ", Ahmedabad, Gujarat, India"
-                try:
-                    from geopy.geocoders import ArcGIS
-                    location = ArcGIS().geocode(search_query)
-                    if location: lat, lng = location.latitude, location.longitude
-                except: pass
+                gmaps_key = os.environ.get('GMAPS_API_KEY')
+                if gmaps_key:
+                    try:
+                        import requests
+                        g_res = requests.get('https://maps.googleapis.com/maps/api/geocode/json', params={'address': search_query, 'key': gmaps_key}).json()
+                        if g_res.get('status') == 'OK':
+                            lat = g_res['results'][0]['geometry']['location']['lat']
+                            lng = g_res['results'][0]['geometry']['location']['lng']
+                    except Exception as e: print(f"GMAPS Geocode Error: {e}")
+                if lat is None or lng is None:
+                    try:
+                        from geopy.geocoders import ArcGIS
+                        location = ArcGIS().geocode(search_query)
+                        if location: lat, lng = location.latitude, location.longitude
+                    except: pass
             
         try:
             try:
@@ -1157,11 +1167,21 @@ def add_stop():
         search_query = str(address)
         if "ahmedabad" not in search_query.lower() and "gujarat" not in search_query.lower():
             search_query += ", Ahmedabad, Gujarat, India"
-        try:
-            from geopy.geocoders import ArcGIS
-            location = ArcGIS().geocode(search_query)
-            if location: lat, lng = location.latitude, location.longitude
-        except: pass
+        gmaps_key = os.environ.get('GMAPS_API_KEY')
+        if gmaps_key:
+            try:
+                import requests
+                g_res = requests.get('https://maps.googleapis.com/maps/api/geocode/json', params={'address': search_query, 'key': gmaps_key}).json()
+                if g_res.get('status') == 'OK':
+                    lat = g_res['results'][0]['geometry']['location']['lat']
+                    lng = g_res['results'][0]['geometry']['location']['lng']
+            except Exception as e: print(f"GMAPS Geocode Error: {e}")
+        if lat is None or lng is None:
+            try:
+                from geopy.geocoders import ArcGIS
+                location = ArcGIS().geocode(search_query)
+                if location: lat, lng = location.latitude, location.longitude
+            except: pass
         
     if lat is None or lng is None:
         return jsonify({'error': 'Could not resolve coordinates from the provided URL or Address.'}), 400
