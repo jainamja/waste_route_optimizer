@@ -12,6 +12,12 @@ from flask_sqlalchemy import SQLAlchemy
 from flask_cors import CORS
 
 app = Flask(__name__)
+
+@app.errorhandler(Exception)
+def handle_exception(e):
+    import traceback
+    return jsonify({'error': str(e), 'traceback': traceback.format_exc()}), 500
+
 CORS(app)
 app.config['UPLOAD_FOLDER'] = 'uploads'
 app.secret_key = 'supersecretkey'
@@ -320,7 +326,7 @@ def recompute_route_metrics():
             
         start_coords = json.loads(start_meta.value)
         
-        customers = Customer.query.filter(Customer.truck_id.isnot(None)).order_by(Customer.truck_id, Customer.stop_number).all()
+        customers = Customer.query.filter(Customer.truck_id != None).order_by(Customer.truck_id, Customer.stop_number).all()
         truck_map = {}
         for c in customers:
             if c.truck_id not in truck_map:
@@ -1216,7 +1222,7 @@ def repair_database():
         dry_run = data.get('dry_run', True)
         
         # 1. Clean up Ghost Assignments (Drivers with assigned_template_id but no truck)
-        ghost_drivers = User.query.filter(User.assigned_template_id.isnot(None), User.truck_id.is_(None)).all()
+        ghost_drivers = User.query.filter(User.assigned_template_id != None, User.truck_id == None).all()
         ghost_count = len(ghost_drivers)
         ghost_details = [{"driver_id": d.id, "driver_name": d.name or d.username, "template_id": d.assigned_template_id} for d in ghost_drivers]
         
@@ -1776,7 +1782,7 @@ def get_templates():
 @login_required
 def get_assigned_routes():
     # Only return routes for drivers who actually have a truck assigned
-    drivers = User.query.filter(User.assigned_template_id.isnot(None), User.truck_id.isnot(None)).all()
+    drivers = User.query.filter(User.assigned_template_id != None, User.truck_id != None).all()
     
     res = []
     for d in drivers:

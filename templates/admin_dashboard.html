@@ -191,7 +191,7 @@
         
         function loadTemplates() {
             fetch('/api/templates')
-                .then(res => res.json())
+                .then(async res => { if (!res.ok) { let text = await res.text(); throw new Error(text); } return res.json(); })
                 .then(data => {
                     currentTemplates = data.templates || [];
                     let html = '';
@@ -293,7 +293,7 @@
 
         function loadAssignedRoutes() {
             fetch('/api/assigned_routes')
-                .then(res => res.json())
+                .then(async res => { if (!res.ok) { let text = await res.text(); throw new Error(text); } return res.json(); })
                 .then(data => {
                     let html = '';
                     if (!data.assigned_routes || data.assigned_routes.length === 0) {
@@ -320,6 +320,7 @@
                         });
                     }
                     document.getElementById('assigned-routes-list').innerHTML = html;
+                }).catch(err => { alert('Error loading assigned routes: ' + err.message); console.error(err); });
                 });
         }
 
@@ -332,7 +333,7 @@
 
         function loadDrivers() {
             fetch('/api/drivers')
-                .then(res => res.json())
+                .then(async res => { if (!res.ok) { let text = await res.text(); throw new Error(text); } return res.json(); })
                 .then(data => {
                     currentDrivers = data.drivers || [];
                     let html = '';
