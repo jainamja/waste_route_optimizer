@@ -215,52 +215,7 @@
                 let trucks = snap.val();
                 console.log("Root driver_locations listener received data:", trucks ? Object.keys(trucks).length + " trucks" : "null");
                 window.liveTrucks = trucks;
-                if(!trucks) return;
-                
-                let bounds = L.latLngBounds();
-                let hasLive = false;
-                
-                for(let tId in trucks) {
-                    let truck = trucks[tId];
-                    
-                    // Do not render GPS markers for phantom trucks
-                    let hasRealRoute = false;
-                    let routeNode = routesData['route_' + tId] || {};
-                    let stopsObj = routeNode.stops || routeNode;
-                    let stops = parseStops(stopsObj);
-                    if (stops.filter(s => s.id > -1000 && s.name !== 'End Location / Depot').length > 0) hasRealRoute = true;
-                    
-                    if(hasRealRoute && truck.status === 'online' && truck.currentLat && truck.currentLng) {
-                        hasLive = true;
-                        bounds.extend([truck.currentLat, truck.currentLng]);
-                        
-                        if(liveTruckMarkers[tId]) {
-                            liveTruckMarkers[tId].setLatLng([truck.currentLat, truck.currentLng]);
-                        } else {
-                            let truckIcon = L.divIcon({
-                                className: 'live-truck-icon',
-                                html: `<div style='background-color:#2F5FFF; width:40px; height:40px; border-radius:50%; border:3px solid white; box-shadow:0 4px 10px rgba(0,0,0,0.4); display:flex; align-items:center; justify-content:center; color:white; font-size:18px;'><i class="fa-solid fa-truck"></i></div>`,
-                                iconSize: [40, 40],
-                                iconAnchor: [20, 20]
-                            });
-                            liveTruckMarkers[tId] = L.marker([truck.currentLat, truck.currentLng], {icon: truckIcon}).addTo(map);
-                            liveTruckMarkers[tId].bindPopup("<b>Truck " + tId + "</b><br>Live GPS").openPopup();
-                        }
-                    } else {
-                        if(liveTruckMarkers[tId]) {
-                            map.removeLayer(liveTruckMarkers[tId]);
-                            delete liveTruckMarkers[tId];
-                        }
-                    }
-                }
-                
-                if (hasLive && !window.hasFitBounds) {
-                    map.fitBounds(bounds, {padding: [50, 50], maxZoom: 15});
-                    window.hasFitBounds = true;
-                }
-                
-                scheduleRender();
-            }, err => {
+                scheduleRender(); }, err => {
                 console.warn("Permission denied reading 'trucks'. Will fall back to individual trucks.", err);
                 usingFallback = true;
                 fallbackToIndividualListeners();
@@ -340,42 +295,8 @@
                         let tData = snap.val();
                         if (tData) {
                             window.liveTrucks[driverId] = tData;
-                            
-                            // Map update
-                            let hasRealRoute = false;
-                            let routeNode = routesData['route_' + tId] || {};
-                            let stopsObj = routeNode.stops || routeNode;
-                            let stops = parseStops(stopsObj);
-                            if (stops.filter(s => s.id > -1000 && s.name !== 'End Location / Depot').length > 0) hasRealRoute = true;
-
-                            if (hasRealRoute && tData.status === 'online' && tData.currentLat && tData.currentLng) {
-                                if (liveTruckMarkers[tId]) {
-                                    liveTruckMarkers[tId].setLatLng([tData.currentLat, tData.currentLng]);
-                                } else {
-                                    let truckIcon = L.divIcon({
-                                        className: 'live-truck-icon',
-                                        html: `<div style='background-color:#2F5FFF; width:40px; height:40px; border-radius:50%; border:3px solid white; box-shadow:0 4px 10px rgba(0,0,0,0.4); display:flex; align-items:center; justify-content:center; color:white; font-size:18px;'><i class="fa-solid fa-truck"></i></div>`,
-                                        iconSize: [40, 40],
-                                        iconAnchor: [20, 20]
-                                    });
-                                    liveTruckMarkers[tId] = L.marker([tData.currentLat, tData.currentLng], {icon: truckIcon}).addTo(map);
-                                    liveTruckMarkers[tId].bindPopup("<b>Truck " + tId + "</b><br>Live GPS").openPopup();
-                                    if (!window.hasFitBounds) {
-                                        map.setView([tData.currentLat, tData.currentLng], 15);
-                                        window.hasFitBounds = true;
-                                    }
-                                }
-                            } else {
-                                if(liveTruckMarkers[tId]) {
-                                    map.removeLayer(liveTruckMarkers[tId]);
-                                    delete liveTruckMarkers[tId];
-                                }
-                            }
-                        } else {
-                            delete window.liveTrucks[driverId];
-                        }
-                        scheduleRender();
-                    });
+                            scheduleRender();
+                        } });
                     }
                 }
             });
@@ -573,6 +494,8 @@
         
         function updateMapPopups() {
             let trucks = window.liveTrucks || {};
+            let bounds = L.latLngBounds();
+            let hasLive = false;
             
             // Sync all active trucks that have real routes
             for(let tId in truckStats) {
@@ -591,7 +514,14 @@
                         liveTruckMarkers[tId] = L.marker([truck.currentLat, truck.currentLng], {icon: truckIcon}).addTo(map);
                         liveTruckMarkers[tId].bindPopup("<b>Truck " + tId + "</b><br>Live GPS").openPopup();
                     }
+                    hasLive = true;
+                    bounds.extend([truck.currentLat, truck.currentLng]);
                 }
+            }
+            
+            if (hasLive && !window.hasFitBounds) {
+                map.fitBounds(bounds, {padding: [50, 50], maxZoom: 15});
+                window.hasFitBounds = true;
             }
             
             // Update popups and remove invalid markers
@@ -622,8 +552,10 @@
         
         function panToTruck(tId) {
             let trucks = window.liveTrucks || {};
-            if (trucks[tId] && trucks[tId].status === 'online' && trucks[tId].currentLat) {
-                map.flyTo([trucks[tId].currentLat, trucks[tId].currentLng], 15);
+            let driverId = truckToDriver[tId];
+            let truckNode = driverId ? trucks[driverId] : null;
+            if (truckNode && truckNode.status === 'online' && truckNode.currentLat) {
+                map.flyTo([truckNode.currentLat, truckNode.currentLng], 15);
             }
         }
     </script>
