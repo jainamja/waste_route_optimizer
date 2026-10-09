@@ -212,10 +212,23 @@
         firebase.auth().signInAnonymously().then(() => {
             console.log("Firebase Auth success.");
             db.ref('driver_locations').on('value', snap => {
-                let trucks = snap.val();
-                console.log("Root driver_locations listener received data:", trucks ? Object.keys(trucks).length + " trucks" : "null");
-                window.liveTrucks = trucks;
-                scheduleRender(); }, err => {
+                let locs = snap.val() || {};
+                console.log("Root driver_locations listener received data:", Object.keys(locs).length + " trucks");
+                window.liveTrucks = locs;
+                
+                // LEGACY SUPPORT: Check old trucks node in case drivers are using old APK
+                db.ref('trucks').once('value').then(tSnap => {
+                    let oldTrucks = tSnap.val() || {};
+                    for (let tId in oldTrucks) {
+                        let dId = truckToDriver[tId];
+                        // If we didn't get GPS from driver_locations for this driver, use the old trucks node
+                        if (dId && (!window.liveTrucks[dId] || window.liveTrucks[dId].status !== 'online')) {
+                            window.liveTrucks[dId] = oldTrucks[tId];
+                        }
+                    }
+                    scheduleRender();
+                });
+            }, err => {
                 console.warn("Permission denied reading 'trucks'. Will fall back to individual trucks.", err);
                 usingFallback = true;
                 fallbackToIndividualListeners();
