@@ -772,8 +772,13 @@ def assign_driver():
             return jsonify({'error': 'Driver not found'}), 404
             
         # Remove this truck_id from any other driver to prevent duplicates
-        User.query.filter_by(role='DRIVER', truck_id=truck_id).update({'truck_id': None})
+        User.query.filter_by(role='DRIVER', truck_id=truck_id).update({'truck_id': None, 'assigned_template_id': None})
         driver.truck_id = truck_id
+        
+        # Link to current global route for Admin Dashboard UI
+        curr = Metadata.query.filter_by(key='current_template_id').first()
+        if curr and curr.value:
+            driver.assigned_template_id = int(curr.value)
     
     refused_cancel = []
     
