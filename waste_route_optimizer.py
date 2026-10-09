@@ -1212,35 +1212,58 @@ def add_stop():
 @login_required
 def repair_database():
     try:
+        data = request.json or {}
+        dry_run = data.get('dry_run', True)
+        
         # 1. Clean up Ghost Assignments (Drivers with assigned_template_id but no truck)
         ghost_drivers = User.query.filter(User.assigned_template_id.isnot(None), User.truck_id.is(None)).all()
         ghost_count = len(ghost_drivers)
-        for d in ghost_drivers:
-            d.assigned_template_id = None
+        ghost_details = [{"driver_id": d.id, "driver_name": d.name or d.username, "template_id": d.assigned_template_id} for d in ghost_drivers]
+        
+        if not dry_run:
+            for d in ghost_drivers:
+                d.assigned_template_id = None
             
         # 2. Re-sequence Customer stops sequentially per truck to fix any gaps
         distinct_trucks = db.session.query(Customer.truck_id).distinct().all()
         fixed_sequences = 0
+        fixed_details = []
         for (truck_id,) in distinct_trucks:
             if truck_id is None: continue
             customers = Customer.query.filter_by(truck_id=truck_id).order_by(Customer.stop_number.asc()).all()
             for idx, c in enumerate(customers):
                 correct_seq = idx + 1
                 if c.stop_number != correct_seq:
-                    c.stop_number = correct_seq
+                    fixed_details.append({"customer_id": c.id, "truck_id": truck_id, "old_seq": c.stop_number, "new_seq": correct_seq})
+                    if not dry_run:
+                        c.stop_number = correct_seq
                     fixed_sequences += 1
                     
         # 3. Purge completely orphaned Customers (truck_id is None)
+        # Note: These might be unoptimized CSV uploads! 
         orphans = Customer.query.filter_by(truck_id=None).all()
         orphan_count = len(orphans)
-        for o in orphans:
-            db.session.delete(o)
-            
-        db.session.commit()
-        return jsonify({
-            'success': True,
-            'message': f"Database repaired: Cleared {ghost_count} ghost route assignments, fixed {fixed_sequences} stop sequences, and purged {orphan_count} orphaned customers."
-        })
+        orphan_details = [{"customer_id": o.id, "name": o.name, "status": o.status} for o in orphans]
+        
+        if not dry_run:
+            for o in orphans:
+                db.session.delete(o)
+                
+        if not dry_run:
+            db.session.commit()
+            return jsonify({
+                'success': True,
+                'message': f"Database repaired: Cleared {ghost_count} ghost route assignments, fixed {fixed_sequences} stop sequences, and purged {orphan_count} orphaned customers.",
+                'details': { 'ghosts': ghost_details, 'sequences': fixed_details, 'orphans': orphan_details }
+            })
+        else:
+            db.session.rollback() # Ensure nothing was saved
+            return jsonify({
+                'success': True,
+                'dry_run': True,
+                'message': f"Dry run complete. Would clear {ghost_count} ghost route assignments, fix {fixed_sequences} stop sequences, and purge {orphan_count} orphaned customers.",
+                'details': { 'ghosts': ghost_details, 'sequences': fixed_details, 'orphans': orphan_details }
+            })
     except Exception as e:
         db.session.rollback()
         return jsonify({'error': str(e)}), 500

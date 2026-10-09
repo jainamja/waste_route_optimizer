@@ -451,18 +451,46 @@
         };
 
                 window.repairDatabase = async function() {
-            if(!confirm("This will scan the production database for ghost assignments, fix broken stop sequences, and purge orphaned customers. Are you sure?")) return;
             try {
-                let res = await fetch('/api/admin/repair_database', { method: 'POST' });
-                let data = await res.json();
-                if(data.success) {
-                    alert(data.message);
-                    loadAssignedRoutes();
-                } else {
-                    alert("Error: " + data.error);
+                // Dry run first
+                let dryRes = await fetch('/api/admin/repair_database', { 
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({dry_run: true})
+                });
+                let dryData = await dryRes.json();
+                
+                if (!dryData.success) {
+                    alert("Dry run failed: " + dryData.error);
+                    return;
+                }
+                
+                let details = `DRY RUN RESULTS:
+
+Ghost Assignments to Clear: ${dryData.details.ghosts.length}
+Stop Sequences to Fix: ${dryData.details.sequences.length}
+Orphaned Customers (truck_id=null) to Delete: ${dryData.details.orphans.length}
+
+WARNING: Orphaned customers may include unoptimized CSV uploads. Ensure no one is currently setting up a new global route.
+
+Do you want to proceed and apply these changes permanently?`;
+                
+                if (confirm(details)) {
+                    let res = await fetch('/api/admin/repair_database', { 
+                        method: 'POST',
+                        headers: {'Content-Type': 'application/json'},
+                        body: JSON.stringify({dry_run: false})
+                    });
+                    let data = await res.json();
+                    if(data.success) {
+                        alert(data.message);
+                        loadAssignedRoutes();
+                    } else {
+                        alert("Error during execution: " + data.error);
+                    }
                 }
             } catch(e) {
-                alert("Network error.");
+                alert("Network error: " + e.message);
             }
         };
 
