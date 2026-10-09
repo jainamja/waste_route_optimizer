@@ -143,13 +143,6 @@ def resolve_gmaps_url(url):
             vp_match = re.search(r'@(-?\d+\.\d+),(-?\d+\.\d+)', res.url)
             if vp_match: lat, lng = float(vp_match.group(1)), float(vp_match.group(2))
             
-        if not lat or not lng:
-            meta_match = re.search(r'center=(-?\d+\.\d+)%2C(-?\d+\.\d+)', res.text)
-            if meta_match: lat, lng = float(meta_match.group(1)), float(meta_match.group(2))
-            
-        if not lat or not lng:
-            js_match = re.search(r'\[(2[2-4]\.\d+),([7][1-4]\.\d+)\]', res.text)
-            if js_match: lat, lng = float(js_match.group(1)), float(js_match.group(2))
             
         # Validate coordinates are within India (Lat 8 to 38, Lng 68 to 98)
         if lat and lng and (8 <= lat <= 38) and (68 <= lng <= 98):
@@ -314,10 +307,13 @@ def read_data_file(filepath):
                         queries = [search_query]
                         if len(parts) >= 5: queries.append(", ".join(parts[-5:]))
                         if len(parts) >= 4: queries.append(", ".join(parts[-4:]))
+                        if len(parts) >= 3: queries.append(", ".join(parts[-3:]))
+                        if len(parts) >= 2: queries.append(", ".join(parts[-2:]))
                           
                         # Progressive Nominatim (strict but accurate)
                         for short_q in queries:
                             try:
+                                print(f'NOM TRY: {short_q}')
                                 loc = nom.geocode(short_q, timeout=3)
                                 if loc:
                                     lat, lng = loc.latitude, loc.longitude
@@ -330,6 +326,7 @@ def read_data_file(filepath):
                             arc = ArcGIS()
                             for short_q in queries:
                                 try:
+                                    print(f'ARC TRY: {short_q}')
                                     loc = arc.geocode(short_q, timeout=3)
                                     if loc:
                                         lat, lng = loc.latitude, loc.longitude
@@ -1208,10 +1205,13 @@ def add_stop():
                         queries = [search_query]
                         if len(parts) >= 5: queries.append(", ".join(parts[-5:]))
                         if len(parts) >= 4: queries.append(", ".join(parts[-4:]))
+                        if len(parts) >= 3: queries.append(", ".join(parts[-3:]))
+                        if len(parts) >= 2: queries.append(", ".join(parts[-2:]))
                           
                         # Progressive Nominatim (strict but accurate)
                         for short_q in queries:
                             try:
+                                print(f'NOM TRY: {short_q}')
                                 loc = nom.geocode(short_q, timeout=3)
                                 if loc:
                                     lat, lng = loc.latitude, loc.longitude
@@ -1224,6 +1224,7 @@ def add_stop():
                             arc = ArcGIS()
                             for short_q in queries:
                                 try:
+                                    print(f'ARC TRY: {short_q}')
                                     loc = arc.geocode(short_q, timeout=3)
                                     if loc:
                                         lat, lng = loc.latitude, loc.longitude
