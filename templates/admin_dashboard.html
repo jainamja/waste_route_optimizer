@@ -253,7 +253,7 @@
                 if(res.success) {
                     document.getElementById('deploy-template-modal').style.display = 'none';
                     alert("Route deployed successfully to the selected driver.");
-                    loadAssignedRoutes();
+                    window.location.href = '/routes';
                 } else {
                     alert("Deploy Error: " + res.error);
                 }
