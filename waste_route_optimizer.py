@@ -238,10 +238,16 @@ def read_data_file(filepath):
                     
     urls_to_resolve = set()
     for _, row in df.iterrows():
-        loc_url_raw = row.get(loc_url_col) if loc_url_col and not pd.isna(row.get(loc_url_col)) else ""
-        if loc_url_raw:
-            url_match = re.search(r'(https?://[^\s]+)', str(loc_url_raw))
-            if url_match: urls_to_resolve.add(url_match.group(1))
+          # Fix shifted URLs
+          loc_url_raw = row.get(loc_url_col) if loc_url_col and not pd.isna(row.get(loc_url_col)) else ""
+          if not loc_url_raw or 'http' not in str(loc_url_raw):
+              for val in row:
+                  if pd.notna(val) and isinstance(val, str) and 'http' in val:
+                      loc_url_raw = val
+                      break
+          if loc_url_raw:
+              url_match = re.search(r'(https?://[^\s]+)', str(loc_url_raw))
+              if url_match: urls_to_resolve.add(url_match.group(1))
                 
     resolved_urls = {}
     if urls_to_resolve:
@@ -255,7 +261,15 @@ def read_data_file(filepath):
     for idx, row in df.iterrows():
         lat, lng = None, None
         loc_url_clean = ""
+        
+        # Fix shifted URLs
         loc_url_raw = row.get(loc_url_col) if loc_url_col and not pd.isna(row.get(loc_url_col)) else ""
+        if not loc_url_raw or 'http' not in str(loc_url_raw):
+            for val in row:
+                if pd.notna(val) and isinstance(val, str) and 'http' in val:
+                    loc_url_raw = val
+                    break
+        
         if loc_url_raw:
             url_match = re.search(r'(https?://[^\s]+)', str(loc_url_raw))
             if url_match:
@@ -268,7 +282,17 @@ def read_data_file(filepath):
             elif lat_col and lng_col: lat, lng = row[lat_col], row[lng_col]
                 
         if lat is None or lng is None:
-            address = row.get(address_col) if address_col and not pd.isna(row.get(address_col)) else ""
+            address = str(row.get(address_col)) if address_col and not pd.isna(row.get(address_col)) else ""
+            
+            # Fix shifted Address
+            if 'http' in address:
+                max_l = 0
+                address = ''
+                for val in row:
+                    if pd.notna(val) and isinstance(val, str) and 'http' not in val and len(val) > max_l:
+                        max_l = len(val)
+                        address = val
+                        
             if address:
                 search_query = str(address)
                 if "ahmedabad" not in search_query.lower() and "gujarat" not in search_query.lower():
