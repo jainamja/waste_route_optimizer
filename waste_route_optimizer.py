@@ -308,9 +308,33 @@ def read_data_file(filepath):
                     except Exception as e: print(f"GMAPS Geocode Error: {e}")
                 if lat is None or lng is None:
                     try:
-                        from geopy.geocoders import ArcGIS
-                        location = ArcGIS().geocode(search_query)
-                        if location: lat, lng = location.latitude, location.longitude
+                        from geopy.geocoders import Nominatim
+                        nom = Nominatim(user_agent="waste_route_123")
+                        parts = [p.strip() for p in search_query.split(',')]
+                          queries = [search_query]
+                          if len(parts) >= 5: queries.append(", ".join(parts[-5:]))
+                          if len(parts) >= 4: queries.append(", ".join(parts[-4:]))
+                          
+                          # Progressive Nominatim (strict but accurate)
+                          for short_q in queries:
+                              try:
+                                  loc = nom.geocode(short_q, timeout=3)
+                                  if loc:
+                                      lat, lng = loc.latitude, loc.longitude
+                                      break
+                              except: pass
+                              
+                          # If still none, fallback to progressive ArcGIS
+                          if lat is None or lng is None:
+                              from geopy.geocoders import ArcGIS
+                              arc = ArcGIS()
+                              for short_q in queries:
+                                  try:
+                                      loc = arc.geocode(short_q, timeout=3)
+                                      if loc:
+                                          lat, lng = loc.latitude, loc.longitude
+                                          break
+                                  except: pass
                     except: pass
             
         try:
@@ -1177,11 +1201,35 @@ def add_stop():
                     lng = g_res['results'][0]['geometry']['location']['lng']
             except Exception as e: print(f"GMAPS Geocode Error: {e}")
         if lat is None or lng is None:
-            try:
-                from geopy.geocoders import ArcGIS
-                location = ArcGIS().geocode(search_query)
-                if location: lat, lng = location.latitude, location.longitude
-            except: pass
+                    try:
+                        from geopy.geocoders import Nominatim
+                        nom = Nominatim(user_agent="waste_route_123")
+                        parts = [p.strip() for p in search_query.split(',')]
+                          queries = [search_query]
+                          if len(parts) >= 5: queries.append(", ".join(parts[-5:]))
+                          if len(parts) >= 4: queries.append(", ".join(parts[-4:]))
+                          
+                          # Progressive Nominatim (strict but accurate)
+                          for short_q in queries:
+                              try:
+                                  loc = nom.geocode(short_q, timeout=3)
+                                  if loc:
+                                      lat, lng = loc.latitude, loc.longitude
+                                      break
+                              except: pass
+                              
+                          # If still none, fallback to progressive ArcGIS
+                          if lat is None or lng is None:
+                              from geopy.geocoders import ArcGIS
+                              arc = ArcGIS()
+                              for short_q in queries:
+                                  try:
+                                      loc = arc.geocode(short_q, timeout=3)
+                                      if loc:
+                                          lat, lng = loc.latitude, loc.longitude
+                                          break
+                                  except: pass
+                    except: pass
         
     if lat is None or lng is None:
         return jsonify({'error': 'Could not resolve coordinates from the provided URL or Address.'}), 400
