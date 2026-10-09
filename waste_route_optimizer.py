@@ -1527,6 +1527,7 @@ def assign_route():
     
     driver = User.query.get(driver_id)
     if not driver: return jsonify({'error': 'Driver not found'}), 404
+    if not driver.truck_id: return jsonify({'error': 'Driver must have a truck assigned before deploying a route.'}), 400
     
     try:
         import requests
@@ -1713,7 +1714,8 @@ def get_templates():
 @app.route('/api/assigned_routes', methods=['GET'])
 @login_required
 def get_assigned_routes():
-    drivers = User.query.filter(User.assigned_template_id.isnot(None)).all()
+    # Only return routes for drivers who actually have a truck assigned
+    drivers = User.query.filter(User.assigned_template_id.isnot(None), User.truck_id.isnot(None)).all()
     
     res = []
     for d in drivers:
