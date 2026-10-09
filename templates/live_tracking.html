@@ -304,13 +304,26 @@
                     // Listen to individual driver
                     let driverId = truckToDriver[tId];
                     if (driverId) {
-                        db.ref('driver_locations/' + driverId).on('value', snap => {
-                        let tData = snap.val();
-                        if (tData) {
-                            window.liveTrucks[driverId] = tData;
-                            scheduleRender();
-                        } });
-                    }
+                          db.ref('driver_locations/' + driverId).on('value', snap => {
+                              let tData = snap.val();
+                              if (tData) {
+                                  window.liveTrucks[driverId] = tData;
+                                  scheduleRender();
+                              }
+                          });
+                      }
+                      
+                      // LEGACY APK FALLBACK: Listen to individual trucks/{tId} directly!
+                      db.ref('trucks/' + tId).on('value', snap => {
+                          let tData = snap.val();
+                          if (tData && driverId) {
+                              // If driver_locations isn't active, use legacy data
+                              if (!window.liveTrucks[driverId] || window.liveTrucks[driverId].status !== 'online' || tData.status === 'online') {
+                                  window.liveTrucks[driverId] = tData;
+                                  scheduleRender();
+                              }
+                          }
+                      });
                 }
             });
         }
