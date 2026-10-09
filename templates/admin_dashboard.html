@@ -450,6 +450,22 @@
             btn.disabled = false;
         };
 
+                window.repairDatabase = async function() {
+            if(!confirm("This will scan the production database for ghost assignments, fix broken stop sequences, and purge orphaned customers. Are you sure?")) return;
+            try {
+                let res = await fetch('/api/admin/repair_database', { method: 'POST' });
+                let data = await res.json();
+                if(data.success) {
+                    alert(data.message);
+                    loadAssignedRoutes();
+                } else {
+                    alert("Error: " + data.error);
+                }
+            } catch(e) {
+                alert("Network error.");
+            }
+        };
+
         window.onload = function() {
             loadDrivers();
             loadTemplates();

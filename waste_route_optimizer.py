@@ -1207,6 +1207,44 @@ def add_stop():
         traceback.print_exc()
         return jsonify({'error': str(e)}), 500
 
+
+@app.route('/api/admin/repair_database', methods=['POST'])
+@login_required
+def repair_database():
+    try:
+        # 1. Clean up Ghost Assignments (Drivers with assigned_template_id but no truck)
+        ghost_drivers = User.query.filter(User.assigned_template_id.isnot(None), User.truck_id.is(None)).all()
+        ghost_count = len(ghost_drivers)
+        for d in ghost_drivers:
+            d.assigned_template_id = None
+            
+        # 2. Re-sequence Customer stops sequentially per truck to fix any gaps
+        distinct_trucks = db.session.query(Customer.truck_id).distinct().all()
+        fixed_sequences = 0
+        for (truck_id,) in distinct_trucks:
+            if truck_id is None: continue
+            customers = Customer.query.filter_by(truck_id=truck_id).order_by(Customer.stop_number.asc()).all()
+            for idx, c in enumerate(customers):
+                correct_seq = idx + 1
+                if c.stop_number != correct_seq:
+                    c.stop_number = correct_seq
+                    fixed_sequences += 1
+                    
+        # 3. Purge completely orphaned Customers (truck_id is None)
+        orphans = Customer.query.filter_by(truck_id=None).all()
+        orphan_count = len(orphans)
+        for o in orphans:
+            db.session.delete(o)
+            
+        db.session.commit()
+        return jsonify({
+            'success': True,
+            'message': f"Database repaired: Cleared {ghost_count} ghost route assignments, fixed {fixed_sequences} stop sequences, and purged {orphan_count} orphaned customers."
+        })
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({'error': str(e)}), 500
+
 if __name__ == '__main__':
     app.run(debug=True, port=5000)
 
