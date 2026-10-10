@@ -11,6 +11,23 @@ import time
 from flask_sqlalchemy import SQLAlchemy
 from flask_cors import CORS
 
+
+_firebase_token_cache = {"token": None, "expires": 0}
+def get_firebase_token():
+    import time, requests
+    global _firebase_token_cache
+    if _firebase_token_cache["token"] and time.time() < _firebase_token_cache["expires"]:
+        return _firebase_token_cache["token"]
+        
+    API_KEY = "AIzaSyAhLnjh0gRa2pf29G90zr-6AMcjLjbQpPg"
+    auth_url = f"https://identitytoolkit.googleapis.com/v1/accounts:signUp?key={API_KEY}"
+    auth_res = requests.post(auth_url, json={"returnSecureToken": True})
+    if auth_res.status_code == 200:
+        _firebase_token_cache["token"] = auth_res.json().get('idToken')
+        _firebase_token_cache["expires"] = time.time() + 3000 # 50 minutes
+        return _firebase_token_cache["token"]
+    return None
+
 app = Flask(__name__)
 
 @app.errorhandler(Exception)
@@ -145,12 +162,19 @@ def resolve_gmaps_url(url):
             
             
         # Validate coordinates are within India (Lat 8 to 38, Lng 68 to 98)
-        if lat and lng and (8 <= lat <= 38) and (68 <= lng <= 98):
-            return lat, lng
-            
-    except Exception as e:
-        print(f"Error resolving {url}: {e}")
-    return None, None
+          if lat and lng and (8 <= lat <= 38) and (68 <= lng <= 98):
+              return lat, lng
+              
+          import urllib.parse
+          unquoted_url = urllib.parse.unquote_plus(res.url)
+          place_match = re.search(r'place/([^/]+)/', unquoted_url)
+          if place_match:
+              place_name = place_match.group(1).replace('+', ' ').strip()
+              return None, place_name
+              
+      except Exception as e:
+          print(f"Error resolving {url}: {e}")
+      return None, None
 
 def extract_lat_lng(coord_str):
     if pd.isna(coord_str): return None, None
@@ -267,8 +291,10 @@ def read_data_file(filepath):
             url_match = re.search(r'(https?://[^\s]+)', str(loc_url_raw))
             if url_match:
                 loc_url_clean = url_match.group(1)
-                if loc_url_clean in resolved_urls and resolved_urls[loc_url_clean][0]:
-                    lat, lng = resolved_urls[loc_url_clean]
+                if loc_url_clean in resolved_urls:
+                    res_tuple = resolved_urls[loc_url_clean]
+                    if res_tuple[0] is not None or res_tuple[1] is not None:
+                        lat, lng = res_tuple
                 
         if lat is None or lng is None:
             if coord_col: lat, lng = extract_lat_lng(row[coord_col])
@@ -286,6 +312,11 @@ def read_data_file(filepath):
                         max_l = len(val)
                         address = val
                         
+            if lat is None and isinstance(lng, str):
+                if not address or len(address) < 5:
+                    address = lng
+                lng = None
+
             if address:
                 search_query = str(address)
                 if "ahmedabad" not in search_query.lower() and "gujarat" not in search_query.lower():
@@ -1135,10 +1166,8 @@ def remove_stop():
         # Sync to Firebase
         import requests
         firebase_url = "https://wasteroutelive-default-rtdb.firebaseio.com"
-        API_KEY = "AIzaSyAhLnjh0gRa2pf29G90zr-6AMcjLjbQpPg"
-        auth_res = requests.post(f"https://identitytoolkit.googleapis.com/v1/accounts:signUp?key={API_KEY}", json={"returnSecureToken": True})
-        if auth_res.status_code == 200:
-            id_token = auth_res.json().get('idToken')
+        id_token = get_firebase_token()
+          if id_token:
             route_key = f"route_{truck_id}"
             
             stops_res = requests.get(f"{firebase_url}/routes/{route_key}/stops.json?auth={id_token}")
@@ -1184,8 +1213,12 @@ def add_stop():
             if url_match:
                 lat, lng = resolve_gmaps_url(url_match.group(1))
             
-    if (lat is None or lng is None) and address:
-        search_query = str(address)
+    if lat is None and isinstance(lng, str):
+          address = lng
+          lng = None
+          
+      if (lat is None or lng is None) and address:
+          search_query = str(address)
         if "ahmedabad" not in search_query.lower() and "gujarat" not in search_query.lower():
             search_query += ", Ahmedabad, Gujarat, India"
         gmaps_key = os.environ.get('GMAPS_API_KEY')
@@ -1263,10 +1296,8 @@ def add_stop():
             # Sync to Firebase
             import requests
             firebase_url = "https://wasteroutelive-default-rtdb.firebaseio.com"
-            API_KEY = "AIzaSyAhLnjh0gRa2pf29G90zr-6AMcjLjbQpPg"
-            auth_res = requests.post(f"https://identitytoolkit.googleapis.com/v1/accounts:signUp?key={API_KEY}", json={"returnSecureToken": True})
-            if auth_res.status_code == 200:
-                id_token = auth_res.json().get('idToken')
+            id_token = get_firebase_token()
+          if id_token:
                 route_key = f"route_{target_truck_id}"
                 
                 stops_res = requests.get(f"{firebase_url}/routes/{route_key}/stops.json?auth={id_token}")
@@ -1673,10 +1704,8 @@ def update_customer_status():
         try:
             import requests
             firebase_url = "https://wasteroutelive-default-rtdb.firebaseio.com"
-            API_KEY = "AIzaSyAhLnjh0gRa2pf29G90zr-6AMcjLjbQpPg"
-            auth_res = requests.post(f"https://identitytoolkit.googleapis.com/v1/accounts:signUp?key={API_KEY}", json={"returnSecureToken": True})
-            if auth_res.status_code == 200:
-                id_token = auth_res.json().get('idToken')
+            id_token = get_firebase_token()
+          if id_token:
                 payload = { "customer_status": status }
                 requests.patch(f"{firebase_url}/routes/route_{c.truck_id}/stops/{c.id}.json?auth={id_token}", json=payload)
         except Exception as e:
@@ -1828,9 +1857,7 @@ def save_template():
         try:
             import requests
             firebase_url = "https://wasteroutelive-default-rtdb.firebaseio.com"
-            API_KEY = "AIzaSyAhLnjh0gRa2pf29G90zr-6AMcjLjbQpPg"
-            auth_res = requests.post(f"https://identitytoolkit.googleapis.com/v1/accounts:signUp?key={API_KEY}", json={"returnSecureToken": True})
-            id_token = auth_res.json().get('idToken') if auth_res.status_code == 200 else None
+            id_token = get_firebase_token()
         except:
             id_token = None
             
@@ -2007,12 +2034,9 @@ def dynamic_recalculate():
     
     try:
         # Authenticate anonymously as backend
-        API_KEY = "AIzaSyAhLnjh0gRa2pf29G90zr-6AMcjLjbQpPg"
-        auth_url = f"https://identitytoolkit.googleapis.com/v1/accounts:signUp?key={API_KEY}"
-        auth_res = requests.post(auth_url, json={"returnSecureToken": True})
-        if auth_res.status_code != 200:
+        id_token = get_firebase_token()
+        if not id_token:
             return jsonify({'error': 'Backend auth failed'}), 500
-        id_token = auth_res.json().get('idToken')
         
         # 1. Fetch current GPS for all trucks
         trucks_res = requests.get(f"{firebase_url}/trucks.json?auth={id_token}")
