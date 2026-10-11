@@ -162,19 +162,19 @@ def resolve_gmaps_url(url):
             
             
         # Validate coordinates are within India (Lat 8 to 38, Lng 68 to 98)
-          if lat and lng and (8 <= lat <= 38) and (68 <= lng <= 98):
-              return lat, lng
-              
-          import urllib.parse
-          unquoted_url = urllib.parse.unquote_plus(res.url)
-          place_match = re.search(r'place/([^/]+)/', unquoted_url)
-          if place_match:
-              place_name = place_match.group(1).replace('+', ' ').strip()
-              return None, place_name
-              
-      except Exception as e:
-          print(f"Error resolving {url}: {e}")
-      return None, None
+        if lat and lng and (8 <= lat <= 38) and (68 <= lng <= 98):
+            return lat, lng
+            
+        import urllib.parse
+        unquoted_url = urllib.parse.unquote_plus(res.url)
+        place_match = re.search(r'place/([^/]+)/', unquoted_url)
+        if place_match:
+            place_name = place_match.group(1).replace('+', ' ').strip()
+            return None, place_name
+            
+    except Exception as e:
+        print(f"Error resolving {url}: {e}")
+    return None, None
 
 def extract_lat_lng(coord_str):
     if pd.isna(coord_str): return None, None
@@ -1167,7 +1167,7 @@ def remove_stop():
         import requests
         firebase_url = "https://wasteroutelive-default-rtdb.firebaseio.com"
         id_token = get_firebase_token()
-          if id_token:
+        if id_token:
             route_key = f"route_{truck_id}"
             
             stops_res = requests.get(f"{firebase_url}/routes/{route_key}/stops.json?auth={id_token}")
@@ -1214,11 +1214,11 @@ def add_stop():
                 lat, lng = resolve_gmaps_url(url_match.group(1))
             
     if lat is None and isinstance(lng, str):
-          address = lng
-          lng = None
-          
-      if (lat is None or lng is None) and address:
-          search_query = str(address)
+        address = lng
+        lng = None
+        
+    if (lat is None or lng is None) and address:
+        search_query = str(address)
         if "ahmedabad" not in search_query.lower() and "gujarat" not in search_query.lower():
             search_query += ", Ahmedabad, Gujarat, India"
         gmaps_key = os.environ.get('GMAPS_API_KEY')
@@ -1231,39 +1231,39 @@ def add_stop():
                     lng = g_res['results'][0]['geometry']['location']['lng']
             except Exception as e: print(f"GMAPS Geocode Error: {e}")
         if lat is None or lng is None:
+            try:
+                from geopy.geocoders import Nominatim
+                nom = Nominatim(user_agent="waste_route_optim_ahmedabad_1")
+                parts = [p.strip() for p in search_query.split(',')]
+                queries = [search_query]
+                if len(parts) >= 5: queries.append(", ".join(parts[-5:]))
+                if len(parts) >= 4: queries.append(", ".join(parts[-4:]))
+                if len(parts) >= 3: queries.append(", ".join(parts[-3:]))
+                if len(parts) >= 2: queries.append(", ".join(parts[-2:]))
+                  
+                # Progressive Nominatim (strict but accurate)
+                for short_q in queries:
                     try:
-                        from geopy.geocoders import Nominatim
-                        nom = Nominatim(user_agent="waste_route_123")
-                        parts = [p.strip() for p in search_query.split(',')]
-                        queries = [search_query]
-                        if len(parts) >= 5: queries.append(", ".join(parts[-5:]))
-                        if len(parts) >= 4: queries.append(", ".join(parts[-4:]))
-                        if len(parts) >= 3: queries.append(", ".join(parts[-3:]))
-                        if len(parts) >= 2: queries.append(", ".join(parts[-2:]))
-                          
-                        # Progressive Nominatim (strict but accurate)
-                        for short_q in queries:
-                            try:
-                                print(f'NOM TRY: {short_q}')
-                                loc = nom.geocode(short_q, timeout=3)
-                                if loc:
-                                    lat, lng = loc.latitude, loc.longitude
-                                    break
-                            except: pass
-                              
-                        # If still none, fallback to progressive ArcGIS
-                        if lat is None or lng is None:
-                            from geopy.geocoders import ArcGIS
-                            arc = ArcGIS()
-                            for short_q in queries:
-                                try:
-                                    print(f'ARC TRY: {short_q}')
-                                    loc = arc.geocode(short_q, timeout=3)
-                                    if loc:
-                                        lat, lng = loc.latitude, loc.longitude
-                                        break
-                                except: pass
+                        print(f'NOM TRY: {short_q}')
+                        loc = nom.geocode(short_q, timeout=3)
+                        if loc:
+                            lat, lng = loc.latitude, loc.longitude
+                            break
                     except: pass
+                      
+                # If still none, fallback to progressive ArcGIS
+                if lat is None or lng is None:
+                    from geopy.geocoders import ArcGIS
+                    arc = ArcGIS()
+                    for short_q in queries:
+                        try:
+                            print(f'ARC TRY: {short_q}')
+                            loc = arc.geocode(short_q, timeout=3)
+                            if loc:
+                                lat, lng = loc.latitude, loc.longitude
+                                break
+                        except: pass
+            except: pass
         
     if lat is None or lng is None:
         return jsonify({'error': 'Could not resolve coordinates from the provided URL or Address.'}), 400
@@ -1297,7 +1297,7 @@ def add_stop():
             import requests
             firebase_url = "https://wasteroutelive-default-rtdb.firebaseio.com"
             id_token = get_firebase_token()
-          if id_token:
+            if id_token:
                 route_key = f"route_{target_truck_id}"
                 
                 stops_res = requests.get(f"{firebase_url}/routes/{route_key}/stops.json?auth={id_token}")
@@ -1705,7 +1705,7 @@ def update_customer_status():
             import requests
             firebase_url = "https://wasteroutelive-default-rtdb.firebaseio.com"
             id_token = get_firebase_token()
-          if id_token:
+            if id_token:
                 payload = { "customer_status": status }
                 requests.patch(f"{firebase_url}/routes/route_{c.truck_id}/stops/{c.id}.json?auth={id_token}", json=payload)
         except Exception as e:
