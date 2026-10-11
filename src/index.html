@@ -549,6 +549,18 @@
                 const hasDepot = stops.length > 0 && (stops[stops.length-1].id < 0 || stops[stops.length-1].name === 'End Location / Depot');
                 if (hasDepot) totalCompleted -= 1;
                 
+                if (!window.hasNotifiedRouteComplete && truckId) {
+                    window.hasNotifiedRouteComplete = true;
+                    try {
+                        let backendUrl = window.location.origin.includes('localhost') || window.location.origin.includes('capacitor://') ? 'https://waste-route-optimizer-robn.onrender.com' : window.location.origin;
+                        fetch(backendUrl + '/api/driver_finish_route', {
+                            method: 'POST',
+                            headers: {'Content-Type': 'application/json'},
+                            body: JSON.stringify({ truck_id: truckId, driver_id: driverId })
+                        }).catch(e=>{});
+                    } catch(e) {}
+                }
+
                 document.getElementById('current-stop-container').innerHTML = `
                     <div style="text-align:center; padding: 20px;">
                         <i class="fa-solid fa-flag-checkered" style="font-size:48px; color:var(--green); margin-bottom:16px;"></i>
@@ -864,6 +876,16 @@
             } else {
                 localStorage.removeItem('driver_token');
             }
+            
+            // Notify backend that route is finished
+            try {
+                let backendUrl = window.location.origin.includes('localhost') || window.location.origin.includes('capacitor://') ? 'https://waste-route-optimizer-robn.onrender.com' : window.location.origin;
+                fetch(backendUrl + '/api/driver_finish_route', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({ truck_id: truckId, driver_id: driverId })
+                }).catch(e=>{});
+            } catch(e) {}
             
             // 4. Update UI
             document.getElementById('current-stop-container').innerHTML = `

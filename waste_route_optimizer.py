@@ -919,64 +919,58 @@ def sync_firebase_to_sql(template_id=None):
     try:
         import requests
         firebase_url = "https://wasteroutelive-default-rtdb.firebaseio.com"
-        API_KEY = "AIzaSyAhLnjh0gRa2pf29G90zr-6AMcjLjbQpPg"
+        id_token = get_firebase_token()
+        if not id_token:
+            return
         
         # Determine which truck IDs we need to sync
-        from app import User, Customer, db
         truck_ids_to_sync = None
         if template_id:
             drivers = User.query.filter_by(assigned_template_id=template_id).all()
             truck_ids_to_sync = [str(d.truck_id) for d in drivers] if drivers else []
         
-        # If no specific template is given, we sync all trucks
-        # To do this efficiently, we query Firebase /routes.json
-        # But wait, Firebase auth is needed
-        auth_url = f"https://identitytoolkit.googleapis.com/v1/accounts:signUp?key={API_KEY}"
-        auth_res = requests.post(auth_url, json={"returnSecureToken": True})
-        if auth_res.status_code == 200:
-            id_token = auth_res.json().get('idToken')
-            res = requests.get(f"{firebase_url}/routes.json?auth={id_token}")
-            if res.status_code == 200:
-                routes_data = res.json()
-                if routes_data:
-                    for route_key, route_info in routes_data.items():
-                        if not route_key.startswith('route_'): continue
-                        tid_str = route_key.split('_')[1]
-                        if truck_ids_to_sync is not None and tid_str not in truck_ids_to_sync:
-                            continue
+        res = requests.get(f"{firebase_url}/routes.json?auth={id_token}", timeout=8)
+        if res.status_code == 200:
+            routes_data = res.json()
+            if routes_data:
+                for route_key, route_info in routes_data.items():
+                    if not route_key.startswith('route_'): continue
+                    tid_str = route_key.split('_')[1]
+                    if truck_ids_to_sync is not None and tid_str not in truck_ids_to_sync:
+                        continue
+                    
+                    try:
+                        truck_id_int = int(tid_str)
+                    except:
+                        continue
                         
-                        try:
-                            truck_id_int = int(tid_str)
-                        except:
-                            continue
+                    stops = route_info.get('stops')
+                    if stops:
+                        for stop_id_str, stop_data in stops.items():
+                            try:
+                                stop_id = int(stop_id_str)
+                            except:
+                                continue
                             
-                        stops = route_info.get('stops')
-                        if stops:
-                            for stop_id_str, stop_data in stops.items():
-                                try:
-                                    stop_id = int(stop_id_str)
-                                except:
-                                    continue
+                            if stop_id < 0:
+                                continue
+                            
+                            c = Customer.query.get(stop_id)
+                            if c and c.truck_id == truck_id_int:
+                                fb_status = stop_data.get('status')
+                                fb_conf = stop_data.get('confirmation')
+                                fb_cust_status = stop_data.get('customer_status')
+                                fb_seq = stop_data.get('sequence')
                                 
-                                if stop_id < 0:
-                                    continue
-                                
-                                c = Customer.query.get(stop_id)
-                                if c and c.truck_id == truck_id_int:
-                                    fb_status = stop_data.get('status')
-                                    fb_conf = stop_data.get('confirmation')
-                                    fb_cust_status = stop_data.get('customer_status')
-                                    fb_seq = stop_data.get('sequence')
-                                    
-                                    if fb_status and c.status != fb_status:
-                                        c.status = fb_status
-                                    if fb_conf and c.confirmation != fb_conf:
-                                        c.confirmation = fb_conf
-                                    if fb_cust_status and getattr(c, 'customer_status', None) != fb_cust_status:
-                                        c.customer_status = fb_cust_status
-                                    if fb_seq is not None and c.stop_number != fb_seq:
-                                        c.stop_number = fb_seq
-                    db.session.commit()
+                                if fb_status and c.status != fb_status:
+                                    c.status = fb_status
+                                if fb_conf and c.confirmation != fb_conf:
+                                    c.confirmation = fb_conf
+                                if fb_cust_status and getattr(c, 'customer_status', None) != fb_cust_status:
+                                    c.customer_status = fb_cust_status
+                                if fb_seq is not None and c.stop_number != fb_seq:
+                                    c.stop_number = fb_seq
+                db.session.commit()
     except Exception as e:
         print("Error syncing Firebase to SQL inside get_data:", e)
 
@@ -1917,23 +1911,84 @@ def get_templates():
 @app.route('/api/assigned_routes', methods=['GET'])
 @login_required
 def get_assigned_routes():
+    # Sync latest completion statuses from Firebase
+    try:
+        sync_firebase_to_sql()
+    except Exception as e:
+        print("sync_firebase_to_sql error in get_assigned_routes:", e)
+
     # Only return routes for drivers who actually have a truck assigned
     drivers = User.query.filter(User.assigned_template_id != None, User.truck_id != None).all()
     
     res = []
     for d in drivers:
         t = SavedTemplate.query.get(d.assigned_template_id)
-        if t:
-            deployed_stops_count = Customer.query.filter_by(truck_id=d.truck_id).count()
-            res.append({
-                'id': t.id,
-                'name': t.name,
-                'stops_count': deployed_stops_count,
-                'driver_name': d.name or d.username,
-                'truck_id': d.truck_id,
-                'truck_ids': [d.truck_id]
-            })
+        if not t:
+            d.assigned_template_id = None
+            continue
+
+        # Real stops for this truck
+        total_stops = Customer.query.filter(Customer.truck_id == d.truck_id, Customer.id > -1000).count()
+        pending_stops = Customer.query.filter(Customer.truck_id == d.truck_id, Customer.id > -1000, Customer.status == 'PENDING').count()
+        
+        # If all stops on the route are completed or skipped (0 pending left), or if no customers exist:
+        # The route is finished! Automatically clear the driver's assignment so it disappears from Assigned Routes!
+        if (total_stops > 0 and pending_stops == 0) or total_stops == 0:
+            d.assigned_template_id = None
+            continue
+
+        res.append({
+            'id': t.id,
+            'name': t.name,
+            'stops_count': total_stops,
+            'pending_stops_count': pending_stops,
+            'driver_name': d.name or d.username,
+            'truck_id': d.truck_id,
+            'truck_ids': [d.truck_id]
+        })
+        
+    db.session.commit()
     return jsonify({'success': True, 'assigned_routes': res})
+
+@app.route('/api/unassign_route', methods=['POST'])
+@login_required
+def unassign_route():
+    data = request.json or {}
+    template_id = data.get('template_id')
+    truck_id = data.get('truck_id')
+    
+    drivers = []
+    if truck_id:
+        try: drivers = User.query.filter_by(truck_id=int(truck_id)).all()
+        except: pass
+    if not drivers and template_id:
+        try: drivers = User.query.filter_by(assigned_template_id=int(template_id)).all()
+        except: pass
+        
+    for d in drivers:
+        d.assigned_template_id = None
+    db.session.commit()
+    return jsonify({'success': True})
+
+@app.route('/api/driver_finish_route', methods=['POST'])
+def driver_finish_route():
+    data = request.json or {}
+    truck_id = data.get('truck_id')
+    driver_id = data.get('driver_id')
+    
+    driver = None
+    if driver_id:
+        try: driver = User.query.get(int(driver_id))
+        except: pass
+    if not driver and truck_id:
+        try: driver = User.query.filter_by(role='DRIVER', truck_id=int(truck_id)).first()
+        except: pass
+        
+    if driver:
+        driver.assigned_template_id = None
+        db.session.commit()
+        return jsonify({'success': True})
+    return jsonify({'error': 'Driver not found'}), 404
 
 @app.route('/api/delete_template/<int:t_id>', methods=['DELETE'])
 @login_required
