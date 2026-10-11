@@ -921,36 +921,71 @@
         };
 
         async function startGpsPolling() {
+            window.isTrackingActive = true;
             if (window.Capacitor && window.Capacitor.Plugins && window.Capacitor.Plugins.Geolocation) {
                 try { await window.Capacitor.Plugins.Geolocation.requestPermissions(); } catch(e){}
             }
+
+            const sendGpsData = (pos) => {
+                if (!pos || !pos.coords) return;
+                const lat = pos.coords.latitude;
+                const lng = pos.coords.longitude;
+                if (!lat || !lng) return;
+
+                const gpsPayload = {
+                    currentLat: lat,
+                    currentLng: lng,
+                    accuracy: pos.coords.accuracy || 0,
+                    lastUpdated: firebase.database.ServerValue.TIMESTAMP,
+                    truckId: truckId,
+                    driverId: driverId,
+                    status: 'online'
+                };
+
+                // 1. Write to driver_locations node
+                if (driverId) {
+                    db.ref(`driver_locations/${driverId}`).update(gpsPayload).catch(err => console.error("GPS write (driver_locations):", err));
+                }
+                // 2. Also write to trucks node for instant backward compatibility & live tracker visibility
+                if (truckId) {
+                    db.ref(`trucks/${truckId}`).update(gpsPayload).catch(err => console.error("GPS write (trucks):", err));
+                }
+                console.log("[GPS] Broadcasted coordinates:", lat, lng, "for truck", truckId);
+            };
+
             const updateGps = async () => {
-                // If native plugin exists and is active, let native handle it.
-                // If web fallback, we handle it here.
-                if (!window.isTrackingActive) return;
-                
                 try {
                     let pos;
                     if (window.Capacitor && window.Capacitor.Plugins && window.Capacitor.Plugins.Geolocation) {
-                        pos = await window.Capacitor.Plugins.Geolocation.getCurrentPosition({ enableHighAccuracy: true });
+                        try {
+                            pos = await window.Capacitor.Plugins.Geolocation.getCurrentPosition({ enableHighAccuracy: true, timeout: 8000 });
+                        } catch(e) {
+                            pos = await window.Capacitor.Plugins.Geolocation.getCurrentPosition({ enableHighAccuracy: false, timeout: 10000 });
+                        }
                     } else if (navigator.geolocation) {
-                        pos = await new Promise((res, rej) => navigator.geolocation.getCurrentPosition(res, rej, { enableHighAccuracy: true, timeout: 5000 }));
+                        pos = await new Promise((res, rej) => {
+                            navigator.geolocation.getCurrentPosition(res, () => {
+                                navigator.geolocation.getCurrentPosition(res, rej, { enableHighAccuracy: false, timeout: 10000 });
+                            }, { enableHighAccuracy: true, timeout: 8000 });
+                        });
                     }
-                    if (pos) {
-                        // GPS goes strictly to driver_locations/ to separate it from truck assignments
-                        db.ref(`driver_locations/${driverId}`).update({
-                            currentLat: pos.coords.latitude, 
-                            currentLng: pos.coords.longitude, 
-                            accuracy: pos.coords.accuracy,
-                            lastUpdated: firebase.database.ServerValue.TIMESTAMP,
-                            truckId: truckId,
-                            status: 'online'
-                        }).catch(err => console.error("Firebase write failed (GPS update):", err));
-                    }
-                } catch (err) { console.error("GPS Error", err); }
+                    sendGpsData(pos);
+                } catch (err) { console.warn("GPS poll error:", err); }
             };
+
+            // Start watch position for real-time streaming if supported
+            try {
+                if (window.Capacitor && window.Capacitor.Plugins && window.Capacitor.Plugins.Geolocation) {
+                    window.Capacitor.Plugins.Geolocation.watchPosition({ enableHighAccuracy: true }, (position) => {
+                        if (position) sendGpsData(position);
+                    }).catch(e=>{});
+                } else if (navigator.geolocation && navigator.geolocation.watchPosition) {
+                    navigator.geolocation.watchPosition(sendGpsData, e=>{}, { enableHighAccuracy: true });
+                }
+            } catch(e){}
+
             updateGps();
-            window.gpsInterval = setInterval(updateGps, 15000);
+            window.gpsInterval = setInterval(updateGps, 8000);
             
             // Manage Online/Offline Presence robustly
             const truckRef = db.ref(`trucks/${truckId}`);

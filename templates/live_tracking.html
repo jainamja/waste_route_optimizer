@@ -1,4 +1,4 @@
-﻿<!DOCTYPE html>
+<!DOCTYPE html>
 <html lang="en">
 <head>
     <meta charset="UTF-8">
@@ -211,28 +211,47 @@
 
         firebase.auth().signInAnonymously().then(() => {
             console.log("Firebase Auth success.");
+            if (!window.liveTrucks) window.liveTrucks = {};
+
+            // 1. Listen to driver_locations node
             db.ref('driver_locations').on('value', snap => {
                 let locs = snap.val() || {};
-                console.log("Root driver_locations listener received data:", Object.keys(locs).length + " trucks");
-                window.liveTrucks = locs;
-                
-                // LEGACY SUPPORT: Check old trucks node in case drivers are using old APK
-                db.ref('trucks').once('value').then(tSnap => {
-                    let oldTrucks = tSnap.val() || {};
-                    for (let tId in oldTrucks) {
-                        let dId = truckToDriver[tId];
-                        // If we didn't get GPS from driver_locations for this driver, use the old trucks node
-                        if (dId && (!window.liveTrucks[dId] || window.liveTrucks[dId].status !== 'online')) {
-                            window.liveTrucks[dId] = oldTrucks[tId];
+                console.log("driver_locations received:", Object.keys(locs).length, "drivers");
+                for (let k in locs) {
+                    if (locs[k]) {
+                        window.liveTrucks[k] = Object.assign(window.liveTrucks[k] || {}, locs[k]);
+                        if (locs[k].truckId) {
+                            window.liveTrucks[locs[k].truckId] = Object.assign(window.liveTrucks[locs[k].truckId] || {}, locs[k]);
                         }
                     }
-                    scheduleRender();
-                });
+                }
+                scheduleRender();
             }, err => {
-                console.warn("Permission denied reading 'trucks'. Will fall back to individual trucks.", err);
+                console.warn("driver_locations root read failed, using individual fallback.", err);
                 usingFallback = true;
                 fallbackToIndividualListeners();
             });
+
+            // 2. Listen to trucks node (legacy and fallback)
+            db.ref('trucks').on('value', snap => {
+                let tData = snap.val() || {};
+                console.log("trucks received:", Object.keys(tData).length, "trucks");
+                for (let tId in tData) {
+                    if (tData[tId]) {
+                        window.liveTrucks[tId] = Object.assign(window.liveTrucks[tId] || {}, tData[tId]);
+                        let dId = truckToDriver[tId];
+                        if (dId) {
+                            window.liveTrucks[dId] = Object.assign(window.liveTrucks[dId] || {}, tData[tId]);
+                        }
+                    }
+                }
+                scheduleRender();
+            }, err => {
+                console.warn("trucks root read failed, using individual fallback.", err);
+                usingFallback = true;
+                fallbackToIndividualListeners();
+            });
+
             attachRoutesListener();
             fetchDrivers();
         }).catch(e => console.error("Firebase auth failed:", e));
@@ -285,45 +304,55 @@
         function fallbackToIndividualListeners() {
             if (!window.liveTrucks) window.liveTrucks = {};
             let keys = Object.keys(driverMap);
-            console.log("fallbackToIndividualListeners called for", keys.length, "drivers.");
+            for (let rk in routesData) {
+                if (rk.startsWith('route_')) keys.push(rk.replace('route_', ''));
+            }
+            keys = Array.from(new Set(keys));
+            console.log("fallbackToIndividualListeners called for", keys.length, "trucks.");
+
             keys.forEach(tId => {
+                if (!tId || isNaN(parseInt(tId))) return;
+                let driverId = truckToDriver[tId];
+
                 if (!routeListeners[tId]) {
                     routeListeners[tId] = true;
                     console.log("Attaching individual listeners for truck", tId);
-                    // Listen to route stops
+                    
+                    // 1. Listen to route stops
                     db.ref('routes/route_' + tId + '/stops').on('value', snap => {
                         let val = snap.val();
-                        console.log(`Received stops for truck ${tId}:`, val ? Object.keys(val).length + " stops" : "null");
                         if (!routesData['route_' + tId]) routesData['route_' + tId] = {};
                         routesData['route_' + tId].stops = val || {};
                         scheduleRender();
                     }, err => {
-                        console.error("Fallback listener also failed for truck", tId, err);
+                        console.error("Fallback stops listener failed for truck", tId, err);
                     });
                     
-                    // Listen to individual driver
-                    let driverId = truckToDriver[tId];
-                    if (driverId) {
-                          db.ref('driver_locations/' + driverId).on('value', snap => {
-                              let tData = snap.val();
-                              if (tData) {
-                                  window.liveTrucks[driverId] = tData;
-                                  scheduleRender();
-                              }
-                          });
-                      }
-                      
-                      // LEGACY APK FALLBACK: Listen to individual trucks/{tId} directly!
-                      db.ref('trucks/' + tId).on('value', snap => {
-                          let tData = snap.val();
-                          if (tData && driverId) {
-                              // If driver_locations isn't active, use legacy data
-                              if (!window.liveTrucks[driverId] || window.liveTrucks[driverId].status !== 'online' || tData.status === 'online') {
-                                  window.liveTrucks[driverId] = tData;
-                                  scheduleRender();
-                              }
-                          }
-                      });
+                    // 2. Listen to individual trucks/{tId} directly!
+                    db.ref('trucks/' + tId).on('value', snap => {
+                        let tData = snap.val();
+                        if (tData) {
+                            window.liveTrucks[tId] = Object.assign(window.liveTrucks[tId] || {}, tData);
+                            let dId = truckToDriver[tId] || driverId;
+                            if (dId) {
+                                window.liveTrucks[dId] = Object.assign(window.liveTrucks[dId] || {}, tData);
+                            }
+                            scheduleRender();
+                        }
+                    });
+                }
+
+                // 3. Listen to individual driver_locations/{driverId}
+                if (driverId && !routeListeners['drv_' + driverId]) {
+                    routeListeners['drv_' + driverId] = true;
+                    db.ref('driver_locations/' + driverId).on('value', snap => {
+                        let tData = snap.val();
+                        if (tData) {
+                            window.liveTrucks[driverId] = Object.assign(window.liveTrucks[driverId] || {}, tData);
+                            window.liveTrucks[tId] = Object.assign(window.liveTrucks[tId] || {}, tData);
+                            scheduleRender();
+                        }
+                    });
                 }
             });
         }
@@ -339,18 +368,70 @@
         
         let truckStats = {};
 
+        function getTruckData(tId) {
+            if (!tId) return null;
+            let trucks = window.liveTrucks || {};
+            let strTId = String(tId);
+            let dId = truckToDriver[tId] || truckToDriver[strTId];
+            let strDId = dId ? String(dId) : null;
+            
+            // Try direct keys
+            let direct = trucks[tId] || trucks[strTId] || (dId ? trucks[dId] : null) || (strDId ? trucks[strDId] : null);
+            if (direct && (direct.currentLat !== undefined || direct.lat !== undefined || direct.latitude !== undefined)) {
+                return direct;
+            }
+            
+            // Search all keys
+            for (let k in trucks) {
+                let node = trucks[k];
+                if (!node) continue;
+                if (String(node.truckId) === strTId || String(node.truck_id) === strTId || (strDId && String(node.driverId) === strDId)) {
+                    return node;
+                }
+            }
+            return direct || null;
+        }
+
+        function getTruckCoords(truckData) {
+            if (!truckData) return null;
+            let lat = truckData.currentLat !== undefined ? truckData.currentLat : (truckData.lat !== undefined ? truckData.lat : truckData.latitude);
+            let lng = truckData.currentLng !== undefined ? truckData.currentLng : (truckData.lng !== undefined ? truckData.lng : truckData.longitude);
+            if (lat !== undefined && lng !== undefined && !isNaN(parseFloat(lat)) && !isNaN(parseFloat(lng))) {
+                lat = parseFloat(lat);
+                lng = parseFloat(lng);
+                if (lat >= -90 && lat <= 90 && lng >= -180 && lng <= 180 && (lat !== 0 || lng !== 0)) {
+                    return [lat, lng];
+                }
+            }
+            return null;
+        }
+
+        function isTruckOnline(truckData) {
+            if (!truckData) return false;
+            if (truckData.status === 'online') return true;
+            let ts = truckData.lastUpdated || truckData.timestamp;
+            if (ts && (Date.now() - Number(ts) < 180000)) return true;
+            return false;
+        }
+
         function renderProgress() {
             let trucks = window.liveTrucks || {};
             let activeTruckIds = new Set([
                 ...Object.keys(driverMap),
+                ...Object.keys(truckToDriver),
                 ...Object.keys(routesData).map(k => k.replace('route_', ''))
             ]);
+            for (let k in trucks) {
+                let t = trucks[k];
+                if (t && (t.truckId || t.truck_id)) {
+                    activeTruckIds.add(String(t.truckId || t.truck_id));
+                }
+            }
             
             let fleetTotal = 0, fleetComp = 0, fleetSkip = 0, fleetCanc = 0;
             let cardsHtml = '';
             let tIds = Array.from(activeTruckIds).sort((a,b) => parseInt(a)-parseInt(b));
             
-            // To properly track markers, we should know which ones are valid
             let validTruckIds = new Set();
             
             tIds.forEach(tId => {
@@ -360,17 +441,16 @@
                 let stopsObj = routeNode.stops || routeNode;
                 let stops = parseStops(stopsObj);
                 
-                // CRITICAL FILTER: Must have real customer stops!
                 let realStops = stops.filter(s => s.id > -1000 && s.name !== 'End Location / Depot');
-                if (realStops.length === 0) return;
                 
-                validTruckIds.add(tId.toString());
+                let tData = getTruckData(tId);
+                let isOnline = isTruckOnline(tData);
                 
-                let dName = driverMap[tId];
+                let dName = driverMap[tId] || (tData && tData.driverName) || '';
+                if (realStops.length === 0 && !isOnline && !dName) return;
                 if (!dName) dName = 'Unassigned';
                 
-                let driverIdForThisTruck = truckToDriver[tId];
-                let isOnline = driverIdForThisTruck && trucks[driverIdForThisTruck] && trucks[driverIdForThisTruck].status === 'online';
+                validTruckIds.add(tId.toString());
                 
                 console.log(`Truck ${tId}: parsed ${stops.length} stops from object:`, JSON.stringify(stopsObj).substring(0, 200));
                 
@@ -406,7 +486,7 @@
                 let statsStr = "";
                 let progStyle = "display:none;";
                 if (tTotal === 0) {
-                    if (Object.keys(routeNode).length === 0) statsStr = "Waiting for routes...";
+                    if (Object.keys(routeNode).length === 0) statsStr = "Standby / Waiting for routes...";
                     else statsStr = "No stops";
                 } else {
                     progStyle = "";
@@ -516,72 +596,110 @@
                 <div class="prog-bar-skip" style="width: ${fleetTotal > 0 ? (fleetSkip/fleetTotal)*100 : 0}%"></div>
                 <div class="prog-bar-canc" style="width: ${fleetTotal > 0 ? (fleetCanc/fleetTotal)*100 : 0}%; background:#fca5a5;"></div>
             `;
+
+            updateMapPopups();
         }
         
         function updateMapPopups() {
-            let trucks = window.liveTrucks || {};
             let bounds = L.latLngBounds();
             let hasLive = false;
             
-            // Sync all active trucks that have real routes
-            for(let tId in truckStats) {
-                let driverIdForThisTruck = truckToDriver[tId];
-                let truck = driverIdForThisTruck ? trucks[driverIdForThisTruck] : null;
-                if (truck && truck.status === 'online' && truck.currentLat && truck.currentLng) {
-                    if (liveTruckMarkers[tId]) {
-                        liveTruckMarkers[tId].setLatLng([truck.currentLat, truck.currentLng]);
-                    } else {
-                        let truckIcon = L.divIcon({
-                            className: 'live-truck-icon',
-                            html: `<div style='background-color:#2F5FFF; width:40px; height:40px; border-radius:50%; border:3px solid white; box-shadow:0 4px 10px rgba(0,0,0,0.4); display:flex; align-items:center; justify-content:center; color:white; font-size:18px;'><i class="fa-solid fa-truck"></i></div>`,
-                            iconSize: [40, 40],
-                            iconAnchor: [20, 20]
-                        });
-                        liveTruckMarkers[tId] = L.marker([truck.currentLat, truck.currentLng], {icon: truckIcon}).addTo(map);
-                        liveTruckMarkers[tId].bindPopup("<b>Truck " + tId + "</b><br>Live GPS").openPopup();
-                    }
-                    hasLive = true;
-                    bounds.extend([truck.currentLat, truck.currentLng]);
+            let allTrackableTruckIds = new Set([
+                ...Object.keys(truckStats),
+                ...Object.keys(driverMap),
+                ...Object.keys(truckToDriver),
+                ...Object.keys(routesData).map(k => k.replace('route_', ''))
+            ]);
+            let trucks = window.liveTrucks || {};
+            for (let k in trucks) {
+                let t = trucks[k];
+                if (t) {
+                    if (t.truckId) allTrackableTruckIds.add(String(t.truckId));
+                    else if (t.truck_id) allTrackableTruckIds.add(String(t.truck_id));
+                    else if (!isNaN(parseInt(k)) && parseInt(k) < 1000) allTrackableTruckIds.add(String(k));
+                }
+            }
+            
+            allTrackableTruckIds.forEach(tId => {
+                if (!tId || isNaN(parseInt(tId))) return;
+                let tData = getTruckData(tId);
+                let coords = getTruckCoords(tData);
+                if (!coords) return;
+                
+                let [lat, lng] = coords;
+                let isOnline = isTruckOnline(tData);
+                let dName = driverMap[tId] || (tData && tData.driverName) || 'Unassigned';
+                let st = truckStats[tId];
+                
+                let iconColor = isOnline ? '#2F5FFF' : '#64748b';
+                let truckIcon = L.divIcon({
+                    className: 'live-truck-marker-' + tId,
+                    html: `<div style="background-color:${iconColor}; width:38px; height:38px; border-radius:50%; border:3px solid #ffffff; box-shadow:0 3px 12px rgba(0,0,0,0.35); display:flex; align-items:center; justify-content:center; color:#ffffff; font-size:16px; position:relative; cursor:pointer;">
+                        <i class="fa-solid fa-truck"></i>
+                        ${isOnline ? '<span style="position:absolute; top:-2px; right:-2px; width:10px; height:10px; background:#10b981; border:2px solid white; border-radius:50%;"></span>' : ''}
+                    </div>`,
+                    iconSize: [38, 38],
+                    iconAnchor: [19, 19],
+                    popupAnchor: [0, -20]
+                });
+                
+                if (liveTruckMarkers[tId]) {
+                    liveTruckMarkers[tId].setLatLng([lat, lng]);
+                    liveTruckMarkers[tId].setIcon(truckIcon);
+                } else {
+                    liveTruckMarkers[tId] = L.marker([lat, lng], { icon: truckIcon }).addTo(map);
+                    liveTruckMarkers[tId].bindPopup(`<b>Truck ${tId}</b>`);
+                }
+                
+                let countsStr = st ? `<br><span style="font-size:12px; color:#64748b;">${st.comp} done &middot; ${st.left} left</span>` : `<br><span style="font-size:12px; color:#64748b;">Standby / Active</span>`;
+                let timeStr = '<span style="color:#64748b; font-weight:600;">Offline</span>';
+                let latestTime = tData.lastUpdated || tData.timestamp;
+                if (latestTime) {
+                    let diffSeconds = Math.max(0, Math.floor((Date.now() - latestTime) / 1000));
+                    if (diffSeconds < 45) timeStr = `<span style="color:#10b981; font-weight:700;">🟢 LIVE (${diffSeconds}s ago)</span>`;
+                    else if (diffSeconds < 180) timeStr = `<span style="color:#f59e0b; font-weight:700;">🟡 RECENT (${Math.floor(diffSeconds/60)}m ago)</span>`;
+                    else timeStr = `<span style="color:#ef4444; font-weight:700;">🔴 STALE (${Math.floor(diffSeconds/60)}m ago)</span>`;
+                } else if (isOnline) {
+                    timeStr = '<span style="color:#10b981; font-weight:700;">🟢 LIVE</span>';
+                }
+                
+                liveTruckMarkers[tId].getPopup().setContent(`
+                    <div style="font-family:inherit; min-width:140px; padding:2px;">
+                        <div style="font-weight:700; font-size:14px; color:#0f172a;">Truck ${tId}</div>
+                        <div style="font-size:12px; color:#475569; margin-bottom:4px;">${dName}</div>
+                        <div style="font-size:12px;">${timeStr}</div>
+                        ${countsStr}
+                    </div>
+                `);
+                
+                hasLive = true;
+                bounds.extend([lat, lng]);
+            });
+            
+            // Remove markers for trucks that are no longer in active fleet
+            for (let tId in liveTruckMarkers) {
+                if (!allTrackableTruckIds.has(String(tId))) {
+                    map.removeLayer(liveTruckMarkers[tId]);
+                    delete liveTruckMarkers[tId];
                 }
             }
             
             if (hasLive && !window.hasFitBounds) {
-                map.fitBounds(bounds, {padding: [50, 50], maxZoom: 15});
+                map.fitBounds(bounds, { padding: [50, 50], maxZoom: 15 });
                 window.hasFitBounds = true;
-            }
-            
-            // Update popups and remove invalid markers
-            for(let tId in liveTruckMarkers) {
-                let st = truckStats[tId];
-                let driverIdForThisTruck = truckToDriver[tId];
-                let truck = driverIdForThisTruck ? trucks[driverIdForThisTruck] : null;
-                if (!st || !truck || truck.status !== 'online') {
-                    map.removeLayer(liveTruckMarkers[tId]);
-                    delete liveTruckMarkers[tId];
-                    continue;
-                }
-                let dName = driverMap[tId] || 'Unassigned';
-                let countsStr = `<br><span style="font-size:12px; color:#64748b;">${st.comp} done &middot; ${st.left} left</span>`;
-                let timeStr = "Offline";
-                let latestTime = truck.lastUpdated || truck.timestamp;
-                if (latestTime) {
-                    let diffSeconds = Math.floor((Date.now() - latestTime) / 1000);
-                    if (diffSeconds < 30) timeStr = `<span style="color:#10b981;font-weight:700;">LIVE (${diffSeconds}s ago)</span>`;
-                    else if (diffSeconds < 120) timeStr = `<span style="color:#f59e0b;font-weight:700;">RECENT (${Math.floor(diffSeconds/60)}m ago)</span>`;
-                    else timeStr = `<span style="color:#ef4444;font-weight:700;">STALE (${Math.floor(diffSeconds/60)}m ago)</span>`;
-                } else if (truck.status === 'online') {
-                    timeStr = `<span style="color:#10b981;font-weight:700;">LIVE</span>`;
-                }
-                liveTruckMarkers[tId].getPopup().setContent(`<b>Truck ${tId}</b> (${dName})<br>${timeStr}${countsStr}`);
             }
         }
         
         function panToTruck(tId) {
-            let trucks = window.liveTrucks || {};
-            let driverId = truckToDriver[tId];
-            let truckNode = driverId ? trucks[driverId] : null;
-            if (truckNode && truckNode.status === 'online' && truckNode.currentLat) {
-                map.flyTo([truckNode.currentLat, truckNode.currentLng], 15);
+            let tData = getTruckData(tId);
+            let coords = getTruckCoords(tData);
+            if (coords) {
+                map.flyTo(coords, 16);
+                if (liveTruckMarkers[tId]) {
+                    liveTruckMarkers[tId].openPopup();
+                }
+            } else {
+                console.log("No GPS coordinates for Truck", tId);
             }
         }
     </script>
