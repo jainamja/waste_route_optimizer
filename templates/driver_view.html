@@ -831,8 +831,33 @@
             });
         };
 
+        window.startBackgroundTracking = async function() {
+            if (window.Capacitor && window.Capacitor.Plugins && window.Capacitor.Plugins.BackgroundLocation) {
+                try {
+                    if (window.Capacitor.Plugins.Geolocation) {
+                        await window.Capacitor.Plugins.Geolocation.requestPermissions().catch(e=>{});
+                    }
+                    let token = window.currentToken || '';
+                    if (!token && firebase.auth().currentUser) {
+                        try { token = await firebase.auth().currentUser.getIdToken(); } catch(e){}
+                    }
+                    let effectiveDriverId = (driverId || truckId || '').toString();
+                    let effectiveTruckId = (truckId || driverId || '').toString();
+                    await window.Capacitor.Plugins.BackgroundLocation.start({
+                        driverId: effectiveDriverId,
+                        truckId: effectiveTruckId,
+                        idToken: token
+                    });
+                    console.log("[BACKGROUND] Foreground Service active for truck " + effectiveTruckId);
+                } catch(err) {
+                    console.warn("[BACKGROUND] Could not start BackgroundLocation service:", err);
+                }
+            }
+        };
+
         window.openNavigation = function() {
             console.log("[NAVIGATE] Clicked | Current Index:", currentIndex);
+            window.startBackgroundTracking();
             if (currentIndex < stops.length) {
                 const stop = stops[currentIndex];
                 const mapUrl = `https://www.google.com/maps/dir/?api=1&destination=${stop.lat},${stop.lng}&travelmode=driving`;
@@ -860,14 +885,24 @@
         window.endShift = async function() {
             if (!confirm("End your shift and go offline?")) return;
             
-            // 1. Stop GPS Polling
+            // 1. Stop Native Foreground Service
+            if (window.Capacitor && window.Capacitor.Plugins && window.Capacitor.Plugins.BackgroundLocation) {
+                window.Capacitor.Plugins.BackgroundLocation.stop().catch(e=>{});
+            }
+
+            // 2. Stop GPS Polling
             if (window.gpsInterval) clearInterval(window.gpsInterval);
             
-            // 2. Set Firebase to Offline & cancel disconnect hook
+            // 3. Set Firebase to Offline & cancel disconnect hook
             if (truckId) {
                 const truckRef = db.ref(`trucks/${truckId}/status`);
                 truckRef.set('offline').catch(e=>{});
-                truckRef.onDisconnect().cancel();
+                truckRef.onDisconnect().cancel().catch(e=>{});
+            }
+            if (driverId) {
+                const dRef = db.ref(`driver_locations/${driverId}/status`);
+                dRef.set('offline').catch(e=>{});
+                dRef.onDisconnect().cancel().catch(e=>{});
             }
             
             // 3. Clear Token to prevent auto-login
@@ -926,6 +961,9 @@
                 try { await window.Capacitor.Plugins.Geolocation.requestPermissions(); } catch(e){}
             }
 
+            // Automatically launch native Android foreground service so tracking continues in Google Maps
+            window.startBackgroundTracking();
+
             const sendGpsData = (pos) => {
                 if (!pos || !pos.coords) return;
                 const lat = pos.coords.latitude;
@@ -937,6 +975,7 @@
                     currentLng: lng,
                     accuracy: pos.coords.accuracy || 0,
                     lastUpdated: firebase.database.ServerValue.TIMESTAMP,
+                    timestamp: firebase.database.ServerValue.TIMESTAMP,
                     truckId: truckId,
                     driverId: driverId,
                     status: 'online'
@@ -987,21 +1026,28 @@
             updateGps();
             window.gpsInterval = setInterval(updateGps, 8000);
             
-            // Manage Online/Offline Presence robustly
+            // Manage Online Presence robustly without premature onDisconnect drops
             const truckRef = db.ref(`trucks/${truckId}`);
+            truckRef.child('status').set('online').catch(e=>{});
+            truckRef.child('name').set('Truck ' + truckId).catch(e=>{});
+            truckRef.child('lastUpdated').set(firebase.database.ServerValue.TIMESTAMP).catch(e=>{});
+            truckRef.child('status').onDisconnect().cancel().catch(e=>{});
+            
+            if (driverId) {
+                db.ref(`driver_locations/${driverId}/status`).set('online').catch(e=>{});
+                db.ref(`driver_locations/${driverId}/lastUpdated`).set(firebase.database.ServerValue.TIMESTAMP).catch(e=>{});
+                db.ref(`driver_locations/${driverId}/status`).onDisconnect().cancel().catch(e=>{});
+            }
+
             db.ref('.info/connected').on('value', (snap) => {
                 if (snap.val() === true) {
-                    // Arm the disconnect hook for the driver's location node
-                    db.ref(`driver_locations/${driverId}/status`).onDisconnect().set('offline');
-                    
-                    // Mark as online in both places for legacy compat
-                    db.ref(`driver_locations/${driverId}/status`).set('online');
-                    db.ref(`driver_locations/${driverId}/lastUpdated`).set(firebase.database.ServerValue.TIMESTAMP);
-                    
-                    truckRef.child('status').onDisconnect().set('offline');
-                    truckRef.child('status').set('online');
-                    truckRef.child('name').set('Truck ' + truckId);
-                    truckRef.child('lastUpdated').set(firebase.database.ServerValue.TIMESTAMP);
+                    if (driverId) {
+                        db.ref(`driver_locations/${driverId}/status`).set('online').catch(e=>{});
+                        db.ref(`driver_locations/${driverId}/lastUpdated`).set(firebase.database.ServerValue.TIMESTAMP).catch(e=>{});
+                    }
+                    truckRef.child('status').set('online').catch(e=>{});
+                    truckRef.child('name').set('Truck ' + truckId).catch(e=>{});
+                    truckRef.child('lastUpdated').set(firebase.database.ServerValue.TIMESTAMP).catch(e=>{});
                 }
             });
             
@@ -1010,7 +1056,9 @@
                 window.Capacitor.Plugins.App.addListener('appStateChange', ({ isActive }) => {
                     if (isActive) {
                         truckRef.child('status').set('online').catch(e=>{});
+                        if (driverId) db.ref(`driver_locations/${driverId}/status`).set('online').catch(e=>{});
                         updateGps();
+                        window.startBackgroundTracking();
                         if (map) {
                             setTimeout(() => map.invalidateSize(), 100);
                         }
@@ -1021,6 +1069,8 @@
             // Web fallback visibility safeguard for fast recovery
             document.addEventListener('visibilitychange', () => {
                 if (document.visibilityState === 'visible') {
+                    truckRef.child('status').set('online').catch(e=>{});
+                    if (driverId) db.ref(`driver_locations/${driverId}/status`).set('online').catch(e=>{});
                     updateGps();
                     if (map) {
                         setTimeout(() => map.invalidateSize(), 100);
@@ -1247,6 +1297,8 @@
                 
                 truckId = data.truck_id;
                 driverId = token;
+                window.currentTruckId = truckId;
+                window.currentDriverId = driverId;
                 document.getElementById('login-overlay').style.display = 'none';
                 document.getElementById('truck-title').innerText = "Truck " + truckId;
                 
@@ -1287,6 +1339,9 @@
 
 
         window.driverLogout = async function() {
+            if (window.Capacitor && window.Capacitor.Plugins && window.Capacitor.Plugins.BackgroundLocation) {
+                await window.Capacitor.Plugins.BackgroundLocation.stop().catch(e=>{});
+            }
             if (window.Capacitor && window.Capacitor.Plugins && window.Capacitor.Plugins.Preferences) {
                 await window.Capacitor.Plugins.Preferences.remove({ key: 'driver_token' }).catch(e=>{});
             } else {
@@ -1298,45 +1353,26 @@
         window.toggleTracking = async function() {
             if (window.isTrackingActive) {
                 // Stop tracking
-                if (window.Capacitor && window.Capacitor.Plugins.BackgroundLocation) {
-                    await window.Capacitor.Plugins.BackgroundLocation.stop();
+                if (window.Capacitor && window.Capacitor.Plugins && window.Capacitor.Plugins.BackgroundLocation) {
+                    await window.Capacitor.Plugins.BackgroundLocation.stop().catch(e=>{});
                 }
                 window.isTrackingActive = false;
                 document.getElementById('tracking-dot').style.background = '#94a3b8';
                 document.getElementById('tracking-label').innerText = '⚪ LOCATION NOT ACTIVE';
                 document.getElementById('btn-tracking').innerText = 'Start Route';
                 document.getElementById('btn-tracking').style.background = 'var(--primary)';
-                if (window.currentTruckId) {
-                    db.ref(`trucks/${window.currentTruckId}`).update({ status: 'offline' });
+                let tid = window.currentTruckId || truckId;
+                if (tid) {
+                    db.ref(`trucks/${tid}`).update({ status: 'offline' }).catch(e=>{});
                 }
             } else {
                 // Start tracking
-                if (window.Capacitor && window.Capacitor.Plugins.BackgroundLocation) {
-                    try {
-                        // Request permissions first via Capacitor Geolocation
-                        if (window.Capacitor.Plugins.Geolocation) {
-                            await window.Capacitor.Plugins.Geolocation.requestPermissions();
-                        }
-                        await window.Capacitor.Plugins.BackgroundLocation.start({
-                            truckId: window.currentTruckId.toString(),
-                            idToken: window.currentToken
-                        });
-                        window.isTrackingActive = true;
-                        document.getElementById('tracking-dot').style.background = '#10b981';
-                        document.getElementById('tracking-label').innerText = '🟢 LIVE LOCATION ACTIVE';
-                        document.getElementById('btn-tracking').innerText = 'Stop';
-                        document.getElementById('btn-tracking').style.background = 'var(--red)';
-                    } catch(e) {
-                        alert("Please grant Location permissions (Allow all the time if requested) to track your route in the background.");
-                    }
-                } else {
-                    alert("Native background tracking not available in browser. Will use web fallback.");
-                    window.isTrackingActive = true;
-                    document.getElementById('tracking-dot').style.background = '#10b981';
-                    document.getElementById('tracking-label').innerText = '🟢 LIVE LOCATION ACTIVE (WEB)';
-                    document.getElementById('btn-tracking').innerText = 'Stop';
-                    document.getElementById('btn-tracking').style.background = 'var(--red)';
-                }
+                window.isTrackingActive = true;
+                await window.startBackgroundTracking();
+                document.getElementById('tracking-dot').style.background = '#10b981';
+                document.getElementById('tracking-label').innerText = '🟢 LIVE LOCATION ACTIVE';
+                document.getElementById('btn-tracking').innerText = 'Stop';
+                document.getElementById('btn-tracking').style.background = 'var(--red)';
             }
         };
 
@@ -1380,7 +1416,20 @@
         };
 
         // 2. Wrap app startup in Firebase Auth to guarantee permissions
-        firebase.auth().signInAnonymously().then(() => {
+        firebase.auth().onIdTokenChanged(async (user) => {
+            if (user) {
+                try {
+                    window.currentToken = await user.getIdToken();
+                } catch(e) {}
+            }
+        });
+
+        firebase.auth().signInAnonymously().then(async (userCredential) => {
+            if (userCredential && userCredential.user) {
+                try {
+                    window.currentToken = await userCredential.user.getIdToken();
+                } catch(e) {}
+            }
             initApp();
         }).catch(err => {
             console.error("Firebase auth failed:", err);
