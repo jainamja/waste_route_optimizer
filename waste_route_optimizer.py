@@ -75,7 +75,7 @@ class User(db.Model):
 
 class Customer(db.Model):
     __tablename__ = 'customers'
-    id = db.Column(db.Integer, primary_key=True)
+    id = db.Column(db.BigInteger, primary_key=True)
     name = db.Column(db.String(255))
     phone = db.Column(db.String(50))
     address = db.Column(db.Text)
@@ -132,6 +132,12 @@ with app.app_context():
         
     try:
         db.session.execute(text("ALTER TABLE customers ADD COLUMN customer_status VARCHAR(20) DEFAULT 'ACTIVE';"))
+        db.session.commit()
+    except:
+        db.session.rollback()
+        
+    try:
+        db.session.execute(text("ALTER TABLE customers ALTER COLUMN id TYPE BIGINT;"))
         db.session.commit()
     except:
         db.session.rollback()
@@ -228,7 +234,17 @@ def read_data_file(filepath):
                 break
 
 
-    sr_no_col = next((c for c in cols if 'sr' in c or 'serial' in c or 'no.' in c or c == 'id'), None)
+    def is_sr_col(c):
+        c_low = str(c).lower().strip()
+        if any(p in c_low for p in ['phone', 'mobile', 'contact', 'tel', 'cell', 'whatsapp', 'ward', 'flat', 'house', 'plot', 'door', 'pincode', 'pin', 'zip']):
+            return False
+        if c_low in ['id', 'no', 'no.', '#', 's_no', 's.no', 'sr_no', 'sr.no', 'sr. no.', 'sr no', 'sr. no', 'serial']:
+            return True
+        if c_low.startswith('sr') or 'serial' in c_low or 's.no' in c_low or 'sr_no' in c_low:
+            return True
+        return False
+
+    sr_no_col = next((c for c in cols if is_sr_col(c)), None)
     
     name_col = next((c for c in cols if 'name' in c), None)
     if not name_col:
@@ -250,10 +266,10 @@ def read_data_file(filepath):
                     max_len = avg_len
                     address_col = c
 
-    phone_col = next((c for c in cols if 'phone' in c), None)
+    phone_col = next((c for c in cols if any(p in c for p in ['phone', 'mobile', 'contact', 'cell', 'tel', 'whatsapp'])), None)
     if not phone_col:
         for c in cols:
-            if c not in [loc_url_col, name_col, coord_col, address_col]:
+            if c not in [loc_url_col, name_col, coord_col, address_col, sr_no_col]:
                 first_val = str(df[c].dropna().head(1).iloc[0]) if len(df[c].dropna()) else ""
                 clean_val = ''.join(filter(str.isdigit, first_val))
                 if len(clean_val) >= 9 and len(clean_val) <= 15:
@@ -374,16 +390,33 @@ def read_data_file(filepath):
             
         try:
             try:
-                sr_id = int(row[sr_no_col]) if sr_no_col and not pd.isna(row[sr_no_col]) else idx + 1
+                sr_id = None
+                if sr_no_col and not pd.isna(row[sr_no_col]):
+                    val_str = str(row[sr_no_col]).strip()
+                    if val_str.endswith('.0'):
+                        val_str = val_str[:-2]
+                    if val_str.isdigit():
+                        parsed_val = int(val_str)
+                        if 0 < parsed_val < 100000000:
+                            sr_id = parsed_val
+                if sr_id is None:
+                    sr_id = idx + 1
             except:
                 sr_id = idx + 1
+
+            phone_val = ""
+            if phone_col and not pd.isna(row.get(phone_col)):
+                raw_phone = str(row.get(phone_col)).strip()
+                if raw_phone.endswith('.0'):
+                    raw_phone = raw_phone[:-2]
+                phone_val = raw_phone
 
             lat, lng = float(lat), float(lng)
             if not pd.isna(lat) and not pd.isna(lng):
                 customers.append({
                     'id': sr_id,
                     'name': row.get(name_col) if name_col and not pd.isna(row.get(name_col)) else f"Customer {idx+1}",
-                    'phone': row.get(phone_col) if phone_col and not pd.isna(row.get(phone_col)) else "",
+                    'phone': phone_val,
                     'address': row.get(address_col) if address_col and not pd.isna(row.get(address_col)) else "",
                     'location_url': loc_url_clean,
                     'lat': lat,
