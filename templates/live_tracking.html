@@ -914,6 +914,7 @@
 
                 // 1. Draw upcoming stop pins
                 pendingStops.forEach(s => {
+                    if (!s.lat || !s.lng || isNaN(parseFloat(s.lat)) || isNaN(parseFloat(s.lng))) return;
                     let pinIcon = L.divIcon({
                         className: 'stop-pin-' + strId,
                         html: `<div style="background:${color}; color:white; width:26px; height:26px; border-radius:50%; border:2px solid #ffffff; box-shadow:0 3px 8px rgba(0,0,0,0.35); display:flex; align-items:center; justify-content:center; font-weight:800; font-size:11px; cursor:pointer;" title="Stop #${s.sequence}: ${s.name}">

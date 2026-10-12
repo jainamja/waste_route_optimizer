@@ -298,6 +298,7 @@ def read_data_file(filepath):
                 resolved_urls[future_to_url[future]] = future.result() if future.result() else (None, None)
 
     customers = []
+    seen_ids = set()
     for idx, row in df.iterrows():
         lat, lng = None, None
         loc_url_clean = ""
@@ -397,12 +398,14 @@ def read_data_file(filepath):
                         val_str = val_str[:-2]
                     if val_str.isdigit():
                         parsed_val = int(val_str)
-                        if 0 < parsed_val < 100000000:
+                        if 0 < parsed_val < 100000000 and parsed_val not in seen_ids:
                             sr_id = parsed_val
                 if sr_id is None:
-                    sr_id = idx + 1
+                    sr_id = max(seen_ids, default=0) + 1
             except:
-                sr_id = idx + 1
+                sr_id = max(seen_ids, default=0) + 1
+
+            seen_ids.add(sr_id)
 
             phone_val = ""
             if phone_col and not pd.isna(row.get(phone_col)):
@@ -761,9 +764,14 @@ def upload():
     m_template = Metadata(key='is_from_template', value='false')
     db.session.add_all([m1, m2, m3, m4, m_tokens, m_template])
     
+    inserted_ids = set()
     for c in customers_data:
+        cid = c['id']
+        if cid in inserted_ids:
+            continue
+        inserted_ids.add(cid)
         new_cust = Customer(
-            id=c['id'], name=c['name'], phone=c['phone'], address=c['address'],
+            id=cid, name=c['name'], phone=c['phone'], address=c['address'],
             location_url=c['location_url'], lat=c['lat'], lng=c['lng'],
             status=c.get('status', 'PENDING'), truck_id=c.get('truck'), stop_number=c.get('stop_number'),
             confirmation=c.get('confirmation', 'NOT_CONFIRMED')
