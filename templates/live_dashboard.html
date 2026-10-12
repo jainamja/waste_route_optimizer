@@ -577,7 +577,8 @@
                     for(let tId in trucks) {
                         let truck = trucks[tId];
                         let tNum = tId;
-                        if(truck.status === 'online' && truck.currentLat && truck.currentLng) {
+                        let isFresh = truck.lastUpdated ? (Date.now() - Number(truck.lastUpdated) < 180000) : true;
+                        if(truck.status === 'online' && truck.currentLat && truck.currentLng && isFresh) {
                             if(liveTruckMarkers[tNum]) {
                                 liveTruckMarkers[tNum].setLatLng([truck.currentLat, truck.currentLng]);
                             } else {

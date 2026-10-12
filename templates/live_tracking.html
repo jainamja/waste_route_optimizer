@@ -439,9 +439,13 @@
 
         function isTruckOnline(truckData) {
             if (!truckData) return false;
-            if (truckData.status === 'online') return true;
+            if (truckData.status === 'offline') return false;
             let ts = truckData.lastUpdated || truckData.timestamp;
-            if (ts && (Date.now() - Number(ts) < 180000)) return true;
+            if (truckData.status === 'online') {
+                if (ts && (Date.now() - Number(ts) > 180000)) return false;
+                return true;
+            }
+            if (ts && (Date.now() - Number(ts) < 60000)) return true;
             return false;
         }
 
@@ -655,14 +659,22 @@
                 if (!tId || isNaN(parseInt(tId))) return;
                 let tData = getTruckData(tId);
                 let coords = getTruckCoords(tData);
-                if (!coords) return;
+                let isOnline = isTruckOnline(tData);
+                
+                // If truck is offline (logged out) or has no GPS, remove marker from live map
+                if (!coords || !isOnline) {
+                    if (liveTruckMarkers[tId]) {
+                        map.removeLayer(liveTruckMarkers[tId]);
+                        delete liveTruckMarkers[tId];
+                    }
+                    return;
+                }
                 
                 let [lat, lng] = coords;
-                let isOnline = isTruckOnline(tData);
                 let dName = driverMap[tId] || (tData && tData.driverName) || 'Unassigned';
                 let st = truckStats[tId];
                 
-                let iconColor = isOnline ? '#2F5FFF' : '#64748b';
+                let iconColor = '#2F5FFF';
                 
                 function createMarkerIcon() {
                     return L.divIcon({
@@ -744,13 +756,14 @@
         function panToTruck(tId) {
             let tData = getTruckData(tId);
             let coords = getTruckCoords(tData);
-            if (coords) {
+            let isOnline = isTruckOnline(tData);
+            if (coords && isOnline) {
                 map.flyTo(coords, 16);
                 if (liveTruckMarkers[tId]) {
                     liveTruckMarkers[tId].openPopup();
                 }
             } else {
-                console.log("No GPS coordinates for Truck", tId);
+                alert(`Truck ${tId} is currently offline (driver logged out).`);
             }
         }
     </script>

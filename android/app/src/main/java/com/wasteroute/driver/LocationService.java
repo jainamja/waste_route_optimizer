@@ -227,6 +227,30 @@ public class LocationService extends Service {
             fusedLocationClient.removeLocationUpdates(locationCallback);
             locationCallback = null;
         }
+
+        final String effectiveDriverId = driverId != null ? driverId : truckId;
+        final String effectiveTruckId = truckId != null ? truckId : driverId;
+
+        if (effectiveDriverId != null || effectiveTruckId != null) {
+            new Thread(() -> {
+                try {
+                    ensureIdToken();
+                    if (idToken != null && !idToken.isEmpty()) {
+                        String offlineJson = String.format(Locale.US,
+                                "{\"status\": \"offline\", \"speed\": 0.0, \"lastUpdated\": %d}",
+                                System.currentTimeMillis());
+                        if (effectiveDriverId != null) {
+                            patchToFirebase("https://wasteroutelive-default-rtdb.firebaseio.com/driver_locations/" + effectiveDriverId + ".json?auth=" + idToken, offlineJson);
+                        }
+                        if (effectiveTruckId != null) {
+                            patchToFirebase("https://wasteroutelive-default-rtdb.firebaseio.com/trucks/" + effectiveTruckId + ".json?auth=" + idToken, offlineJson);
+                        }
+                    }
+                } catch (Exception e) {
+                    Log.e(TAG, "onDestroy offline status update error", e);
+                }
+            }).start();
+        }
     }
 
     @Nullable

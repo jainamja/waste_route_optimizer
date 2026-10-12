@@ -1017,9 +1017,9 @@
                 if (window.Capacitor && window.Capacitor.Plugins && window.Capacitor.Plugins.Geolocation) {
                     window.Capacitor.Plugins.Geolocation.watchPosition({ enableHighAccuracy: true }, (position) => {
                         if (position) sendGpsData(position);
-                    }).catch(e=>{});
+                    }).then(id => { window.capWatchId = id; }).catch(e=>{});
                 } else if (navigator.geolocation && navigator.geolocation.watchPosition) {
-                    navigator.geolocation.watchPosition(sendGpsData, e=>{}, { enableHighAccuracy: true });
+                    window.geoWatchId = navigator.geolocation.watchPosition(sendGpsData, e=>{}, { enableHighAccuracy: true });
                 }
             } catch(e){}
 
@@ -1339,20 +1339,79 @@
 
 
         window.driverLogout = async function() {
-            if (window.Capacitor && window.Capacitor.Plugins && window.Capacitor.Plugins.BackgroundLocation) {
-                await window.Capacitor.Plugins.BackgroundLocation.stop().catch(e=>{});
+            try {
+                // 1. Stop all JS GPS intervals and watchers
+                if (window.gpsInterval) {
+                    clearInterval(window.gpsInterval);
+                    window.gpsInterval = null;
+                }
+                if (window.geoWatchId && navigator.geolocation && navigator.geolocation.clearWatch) {
+                    navigator.geolocation.clearWatch(window.geoWatchId);
+                    window.geoWatchId = null;
+                }
+                if (window.capWatchId && window.Capacitor && window.Capacitor.Plugins && window.Capacitor.Plugins.Geolocation) {
+                    window.Capacitor.Plugins.Geolocation.clearWatch({ id: window.capWatchId }).catch(e=>{});
+                    window.capWatchId = null;
+                }
+                window.isTrackingActive = false;
+
+                // 2. Stop native Android background service if present
+                if (window.Capacitor && window.Capacitor.Plugins && window.Capacitor.Plugins.BackgroundLocation) {
+                    await window.Capacitor.Plugins.BackgroundLocation.stop().catch(e=>{});
+                }
+
+                // 3. Mark offline in Firebase immediately and clear live coordinates
+                let effectiveTruckId = (window.currentTruckId || truckId || '').toString();
+                let effectiveDriverId = (window.currentDriverId || driverId || effectiveTruckId || '').toString();
+
+                const offlinePayload = {
+                    status: 'offline',
+                    currentLat: null,
+                    currentLng: null,
+                    speed: 0,
+                    heading: 0,
+                    lastUpdated: firebase.database.ServerValue.TIMESTAMP
+                };
+
+                let promises = [];
+                if (effectiveTruckId) {
+                    promises.push(db.ref(`trucks/${effectiveTruckId}`).update(offlinePayload).catch(e=>{}));
+                }
+                if (effectiveDriverId) {
+                    promises.push(db.ref(`driver_locations/${effectiveDriverId}`).update(offlinePayload).catch(e=>{}));
+                }
+                await Promise.all(promises);
+            } catch(e) {
+                console.warn("[LOGOUT] Cleanup error:", e);
             }
+
+            // 4. Remove stored credentials
             if (window.Capacitor && window.Capacitor.Plugins && window.Capacitor.Plugins.Preferences) {
                 await window.Capacitor.Plugins.Preferences.remove({ key: 'driver_token' }).catch(e=>{});
-            } else {
-                localStorage.removeItem('driver_token');
             }
-            window.location.reload();
+            try { localStorage.removeItem('driver_token'); } catch(e){}
+            try { sessionStorage.clear(); } catch(e){}
+
+            // 5. Navigate to clean base URL without query parameters (strips ?token=...)
+            const cleanUrl = window.location.origin + window.location.pathname;
+            window.location.replace(cleanUrl);
         };
 
         window.toggleTracking = async function() {
             if (window.isTrackingActive) {
                 // Stop tracking
+                if (window.gpsInterval) {
+                    clearInterval(window.gpsInterval);
+                    window.gpsInterval = null;
+                }
+                if (window.geoWatchId && navigator.geolocation && navigator.geolocation.clearWatch) {
+                    navigator.geolocation.clearWatch(window.geoWatchId);
+                    window.geoWatchId = null;
+                }
+                if (window.capWatchId && window.Capacitor && window.Capacitor.Plugins && window.Capacitor.Plugins.Geolocation) {
+                    window.Capacitor.Plugins.Geolocation.clearWatch({ id: window.capWatchId }).catch(e=>{});
+                    window.capWatchId = null;
+                }
                 if (window.Capacitor && window.Capacitor.Plugins && window.Capacitor.Plugins.BackgroundLocation) {
                     await window.Capacitor.Plugins.BackgroundLocation.stop().catch(e=>{});
                 }
@@ -1361,10 +1420,18 @@
                 document.getElementById('tracking-label').innerText = '⚪ LOCATION NOT ACTIVE';
                 document.getElementById('btn-tracking').innerText = 'Start Route';
                 document.getElementById('btn-tracking').style.background = 'var(--primary)';
-                let tid = window.currentTruckId || truckId;
-                if (tid) {
-                    db.ref(`trucks/${tid}`).update({ status: 'offline' }).catch(e=>{});
-                }
+                
+                let tid = (window.currentTruckId || truckId || '').toString();
+                let did = (window.currentDriverId || driverId || tid || '').toString();
+                const offlinePayload = {
+                    status: 'offline',
+                    currentLat: null,
+                    currentLng: null,
+                    speed: 0,
+                    lastUpdated: firebase.database.ServerValue.TIMESTAMP
+                };
+                if (tid) db.ref(`trucks/${tid}`).update(offlinePayload).catch(e=>{});
+                if (did) db.ref(`driver_locations/${did}`).update(offlinePayload).catch(e=>{});
             } else {
                 // Start tracking
                 window.isTrackingActive = true;
@@ -1373,6 +1440,12 @@
                 document.getElementById('tracking-label').innerText = '🟢 LIVE LOCATION ACTIVE';
                 document.getElementById('btn-tracking').innerText = 'Stop';
                 document.getElementById('btn-tracking').style.background = 'var(--red)';
+                
+                let tid = (window.currentTruckId || truckId || '').toString();
+                let did = (window.currentDriverId || driverId || tid || '').toString();
+                if (tid) db.ref(`trucks/${tid}`).update({ status: 'online' }).catch(e=>{});
+                if (did) db.ref(`driver_locations/${did}`).update({ status: 'online' }).catch(e=>{});
+                if (typeof startGpsPolling === 'function') startGpsPolling();
             }
         };
 
