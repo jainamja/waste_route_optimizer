@@ -1107,10 +1107,10 @@
             
             // Lock map interaction when full
             if (y === snapPoints.full) {
-                map.dragging.disable();
+                if (map && map.dragging) map.dragging.disable();
                 stopList.style.overflowY = 'auto'; // Enable internal scrolling
             } else {
-                map.dragging.enable();
+                if (map && map.dragging) map.dragging.enable();
                 stopList.style.overflowY = 'hidden';
             }
         }

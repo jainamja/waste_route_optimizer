@@ -1148,12 +1148,13 @@ def remove_stop():
         db.session.delete(sql_cust)
         
         # Shift subsequent stops in SQL
-        subsequent_stops = Customer.query.filter(
-            Customer.truck_id == truck_id,
-            Customer.stop_number > target_seq
-        ).all()
-        for s in subsequent_stops:
-            s.stop_number -= 1
+        if target_seq is not None:
+            subsequent_stops = Customer.query.filter(
+                Customer.truck_id == truck_id,
+                Customer.stop_number > target_seq
+            ).all()
+            for s in subsequent_stops:
+                s.stop_number -= 1
             
         db.session.commit()
         
@@ -1172,7 +1173,7 @@ def remove_stop():
                 del stops[str(cust_id)]
                 
                 for s_id, s_info in stops.items():
-                    if s_info and s_info.get('sequence', 0) > target_seq:
+                    if s_info and target_seq is not None and s_info.get('sequence', 0) > target_seq:
                         s_info['sequence'] -= 1
                         
                 # Update Firebase
