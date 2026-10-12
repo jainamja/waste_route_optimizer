@@ -2,7 +2,8 @@ import os
 import re
 import pandas as pd
 from werkzeug.utils import secure_filename
-from flask import Flask, request, render_template, redirect, url_for, jsonify, send_file, flash, make_response
+from flask import Flask, request, render_template, redirect, url_for, jsonify, send_file, flash, make_response, send_from_directory
+from werkzeug.exceptions import HTTPException
 from docx import Document
 from aco_vrp import ACO_VRP
 import requests
@@ -30,8 +31,14 @@ def get_firebase_token():
 
 app = Flask(__name__)
 
+@app.route('/favicon.ico')
+def favicon():
+    return send_from_directory(os.path.join(app.root_path, 'static'), 'logo.jpg', mimetype='image/jpeg')
+
 @app.errorhandler(Exception)
 def handle_exception(e):
+    if isinstance(e, HTTPException):
+        return e
     import traceback
     return jsonify({'error': str(e), 'traceback': traceback.format_exc()}), 500
 
