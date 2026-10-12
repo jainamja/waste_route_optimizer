@@ -699,7 +699,8 @@
                 let latestTime = tData.lastUpdated || tData.timestamp;
                 if (latestTime) {
                     let diffSeconds = Math.max(0, Math.floor((Date.now() - latestTime) / 1000));
-                    if (diffSeconds < 45) timeStr = `<span style="color:#10b981; font-weight:700;">🟢 LIVE (${diffSeconds}s ago)</span>`;
+                    if (diffSeconds < 20) timeStr = `<span style="color:#10b981; font-weight:700;">🟢 LIVE</span>`;
+                    else if (diffSeconds < 60) timeStr = `<span style="color:#10b981; font-weight:700;">🟢 LIVE (${diffSeconds}s ago)</span>`;
                     else if (diffSeconds < 180) timeStr = `<span style="color:#f59e0b; font-weight:700;">🟡 RECENT (${Math.floor(diffSeconds/60)}m ago)</span>`;
                     else timeStr = `<span style="color:#ef4444; font-weight:700;">🔴 STALE (${Math.floor(diffSeconds/60)}m ago)</span>`;
                 } else if (isOnline) {
@@ -736,6 +737,9 @@
                 window.hasFitBounds = true;
             }
         }
+        
+        // Refresh popup time counters every second so the display never stays frozen
+        setInterval(updateMapPopups, 1000);
         
         function panToTruck(tId) {
             let tData = getTruckData(tId);
