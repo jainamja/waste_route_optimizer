@@ -148,6 +148,12 @@
             .stat-strip { grid-template-columns: 1fr !important; gap: 8px !important; }
             .stat-card { padding: 12px !important; }
         }
+
+        /* Smooth marker gliding and zero-flicker transitions */
+        .leaflet-marker-icon {
+            transition: transform 0.4s cubic-bezier(0.25, 0.8, 0.25, 1);
+            will-change: transform;
+        }
 </style>
 </head>
 <body>
@@ -213,15 +219,27 @@
             console.log("Firebase Auth success.");
             if (!window.liveTrucks) window.liveTrucks = {};
 
+            function mergeTruckData(key, data) {
+                if (!data || !key) return;
+                let existing = window.liveTrucks[key];
+                let newTs = Number(data.lastUpdated || data.timestamp || 0);
+                let oldTs = Number(existing?.lastUpdated || existing?.timestamp || 0);
+                
+                // Never overwrite fresher live data with an older/stale snapshot
+                if (!existing || newTs >= oldTs || (oldTs - newTs < 3000)) {
+                    window.liveTrucks[key] = Object.assign(existing || {}, data);
+                }
+            }
+
             // 1. Listen to driver_locations node
             db.ref('driver_locations').on('value', snap => {
                 let locs = snap.val() || {};
                 console.log("driver_locations received:", Object.keys(locs).length, "drivers");
                 for (let k in locs) {
                     if (locs[k]) {
-                        window.liveTrucks[k] = Object.assign(window.liveTrucks[k] || {}, locs[k]);
+                        mergeTruckData(k, locs[k]);
                         if (locs[k].truckId) {
-                            window.liveTrucks[locs[k].truckId] = Object.assign(window.liveTrucks[locs[k].truckId] || {}, locs[k]);
+                            mergeTruckData(String(locs[k].truckId), locs[k]);
                         }
                     }
                 }
@@ -238,10 +256,10 @@
                 console.log("trucks received:", Object.keys(tData).length, "trucks");
                 for (let tId in tData) {
                     if (tData[tId]) {
-                        window.liveTrucks[tId] = Object.assign(window.liveTrucks[tId] || {}, tData[tId]);
+                        mergeTruckData(String(tId), tData[tId]);
                         let dId = truckToDriver[tId];
                         if (dId) {
-                            window.liveTrucks[dId] = Object.assign(window.liveTrucks[dId] || {}, tData[tId]);
+                            mergeTruckData(String(dId), tData[tId]);
                         }
                     }
                 }
@@ -375,21 +393,34 @@
             let dId = truckToDriver[tId] || truckToDriver[strTId];
             let strDId = dId ? String(dId) : null;
             
-            // Try direct keys
-            let direct = trucks[tId] || trucks[strTId] || (dId ? trucks[dId] : null) || (strDId ? trucks[strDId] : null);
-            if (direct && (direct.currentLat !== undefined || direct.lat !== undefined || direct.latitude !== undefined)) {
-                return direct;
-            }
+            let candidates = [];
             
-            // Search all keys
+            // Collect candidate nodes matching this truck ID or assigned driver ID
+            [trucks[tId], trucks[strTId], dId ? trucks[dId] : null, strDId ? trucks[strDId] : null].forEach(node => {
+                if (node && (node.currentLat !== undefined || node.lat !== undefined || node.latitude !== undefined)) {
+                    candidates.push(node);
+                }
+            });
+            
             for (let k in trucks) {
                 let node = trucks[k];
                 if (!node) continue;
                 if (String(node.truckId) === strTId || String(node.truck_id) === strTId || (strDId && String(node.driverId) === strDId)) {
-                    return node;
+                    if (node.currentLat !== undefined || node.lat !== undefined || node.latitude !== undefined) {
+                        candidates.push(node);
+                    }
                 }
             }
-            return direct || null;
+            
+            if (candidates.length === 0) return null;
+            
+            // Prioritize the node with the freshest timestamp
+            candidates.sort((a, b) => {
+                let tsA = Number(a.lastUpdated || a.timestamp || 0);
+                let tsB = Number(b.lastUpdated || b.timestamp || 0);
+                return tsB - tsA;
+            });
+            return candidates[0];
         }
 
         function getTruckCoords(truckData) {
@@ -632,22 +663,34 @@
                 let st = truckStats[tId];
                 
                 let iconColor = isOnline ? '#2F5FFF' : '#64748b';
-                let truckIcon = L.divIcon({
-                    className: 'live-truck-marker-' + tId,
-                    html: `<div style="background-color:${iconColor}; width:38px; height:38px; border-radius:50%; border:3px solid #ffffff; box-shadow:0 3px 12px rgba(0,0,0,0.35); display:flex; align-items:center; justify-content:center; color:#ffffff; font-size:16px; position:relative; cursor:pointer;">
-                        <i class="fa-solid fa-truck"></i>
-                        ${isOnline ? '<span style="position:absolute; top:-2px; right:-2px; width:10px; height:10px; background:#10b981; border:2px solid white; border-radius:50%;"></span>' : ''}
-                    </div>`,
-                    iconSize: [38, 38],
-                    iconAnchor: [19, 19],
-                    popupAnchor: [0, -20]
-                });
+                
+                function createMarkerIcon() {
+                    return L.divIcon({
+                        className: 'live-truck-marker-' + tId,
+                        html: `<div style="background-color:${iconColor}; width:38px; height:38px; border-radius:50%; border:3px solid #ffffff; box-shadow:0 3px 12px rgba(0,0,0,0.35); display:flex; align-items:center; justify-content:center; color:#ffffff; font-size:16px; position:relative; cursor:pointer;">
+                            <i class="fa-solid fa-truck"></i>
+                            ${isOnline ? '<span style="position:absolute; top:-2px; right:-2px; width:10px; height:10px; background:#10b981; border:2px solid white; border-radius:50%;"></span>' : ''}
+                        </div>`,
+                        iconSize: [38, 38],
+                        iconAnchor: [19, 19],
+                        popupAnchor: [0, -20]
+                    });
+                }
                 
                 if (liveTruckMarkers[tId]) {
-                    liveTruckMarkers[tId].setLatLng([lat, lng]);
-                    liveTruckMarkers[tId].setIcon(truckIcon);
+                    let currentLatLng = liveTruckMarkers[tId].getLatLng();
+                    // Smoothly update position only when moving more than ~1 meter to avoid GPS micro-jitter
+                    if (Math.abs(currentLatLng.lat - lat) > 0.00001 || Math.abs(currentLatLng.lng - lng) > 0.00001) {
+                        liveTruckMarkers[tId].setLatLng([lat, lng]);
+                    }
+                    // Only re-create icon if online/offline status actually changed
+                    if (liveTruckMarkers[tId]._lastOnlineState !== isOnline) {
+                        liveTruckMarkers[tId].setIcon(createMarkerIcon());
+                        liveTruckMarkers[tId]._lastOnlineState = isOnline;
+                    }
                 } else {
-                    liveTruckMarkers[tId] = L.marker([lat, lng], { icon: truckIcon }).addTo(map);
+                    liveTruckMarkers[tId] = L.marker([lat, lng], { icon: createMarkerIcon() }).addTo(map);
+                    liveTruckMarkers[tId]._lastOnlineState = isOnline;
                     liveTruckMarkers[tId].bindPopup(`<b>Truck ${tId}</b>`);
                 }
                 
@@ -663,14 +706,18 @@
                     timeStr = '<span style="color:#10b981; font-weight:700;">🟢 LIVE</span>';
                 }
                 
-                liveTruckMarkers[tId].getPopup().setContent(`
+                let popupHtml = `
                     <div style="font-family:inherit; min-width:140px; padding:2px;">
                         <div style="font-weight:700; font-size:14px; color:#0f172a;">Truck ${tId}</div>
                         <div style="font-size:12px; color:#475569; margin-bottom:4px;">${dName}</div>
                         <div style="font-size:12px;">${timeStr}</div>
                         ${countsStr}
                     </div>
-                `);
+                `;
+                let popup = liveTruckMarkers[tId].getPopup();
+                if (popup && popup.getContent() !== popupHtml) {
+                    popup.setContent(popupHtml);
+                }
                 
                 hasLive = true;
                 bounds.extend([lat, lng]);
