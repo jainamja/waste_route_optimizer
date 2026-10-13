@@ -379,25 +379,35 @@
 
         function parseStops(stopsObj) {
             let stops = [];
+            const isValidCustomerStop = (val, id) => {
+                if (!val || typeof val !== 'object') return false;
+                // A valid customer stop MUST have a name and not be a depot or inactive
+                if (!val.name || typeof val.name !== 'string' || !val.name.trim()) return false;
+                if (val.name === 'End Location / Depot') return false;
+                let isInactive = (val.customer_status || 'ACTIVE').toUpperCase() === 'INACTIVE';
+                if (isInactive) return false;
+                let numId = parseInt(id !== undefined ? id : val.id);
+                if (!isNaN(numId) && numId <= -1000) return false;
+                return true;
+            };
+
             if (Array.isArray(stopsObj)) {
                 stopsObj.forEach((val, idx) => {
-                    let isInactive = val && (val.customer_status || 'ACTIVE').toUpperCase() === 'INACTIVE';
-                    if (val && idx > -1000 && val.name !== 'End Location / Depot' && !isInactive) {
-                        val.id = val.id || idx;
+                    if (isValidCustomerStop(val, idx)) {
+                        val.id = val.id !== undefined ? val.id : idx;
                         stops.push(val);
                     }
                 });
             } else if (typeof stopsObj === 'object' && stopsObj !== null) {
                 Object.keys(stopsObj).forEach(key => {
                     let val = stopsObj[key];
-                    let isInactive = val && (val.customer_status || 'ACTIVE').toUpperCase() === 'INACTIVE';
-                    if (val && parseInt(key) > -1000 && val.name !== 'End Location / Depot' && !isInactive) {
-                        val.id = val.id || parseInt(key);
+                    if (isValidCustomerStop(val, key)) {
+                        val.id = val.id !== undefined ? val.id : parseInt(key);
                         stops.push(val);
                     }
                 });
             }
-            return stops.sort((a,b) => (a.sequence || 0) - (b.sequence || 0));
+            return stops.sort((a,b) => (parseInt(a.sequence) || 0) - (parseInt(b.sequence) || 0));
         }
 
         function extractDepotStop(stopsObj) {
@@ -405,14 +415,18 @@
                 for (let idx = 0; idx < stopsObj.length; idx++) {
                     let val = stopsObj[idx];
                     if (val && ((val.id !== undefined && parseInt(val.id) <= -1000) || val.name === 'End Location / Depot')) {
-                        return val;
+                        if (val.lat !== undefined && val.lng !== undefined && !isNaN(parseFloat(val.lat)) && !isNaN(parseFloat(val.lng))) {
+                            return val;
+                        }
                     }
                 }
             } else if (typeof stopsObj === 'object' && stopsObj !== null) {
                 for (let key of Object.keys(stopsObj)) {
                     let val = stopsObj[key];
                     if (val && (parseInt(key) <= -1000 || (val.id !== undefined && parseInt(val.id) <= -1000) || val.name === 'End Location / Depot')) {
-                        return val;
+                        if (val.lat !== undefined && val.lng !== undefined && !isNaN(parseFloat(val.lat)) && !isNaN(parseFloat(val.lng))) {
+                            return val;
+                        }
                     }
                 }
             }
@@ -644,8 +658,8 @@
                     <div class="list-title" style="color:#ef4444;">Skipped Customers (${skipList.length})</div>
                     ${skipList.map(s => `
                         <div class="cust-row">
-                            <div class="cust-name">${s.name} ${s.phone ? `<a href="tel:${s.phone}" style="color:var(--primary);"><i class="fa-solid fa-phone"></i></a>` : ''}</div>
-                            <div class="cust-addr">${s.address}</div>
+                            <div class="cust-name">${s.name || 'Customer'} ${s.phone ? `<a href="tel:${s.phone}" style="color:var(--primary);"><i class="fa-solid fa-phone"></i></a>` : ''}</div>
+                            <div class="cust-addr">${s.address || 'No address'}</div>
                         </div>
                     `).join('')}
                     <div style="height:12px;"></div>
@@ -655,8 +669,8 @@
                     <div class="list-title">Next Left (${tLeft})</div>
                     ${leftList.map(s => `
                         <div class="cust-row">
-                            <div class="cust-name">${s.name} <span style="font-size:11px; font-weight:700; color:var(--text-muted);">#${s.sequence}</span></div>
-                            <div class="cust-addr">${s.address}</div>
+                            <div class="cust-name">${s.name || 'Customer'} ${s.sequence ? `<span style="font-size:11px; font-weight:700; color:var(--text-muted);">#${s.sequence}</span>` : ''}</div>
+                            <div class="cust-addr">${s.address || 'No address'}</div>
                         </div>
                     `).join('')}
                 ` : '';
@@ -698,11 +712,12 @@
                             let html = '<div style="background:#f8fafc; border-radius:8px; padding:10px; margin-top:12px; border:1px solid #e2e8f0;">';
                             if (lastStop) {
                                 html += '<div style="font-size:11px; font-weight:700; color:#10b981; text-transform:uppercase; margin-bottom:2px;">Last Completed</div>';
-                                html += '<div style="font-size:13px; font-weight:600; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; margin-bottom:' + (nextStop?'8px':'0') + ';">' + lastStop.name + '</div>';
+                                html += '<div style="font-size:13px; font-weight:600; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; margin-bottom:' + (nextStop?'8px':'0') + ';">' + (lastStop.name || 'Stop') + '</div>';
                             }
                             if (nextStop) {
+                                let seqText = (nextStop.sequence || nextStop.stop_number) ? (' <span style="font-size:11px; color:var(--text-muted);">#' + (nextStop.sequence || nextStop.stop_number) + '</span>') : '';
                                 html += '<div style="font-size:11px; font-weight:700; color:var(--primary); text-transform:uppercase; margin-bottom:2px;">Upcoming</div>';
-                                html += '<div style="font-size:13px; font-weight:600; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">' + nextStop.name + ' <span style="font-size:11px; color:var(--text-muted);">#' + (nextStop.sequence||nextStop.stop_number) + '</span></div>';
+                                html += '<div style="font-size:13px; font-weight:600; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">' + (nextStop.name || 'Upcoming Stop') + seqText + '</div>';
                             }
                             html += '</div>';
                             return html;
@@ -718,7 +733,7 @@
             });
             
             if (!cardsHtml) {
-                cardsHtml = `<div style="text-align:center; padding: 20px; color:var(--text-muted); font-size:14px;">Waiting for fleet data...</div>`;
+                cardsHtml = `<div style="text-align:center; padding: 30px 20px; color:var(--text-muted); font-size:14px;"><i class="fa-solid fa-truck" style="font-size:24px; opacity:0.4; margin-bottom:10px; display:block;"></i>All trucks are currently offline.<br><span style="font-size:12px;">Waiting for active fleet...</span></div>`;
             }
             
             document.getElementById('truck-list').innerHTML = cardsHtml;
