@@ -329,18 +329,34 @@
                         html = '<div style="padding: 24px; text-align: center; color: var(--text-muted);">No drivers created yet.</div>';
                     } else {
                         currentDrivers.forEach(d => {
+                            let truckOptions = '<option value="" ' + (!d.truck_id ? 'selected' : '') + '>No Truck</option>';
+                            for (let i = 1; i <= 6; i++) {
+                                truckOptions += `<option value="${i}" ${d.truck_id == i ? 'selected' : ''}>Truck ${i}</option>`;
+                            }
+                            if (d.truck_id && d.truck_id > 6) {
+                                truckOptions += `<option value="${d.truck_id}" selected>Truck ${d.truck_id}</option>`;
+                            }
+
                             html += `
                                 <div class="driver-item">
                                     <div class="driver-info">
                                         <div class="driver-avatar"><i class="fa-solid fa-user"></i></div>
                                         <div class="driver-details">
                                             <h4>${d.name || 'Unknown Driver'} <span style="font-size:13px; font-weight:normal; color:var(--text-muted); padding-left:4px;">(${d.username})</span></h4>
-                                            <p>Password: ${d.password_hash === 'redacted' ? '********' : 'Stored securely'}</p>
+                                            <p style="margin-top:3px; font-size:13px;">
+                                                ${d.assigned_template_name && d.assigned_template_name !== 'No Route Assigned' ? `<span style="color:var(--primary); font-weight:600;"><i class="fa-solid fa-route"></i> ${d.assigned_template_name}</span>` : '<span style="color:var(--text-muted);"><i class="fa-regular fa-compass"></i> No Route Assigned</span>'}
+                                            </p>
                                         </div>
                                     </div>
-                                    <div style="display:flex; align-items:center; gap:12px;">
-                                        <div class="driver-badge">${d.truck_id ? 'Truck ID: ' + d.truck_id : 'No Truck'}</div>
-                                        <button onclick="deleteDriver(${d.id})" style="background:none; border:none; color:var(--red, #ef4444); cursor:pointer; font-size:16px; padding:4px;" title="Delete Driver"><i class="fa-solid fa-trash-can"></i></button>
+                                    <div style="display:flex; align-items:center; gap:10px; flex-wrap:wrap;">
+                                        <div style="display:flex; align-items:center; gap:6px;">
+                                            <label style="font-size:12px; font-weight:600; color:var(--text-muted);">Truck:</label>
+                                            <select onchange="changeDriverTruck(${d.id}, this.value)" style="padding:6px 10px; border-radius:6px; border:1px solid var(--border); background:white; font-size:13px; font-weight:600; cursor:pointer; color:${d.truck_id ? 'var(--primary)' : 'var(--text-muted)'};">
+                                                ${truckOptions}
+                                            </select>
+                                        </div>
+                                        <button onclick="openAssignModal(${d.id}, ${d.assigned_template_id || 'null'})" class="btn btn-outline" style="padding:6px 12px; font-size:13px; background:white;" title="Assign route template"><i class="fa-solid fa-route"></i> Assign Route</button>
+                                        <button onclick="deleteDriver(${d.id})" style="background:none; border:none; color:var(--red, #ef4444); cursor:pointer; font-size:16px; padding:6px;" title="Delete Driver"><i class="fa-solid fa-trash-can"></i></button>
                                     </div>
                                 </div>
                             `;
@@ -349,6 +365,30 @@
                     document.getElementById('driver-list').innerHTML = html;
                 });
         }
+
+        window.changeDriverTruck = async function(driverId, truckId) {
+            try {
+                let res = await fetch('/api/admin_set_driver_truck', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({
+                        driver_id: driverId,
+                        truck_id: truckId || null
+                    })
+                });
+                let data = await res.json();
+                if (data.success) {
+                    loadDrivers();
+                    loadAssignedRoutes();
+                } else {
+                    alert("Error updating truck: " + (data.error || 'Unknown error'));
+                    loadDrivers();
+                }
+            } catch (e) {
+                alert("Network error: " + e.message);
+                loadDrivers();
+            }
+        };
         
         function updateAssignModalOptions() {
             let select = document.getElementById('assign-template-select');

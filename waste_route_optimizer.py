@@ -983,6 +983,107 @@ def admin_create_driver():
     
     return jsonify({'success': True, 'truck_id': next_truck_id})
 
+@app.route('/api/admin_set_driver_truck', methods=['POST'])
+@login_required
+def admin_set_driver_truck():
+    data = request.json or {}
+    driver_id = data.get('driver_id')
+    raw_truck_id = data.get('truck_id')
+    
+    driver = db.session.get(User, int(driver_id)) if driver_id else None
+    if not driver or driver.role != 'DRIVER':
+        return jsonify({'error': 'Driver not found'}), 404
+        
+    old_truck = driver.truck_id
+    tid = None
+    if raw_truck_id:
+        try:
+            tid = int(raw_truck_id)
+            evicted = User.query.filter(User.role == 'DRIVER', User.truck_id == tid, User.id != driver.id).all()
+            for ev in evicted:
+                ev.truck_id = None
+            driver.truck_id = tid
+        except:
+            return jsonify({'error': 'Invalid truck ID'}), 400
+    else:
+        driver.truck_id = None
+        
+    # Handle customer stop routing updates
+    if tid:
+        if old_truck and old_truck != tid:
+            Customer.query.filter_by(truck_id=old_truck).update({'truck_id': tid})
+        elif not old_truck and driver.assigned_template_id:
+            t = db.session.get(SavedTemplate, driver.assigned_template_id)
+            if t and t.customers_json:
+                import json
+                Customer.query.filter_by(truck_id=tid).delete()
+                cust_list = json.loads(t.customers_json or '[]')
+                existing_ids = set(r[0] for r in db.session.query(Customer.id).all())
+                max_id = db.session.query(db.func.max(Customer.id)).scalar() or 0
+                if max_id < 0: max_id = 0
+                for c in cust_list:
+                    raw_id = int(c['id'])
+                    if raw_id <= -1000 or c.get('name') == 'End Location / Depot':
+                        cid = -1000 - int(tid)
+                        if cid in existing_ids: Customer.query.filter_by(id=cid).delete()
+                    else:
+                        cid = raw_id
+                        if cid in existing_ids:
+                            max_id += 1
+                            cid = max_id
+                    existing_ids.add(cid)
+                    new_cust = Customer(
+                        id=cid, name=c['name'], phone=c.get('phone'), address=c.get('address'),
+                        location_url=c.get('location_url'), lat=c['lat'], lng=c['lng'],
+                        status='PENDING', truck_id=tid, stop_number=c.get('stop_number'),
+                        confirmation=c.get('confirmation', 'NOT_CONFIRMED'),
+                        customer_status=c.get('customer_status', 'ACTIVE')
+                    )
+                    db.session.add(new_cust)
+    elif old_truck and not tid:
+        Customer.query.filter_by(truck_id=old_truck).delete()
+
+    db.session.commit()
+    try:
+        recompute_route_metrics()
+    except:
+        pass
+    
+    try:
+        import requests
+        firebase_url = "https://wasteroutelive-default-rtdb.firebaseio.com"
+        id_token = get_firebase_token()
+        if id_token:
+            if old_truck and old_truck != driver.truck_id:
+                requests.patch(f"{firebase_url}/trucks/{old_truck}.json?auth={id_token}", json={"driverName": None, "driverId": None})
+                requests.delete(f"{firebase_url}/routes/route_{old_truck}.json?auth={id_token}")
+            if driver.truck_id:
+                requests.patch(f"{firebase_url}/trucks/{driver.truck_id}.json?auth={id_token}", json={
+                    "driverName": driver.name or driver.username,
+                    "driverId": driver.id
+                })
+                new_custs = Customer.query.filter_by(truck_id=driver.truck_id).all()
+                if new_custs:
+                    route_key = f"route_{driver.truck_id}"
+                    stops_payload = {}
+                    for c in new_custs:
+                        stops_payload[str(c.id)] = {
+                            "name": c.name,
+                            "address": c.address,
+                            "phone": c.phone or '',
+                            "lat": c.lat,
+                            "lng": c.lng,
+                            "sequence": c.stop_number,
+                            "status": c.status or "PENDING",
+                            "confirmation": c.confirmation,
+                            "customer_status": getattr(c, 'customer_status', 'ACTIVE')
+                        }
+                    requests.put(f"{firebase_url}/routes/{route_key}.json?auth={id_token}", json={"stops": stops_payload})
+    except Exception as e:
+        print("Firebase set truck sync error:", e)
+        
+    return jsonify({'success': True, 'truck_id': driver.truck_id})
+
 @app.route('/api/admin_delete_driver/<int:driver_id>', methods=['DELETE'])
 @login_required
 def admin_delete_driver(driver_id):
