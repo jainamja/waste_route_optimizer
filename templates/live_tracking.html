@@ -181,6 +181,45 @@
         .t-card.route-active {
             box-shadow: 0 4px 16px rgba(47, 95, 255, 0.12);
         }
+        .truck-filter-bar {
+            display: flex;
+            gap: 8px;
+            padding: 10px 16px;
+            overflow-x: auto;
+            background: #f8fafc;
+            border-bottom: 1px solid var(--border);
+            align-items: center;
+            scrollbar-width: none;
+        }
+        .truck-filter-bar::-webkit-scrollbar {
+            display: none;
+        }
+        .truck-filter-pill {
+            padding: 5px 12px;
+            border-radius: 20px;
+            font-size: 12px;
+            font-weight: 700;
+            cursor: pointer;
+            border: 1px solid var(--border);
+            background: white;
+            color: var(--text-muted);
+            white-space: nowrap;
+            display: inline-flex;
+            align-items: center;
+            transition: all 0.15s ease;
+            box-shadow: 0 1px 2px rgba(0,0,0,0.04);
+        }
+        .truck-filter-pill:hover {
+            background: #f1f5f9;
+            color: var(--text-main);
+            border-color: #cbd5e1;
+        }
+        .truck-filter-pill.active {
+            background: var(--primary);
+            color: white;
+            border-color: var(--primary);
+            box-shadow: 0 2px 8px rgba(47, 95, 255, 0.25);
+        }
 </style>
 </head>
 <body>
@@ -214,6 +253,7 @@
                 </div>
                 <div class="prog-bar-wrap" id="fleet-prog-bar"></div>
             </div>
+            <div class="truck-filter-bar" id="truck-filter-bar"></div>
             <div class="truck-list" id="truck-list">
                 <!-- Truck cards injected here -->
             </div>
@@ -624,21 +664,23 @@
                 let isRouteActive = visibleRouteTrucks.has(String(tId));
                 let isCardExpanded = window.expandedTruckCards && window.expandedTruckCards.has(String(tId));
                 let tColor = getTruckColor(tId);
-                let cardBorder = isRouteActive ? `border-left: 6px solid ${tColor}; box-shadow: 0 4px 16px rgba(0,0,0,0.1);` : '';
+                let isOnlyThisRoute = (visibleRouteTrucks.size === 1 && visibleRouteTrucks.has(String(tId)));
+                let cardBorder = isRouteActive ? `border-left: 6px solid ${tColor}; box-shadow: 0 4px 16px rgba(0,0,0,0.12);` : '';
 
                 cardsHtml += `
-                    <div class="t-card ${isRouteActive ? 'route-active' : ''} ${isCardExpanded ? 'expanded' : ''}" style="${cardBorder}" onclick="if(!window.expandedTruckCards)window.expandedTruckCards=new Set(); if(window.expandedTruckCards.has('${tId}'))window.expandedTruckCards.delete('${tId}'); else window.expandedTruckCards.add('${tId}'); this.classList.toggle('expanded'); panToTruck(${tId});">
+                    <div class="t-card ${isRouteActive ? 'route-active' : ''} ${isCardExpanded ? 'expanded' : ''}" style="${cardBorder}" onclick="handleCardClick('${tId}', event)">
                         <div class="t-card-header">
                             <div>
                                 <div class="t-title" style="display:flex; align-items:center; gap:6px;">
                                     <span style="width:10px; height:10px; border-radius:50%; background:${tColor}; display:inline-block;"></span>
                                     Truck ${tId}
+                                    ${isOnlyThisRoute ? `<span style="font-size:9px; font-weight:800; color:white; background:${tColor}; padding:2px 6px; border-radius:10px; letter-spacing:0.4px;">SOLO ROUTE</span>` : ''}
                                 </div>
                                 <div class="t-driver">${dName}</div>
                             </div>
                             <div style="display:flex; gap:6px; align-items:center;">
-                                <button onclick="event.stopPropagation(); toggleTruckRoute('${tId}');" class="btn-route-toggle ${isRouteActive ? 'active' : ''}" title="Toggle upcoming route path and stop pins">
-                                    <i class="fa-solid fa-route"></i> ${isRouteActive ? 'Hide Path' : 'Upcoming Path'}
+                                <button onclick="event.stopPropagation(); toggleTruckRoute('${tId}');" class="btn-route-toggle ${isRouteActive ? 'active' : ''}" title="${isRouteActive ? 'Click to hide this route path' : 'Click to show ONLY this truck route'}">
+                                    <i class="fa-solid fa-route"></i> ${isRouteActive ? 'Hide Path' : 'Show Route'}
                                 </button>
                                 ${pillHtml}
                             </div>
@@ -680,6 +722,29 @@
             }
             
             document.getElementById('truck-list').innerHTML = cardsHtml;
+            
+            // Build Truck Filter Pills
+            let filterBar = document.getElementById('truck-filter-bar');
+            if (filterBar) {
+                let allIds = getAllTrackableTruckIds();
+                let allVisible = allIds.length > 0 && allIds.every(id => visibleRouteTrucks.has(String(id)));
+                let filterHtml = `
+                    <button onclick="toggleAllRoutes(true)" class="truck-filter-pill ${allVisible ? 'active' : ''}">
+                        <i class="fa-solid fa-layer-group" style="margin-right:4px;"></i> All Trucks
+                    </button>
+                `;
+                allIds.forEach(id => {
+                    let isSolo = (visibleRouteTrucks.size === 1 && visibleRouteTrucks.has(String(id)));
+                    let c = getTruckColor(id);
+                    filterHtml += `
+                        <button onclick="focusTruckRoute('${id}')" class="truck-filter-pill ${isSolo ? 'active' : ''}">
+                            <span style="width:8px; height:8px; border-radius:50%; background:${c}; display:inline-block; margin-right:5px;"></span>
+                            Truck ${id}
+                        </button>
+                    `;
+                });
+                filterBar.innerHTML = filterHtml;
+            }
             
             let fleetLeft = fleetTotal - fleetComp - fleetSkip - fleetCanc;
             let fleetPct = fleetTotal > 0 ? Math.round((fleetComp / fleetTotal) * 100) : 0;
@@ -786,6 +851,15 @@
                     liveTruckMarkers[tId] = L.marker([lat, lng], { icon: createMarkerIcon() }).addTo(map);
                     liveTruckMarkers[tId]._lastOnlineState = isOnline;
                     liveTruckMarkers[tId].bindPopup(`<b>Truck ${tId}</b>`);
+                    liveTruckMarkers[tId].on('click', () => {
+                        if (!visibleRouteTrucks.has(String(tId)) || visibleRouteTrucks.size > 1) {
+                            visibleRouteTrucks.clear();
+                            visibleRouteTrucks.add(String(tId));
+                            renderRoutesOnMap();
+                            renderProgress();
+                            updateToggleAllButton();
+                        }
+                    });
                 }
                 
                 let countsStr = st ? `<br><span style="font-size:12px; color:#64748b;">${st.comp} done &middot; ${st.left} left</span>` : `<br><span style="font-size:12px; color:#64748b;">Standby / Active</span>`;
@@ -802,22 +876,28 @@
                 }
                 
                 let isRouteActive = visibleRouteTrucks.has(String(tId));
-                let routeBtnText = isRouteActive ? 'Hide Upcoming Route' : 'Show Upcoming Route';
-                let routeBtnIcon = isRouteActive ? 'fa-eye-slash' : 'fa-route';
-                let routeBtnBg = isRouteActive ? '#64748b' : tColor;
+                let isOnlyThis = (visibleRouteTrucks.size === 1 && visibleRouteTrucks.has(String(tId)));
 
                 let popupHtml = `
-                    <div style="font-family:inherit; min-width:160px; padding:2px;">
+                    <div style="font-family:inherit; min-width:170px; padding:2px;">
                         <div style="font-weight:700; font-size:14px; color:#0f172a; display:flex; align-items:center; gap:6px;">
                             <span style="width:10px; height:10px; border-radius:50%; background:${tColor}; display:inline-block;"></span>
                             Truck ${tId}
+                            ${isRouteActive ? `<span style="font-size:10px; background:${tColor}; color:white; padding:1px 5px; border-radius:8px; margin-left:auto;">Active</span>` : ''}
                         </div>
                         <div style="font-size:12px; color:#475569; margin-bottom:4px;">${dName}</div>
                         <div style="font-size:12px;">${timeStr}</div>
                         ${countsStr}
-                        <button onclick="toggleTruckRoute('${tId}')" style="margin-top:8px; width:100%; padding:6px 10px; background:${routeBtnBg}; color:white; border:none; border-radius:6px; font-weight:700; font-size:11px; cursor:pointer; display:flex; align-items:center; justify-content:center; gap:6px;">
-                            <i class="fa-solid ${routeBtnIcon}"></i> ${routeBtnText}
-                        </button>
+                        <div style="display:flex; gap:6px; margin-top:8px;">
+                            <button onclick="focusTruckRoute('${tId}')" style="flex:1; padding:6px 8px; background:${tColor}; color:white; border:none; border-radius:6px; font-weight:700; font-size:11px; cursor:pointer; display:flex; align-items:center; justify-content:center; gap:4px;">
+                                <i class="fa-solid fa-route"></i> ${isOnlyThis ? 'Only This' : 'Focus Route'}
+                            </button>
+                            ${isRouteActive ? `
+                            <button onclick="toggleTruckRoute('${tId}')" style="padding:6px 8px; background:#f1f5f9; color:#475569; border:1px solid #cbd5e1; border-radius:6px; font-weight:700; font-size:11px; cursor:pointer;" title="Hide path">
+                                <i class="fa-solid fa-eye-slash"></i>
+                            </button>
+                            ` : ''}
+                        </div>
                     </div>
                 `;
                 let popup = liveTruckMarkers[tId].getPopup();
@@ -848,46 +928,142 @@
         // Refresh popup time counters every second so the display never stays frozen
         setInterval(updateMapPopups, 1000);
 
+        function getAllTrackableTruckIds() {
+            let ids = new Set();
+            for (let rk in routesData) {
+                if (rk.startsWith('route_')) {
+                    let tid = rk.replace('route_', '');
+                    if (!isNaN(parseInt(tid))) ids.add(String(tid));
+                }
+            }
+            if (window.liveTrucks) {
+                for (let k in window.liveTrucks) {
+                    let t = window.liveTrucks[k];
+                    let tid = (t && (t.truckId || t.truck_id)) || k;
+                    if (!isNaN(parseInt(tid))) ids.add(String(tid));
+                }
+            }
+            if (window.driverMap) {
+                for (let k in window.driverMap) {
+                    if (!isNaN(parseInt(k))) ids.add(String(k));
+                }
+            }
+            return Array.from(ids).sort((a,b) => parseInt(a) - parseInt(b));
+        }
+
+        function focusTruckRoute(tId) {
+            let strId = String(tId);
+            let allIds = getAllTrackableTruckIds();
+            
+            // If already the only active route, clicking again restores all routes
+            if (visibleRouteTrucks.size === 1 && visibleRouteTrucks.has(strId)) {
+                allIds.forEach(id => visibleRouteTrucks.add(String(id)));
+            } else {
+                // Isolate ONLY this truck's route!
+                visibleRouteTrucks.clear();
+                visibleRouteTrucks.add(strId);
+            }
+            
+            renderRoutesOnMap();
+            renderProgress();
+            updateToggleAllButton();
+            
+            // Frame this truck and its route stops
+            fitRouteBounds(strId);
+            
+            if (liveTruckMarkers[strId]) {
+                liveTruckMarkers[strId].openPopup();
+            }
+        }
+
         function toggleTruckRoute(tId, forceState) {
             let strId = String(tId);
             if (forceState !== undefined) {
                 if (forceState) visibleRouteTrucks.add(strId);
                 else visibleRouteTrucks.delete(strId);
             } else {
-                if (visibleRouteTrucks.has(strId)) visibleRouteTrucks.delete(strId);
-                else visibleRouteTrucks.add(strId);
+                if (!visibleRouteTrucks.has(strId)) {
+                    // Turn on this truck: focus exclusively on it!
+                    focusTruckRoute(strId);
+                    return;
+                } else {
+                    visibleRouteTrucks.delete(strId);
+                }
             }
             renderRoutesOnMap();
             renderProgress();
+            updateToggleAllButton();
             
             if (visibleRouteTrucks.has(strId)) {
                 fitRouteBounds(strId);
             }
         }
 
-        function toggleAllRoutes() {
-            let allIds = Object.keys(routesData).map(k => k.replace('route_', '')).filter(k => !isNaN(parseInt(k)));
+        function toggleAllRoutes(forceShow) {
+            let allIds = getAllTrackableTruckIds();
             if (allIds.length === 0) return;
             
             let allVisible = allIds.every(id => visibleRouteTrucks.has(String(id)));
-            let btn = document.getElementById('btn-toggle-all-routes');
-            if (allVisible) {
+            if (forceShow === true || !allVisible) {
                 visibleRouteTrucks.clear();
-                if (btn) {
-                    btn.innerHTML = '<i class="fa-solid fa-route"></i> Show All Routes';
-                    btn.classList.remove('btn-primary');
-                    btn.classList.add('btn-outline');
-                }
-            } else {
                 allIds.forEach(id => visibleRouteTrucks.add(String(id)));
-                if (btn) {
-                    btn.innerHTML = '<i class="fa-solid fa-eye-slash"></i> Hide All Routes';
-                    btn.classList.remove('btn-outline');
-                    btn.classList.add('btn-primary');
-                }
+            } else {
+                visibleRouteTrucks.clear();
             }
             renderRoutesOnMap();
             renderProgress();
+            updateToggleAllButton();
+            
+            if (visibleRouteTrucks.size > 0) {
+                let pts = [];
+                visibleRouteTrucks.forEach(tId => {
+                    let tData = getTruckData(tId);
+                    let coords = getTruckCoords(tData);
+                    if (coords) pts.push(coords);
+                    let rNode = routesData['route_' + tId] || {};
+                    let stops = parseStops(rNode.stops || rNode);
+                    stops.forEach(s => {
+                        if (s.id > -1000 && s.status !== 'COMPLETED' && s.status !== 'SKIPPED' && s.confirmation !== 'CANCELLED' && s.lat && s.lng && !isNaN(parseFloat(s.lat)) && !isNaN(parseFloat(s.lng))) {
+                            pts.push([parseFloat(s.lat), parseFloat(s.lng)]);
+                        }
+                    });
+                });
+                if (pts.length > 1) {
+                    map.flyToBounds(L.latLngBounds(pts), { padding: [60, 60], maxZoom: 16 });
+                } else if (pts.length === 1) {
+                    map.flyTo(pts[0], 16);
+                }
+            }
+        }
+
+        function updateToggleAllButton() {
+            let btn = document.getElementById('btn-toggle-all-routes');
+            if (!btn) return;
+            let allIds = getAllTrackableTruckIds();
+            let allVisible = allIds.length > 0 && allIds.every(id => visibleRouteTrucks.has(String(id)));
+            if (allVisible) {
+                btn.innerHTML = '<i class="fa-solid fa-eye-slash"></i> Hide All Routes';
+                btn.classList.remove('btn-outline');
+                btn.classList.add('btn-primary');
+            } else {
+                btn.innerHTML = '<i class="fa-solid fa-route"></i> Show All Routes';
+                btn.classList.remove('btn-primary');
+                btn.classList.add('btn-outline');
+            }
+        }
+
+        function handleCardClick(tId, event) {
+            if (event.target.closest('button') || event.target.closest('a')) return;
+            
+            let strId = String(tId);
+            if (!window.expandedTruckCards) window.expandedTruckCards = new Set();
+            if (window.expandedTruckCards.has(strId)) {
+                window.expandedTruckCards.delete(strId);
+            } else {
+                window.expandedTruckCards.add(strId);
+            }
+            
+            focusTruckRoute(strId);
         }
 
         const stopsGeoCache = {};
@@ -1750,30 +1926,20 @@
             
             let pts = [];
             if (truckCoords) pts.push(truckCoords);
-            pendingStops.forEach(s => { if (s.lat && s.lng) pts.push([s.lat, s.lng]); });
-            if (pts.length > 0) {
+            pendingStops.forEach(s => { 
+                if (s.lat !== undefined && s.lng !== undefined && !isNaN(parseFloat(s.lat)) && !isNaN(parseFloat(s.lng))) {
+                    pts.push([parseFloat(s.lat), parseFloat(s.lng)]);
+                }
+            });
+            if (pts.length > 1) {
                 map.flyToBounds(L.latLngBounds(pts), { padding: [60, 60], maxZoom: 16 });
+            } else if (pts.length === 1) {
+                map.flyTo(pts[0], 16);
             }
         }
 
         function panToTruck(tId) {
-            let strId = String(tId);
-            let tData = getTruckData(strId);
-            let coords = getTruckCoords(tData);
-            let isOnline = isTruckOnline(tData);
-            if (coords && isOnline) {
-                if (!visibleRouteTrucks.has(strId)) {
-                    visibleRouteTrucks.add(strId);
-                    renderRoutesOnMap();
-                    renderProgress();
-                }
-                map.flyTo(coords, 16);
-                if (liveTruckMarkers[strId]) {
-                    liveTruckMarkers[strId].openPopup();
-                }
-            } else {
-                alert(`Truck ${strId} is currently offline (driver logged out).`);
-            }
+            focusTruckRoute(tId);
         }
     </script>
 <script>

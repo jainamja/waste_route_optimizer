@@ -699,10 +699,61 @@ def live_tracking():
     resp.headers['Expires'] = '0'
     return resp
 
+def ensure_driver_truck_assignments():
+    """
+    Ensures every driver has a unique, non-null, sequential truck_id (1, 2, 3...)
+    without duplicates or gaps. 100% automated - no manual configuration.
+    """
+    try:
+        drivers = User.query.filter_by(role='DRIVER').order_by(User.id.asc()).all()
+        if not drivers:
+            return
+            
+        used_truck_ids = set()
+        drivers_needing_truck = []
+        
+        # 1. Collect drivers that already have a unique, valid truck_id
+        for d in drivers:
+            if d.truck_id and d.truck_id not in used_truck_ids:
+                used_truck_ids.add(d.truck_id)
+            else:
+                drivers_needing_truck.append(d)
+                
+        # 2. Automatically assign the lowest available unique truck_id (1, 2, 3...)
+        next_id = 1
+        modified = False
+        for d in drivers_needing_truck:
+            while next_id in used_truck_ids:
+                next_id += 1
+            d.truck_id = next_id
+            used_truck_ids.add(next_id)
+            modified = True
+            
+        if modified:
+            db.session.commit()
+            
+            # Sync assigned names to Firebase
+            try:
+                import requests
+                firebase_url = "https://wasteroutelive-default-rtdb.firebaseio.com"
+                id_token = get_firebase_token()
+                if id_token:
+                    for d in drivers:
+                        if d.truck_id:
+                            requests.patch(f"{firebase_url}/trucks/{d.truck_id}.json?auth={id_token}", json={
+                                "driverName": d.name or d.username,
+                                "driverId": d.id
+                            })
+            except Exception as fb_e:
+                print("Firebase auto-sync truck error:", fb_e)
+    except Exception as e:
+        print("ensure_driver_truck_assignments error:", e)
+
 @app.route('/api/drivers', methods=['GET'])
 @login_required
 def get_drivers():
-    drivers = User.query.filter_by(role='DRIVER').all()
+    ensure_driver_truck_assignments()
+    drivers = User.query.filter_by(role='DRIVER').order_by(User.truck_id.asc(), User.id.asc()).all()
     drivers_data = []
     for d in drivers:
         assigned_name = "No Route Assigned"
@@ -974,14 +1025,17 @@ def admin_create_driver():
         return jsonify({'error': 'Mobile number already exists'}), 400
         
     from werkzeug.security import generate_password_hash
-    existing_truck_ids = [u.truck_id for u in User.query.filter_by(role='DRIVER').all() if u.truck_id is not None]
-    next_truck_id = max(existing_truck_ids) + 1 if existing_truck_ids else 1
+    existing_truck_ids = set(u.truck_id for u in User.query.filter_by(role='DRIVER').all() if u.truck_id is not None)
+    next_truck_id = 1
+    while next_truck_id in existing_truck_ids:
+        next_truck_id += 1
     
     new_driver = User(username=username, password_hash=generate_password_hash(password), role='DRIVER', truck_id=next_truck_id, name=name)
     db.session.add(new_driver)
     db.session.commit()
+    ensure_driver_truck_assignments()
     
-    return jsonify({'success': True, 'truck_id': next_truck_id})
+    return jsonify({'success': True, 'truck_id': new_driver.truck_id})
 
 @app.route('/api/admin_set_driver_truck', methods=['POST'])
 @login_required
@@ -1388,6 +1442,7 @@ def get_data():
     if 'driver_tokens' in metadata:
         driver_tokens = json.loads(metadata['driver_tokens'])
 
+    ensure_driver_truck_assignments()
     drivers = User.query.filter_by(role='DRIVER').all()
     drivers_data = []
     for d in drivers:
@@ -2084,31 +2139,20 @@ def assign_route():
             driver = None
     if not driver: return jsonify({'error': 'Driver not found'}), 404
     
-    # Determine other drivers' active trucks
-    other_active_trucks = set()
-    for od in User.query.filter(User.role == 'DRIVER', User.id != driver.id, User.assigned_template_id != None, User.truck_id != None).all():
-        if Customer.query.filter(Customer.truck_id == od.truck_id, Customer.id > -1000, Customer.status == 'PENDING').count() > 0:
-            other_active_trucks.add(int(od.truck_id))
-
+    ensure_driver_truck_assignments()
     if requested_truck_id:
         try:
             truck_id_int = int(requested_truck_id)
+            if driver.truck_id != truck_id_int:
+                colliding = User.query.filter(User.role == 'DRIVER', User.truck_id == truck_id_int, User.id != driver.id).all()
+                driver.truck_id = truck_id_int
+                db.session.commit()
+                if colliding:
+                    ensure_driver_truck_assignments()
         except:
-            truck_id_int = 1
-        if truck_id_int in other_active_trucks:
-            truck_id_int = 1
-            while truck_id_int in other_active_trucks:
-                truck_id_int += 1
-        User.query.filter(User.role == 'DRIVER', User.truck_id == truck_id_int, User.id != driver.id).update({'truck_id': None})
-        driver.truck_id = truck_id_int
-        db.session.commit()
-    elif not driver.truck_id or int(driver.truck_id) in other_active_trucks:
-        truck_id_int = 1
-        while truck_id_int in other_active_trucks:
-            truck_id_int += 1
-        User.query.filter(User.role == 'DRIVER', User.truck_id == truck_id_int, User.id != driver.id).update({'truck_id': None})
-        driver.truck_id = truck_id_int
-        db.session.commit()
+            pass
+    elif not driver.truck_id:
+        ensure_driver_truck_assignments()
         
     try:
         import requests
@@ -2433,7 +2477,7 @@ def get_assigned_routes():
     except Exception as e:
         print("sync_firebase_to_sql error in get_assigned_routes:", e)
 
-    # Only return routes for drivers who actually have a truck assigned
+    ensure_driver_truck_assignments()
     drivers = User.query.filter(User.assigned_template_id != None, User.truck_id != None).all()
     
     res = []
