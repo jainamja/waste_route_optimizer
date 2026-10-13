@@ -835,13 +835,16 @@
             
             data.customers.forEach(c => {
                 let t = c.truck;
+                let isInactive = (c.customer_status || 'ACTIVE').toUpperCase() === 'INACTIVE';
                 if (!trucksInfo[t]) trucksInfo[t] = { total: 0, completed: 0, confirmed: 0, cancelled: 0, realCount: 0 };
-                trucksInfo[t].total++;
-                if (c.status === 'COMPLETED') trucksInfo[t].completed++;
-                if (c.id > -1000 && c.name !== 'End Location / Depot') {
-                    trucksInfo[t].realCount++;
-                    if (c.confirmation === 'CONFIRMED') trucksInfo[t].confirmed++;
-                    if (c.confirmation === 'CANCELLED') trucksInfo[t].cancelled++;
+                if (!isInactive) {
+                    trucksInfo[t].total++;
+                    if (c.status === 'COMPLETED') trucksInfo[t].completed++;
+                    if (c.id > -1000 && c.name !== 'End Location / Depot') {
+                        trucksInfo[t].realCount++;
+                        if (c.confirmation === 'CONFIRMED') trucksInfo[t].confirmed++;
+                        if (c.confirmation === 'CANCELLED') trucksInfo[t].cancelled++;
+                    }
                 }
             });
 

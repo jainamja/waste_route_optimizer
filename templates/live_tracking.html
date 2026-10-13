@@ -323,7 +323,14 @@
         function fetchDrivers() {
             fetch('/api/data').then(r => r.json()).then(data => {
                 let drvs = data.drivers || [];
-                drvs.forEach(d => { driverMap[d.truck_id] = d.name || d.username; truckToDriver[d.truck_id] = d.id; });
+                driverMap = {};
+                truckToDriver = {};
+                drvs.forEach(d => {
+                    if (d.truck_id) {
+                        driverMap[d.truck_id] = d.name || d.username;
+                        truckToDriver[d.truck_id] = d.id;
+                    }
+                });
                 if (usingFallback) fallbackToIndividualListeners();
                 scheduleRender();
             }).catch(e => console.error("fetchDrivers failed:", e));
@@ -334,7 +341,8 @@
             let stops = [];
             if (Array.isArray(stopsObj)) {
                 stopsObj.forEach((val, idx) => {
-                    if (val && idx > -1000 && val.name !== 'End Location / Depot') {
+                    let isInactive = val && (val.customer_status || 'ACTIVE').toUpperCase() === 'INACTIVE';
+                    if (val && idx > -1000 && val.name !== 'End Location / Depot' && !isInactive) {
                         val.id = val.id || idx;
                         stops.push(val);
                     }
@@ -342,7 +350,8 @@
             } else if (typeof stopsObj === 'object' && stopsObj !== null) {
                 Object.keys(stopsObj).forEach(key => {
                     let val = stopsObj[key];
-                    if (val && parseInt(key) > -1000 && val.name !== 'End Location / Depot') {
+                    let isInactive = val && (val.customer_status || 'ACTIVE').toUpperCase() === 'INACTIVE';
+                    if (val && parseInt(key) > -1000 && val.name !== 'End Location / Depot' && !isInactive) {
                         val.id = val.id || parseInt(key);
                         stops.push(val);
                     }

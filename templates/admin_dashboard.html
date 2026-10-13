@@ -339,7 +339,7 @@
                                         </div>
                                     </div>
                                     <div style="display:flex; align-items:center; gap:12px;">
-                                        <div class="driver-badge">Truck ID: ${d.truck_id}</div>
+                                        <div class="driver-badge">${d.truck_id ? 'Truck ID: ' + d.truck_id : 'No Truck'}</div>
                                         <button onclick="deleteDriver(${d.id})" style="background:none; border:none; color:var(--red, #ef4444); cursor:pointer; font-size:16px; padding:4px;" title="Delete Driver"><i class="fa-solid fa-trash-can"></i></button>
                                     </div>
                                 </div>
@@ -382,6 +382,7 @@
                 if(res.success) {
                     document.getElementById('assign-route-modal').style.display = 'none';
                     loadDrivers();
+                    loadAssignedRoutes();
                 } else {
                     alert("Error: " + res.error);
                 }
@@ -396,6 +397,7 @@
                 let data = await res.json();
                 if(data.success) {
                     loadDrivers(); // Refresh list
+                    loadAssignedRoutes();
                 } else {
                     alert("Error: " + data.error);
                 }

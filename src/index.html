@@ -1030,6 +1030,9 @@
             const truckRef = db.ref(`trucks/${truckId}`);
             truckRef.child('status').set('online').catch(e=>{});
             truckRef.child('name').set('Truck ' + truckId).catch(e=>{});
+            if (window.currentDriverName) {
+                truckRef.child('driverName').set(window.currentDriverName).catch(e=>{});
+            }
             truckRef.child('lastUpdated').set(firebase.database.ServerValue.TIMESTAMP).catch(e=>{});
             truckRef.child('status').onDisconnect().cancel().catch(e=>{});
             
@@ -1299,6 +1302,7 @@
                 driverId = token;
                 window.currentTruckId = truckId;
                 window.currentDriverId = driverId;
+                window.currentDriverName = data.driver_name || ('Driver ' + driverId);
                 document.getElementById('login-overlay').style.display = 'none';
                 document.getElementById('truck-title').innerText = "Truck " + truckId;
                 
