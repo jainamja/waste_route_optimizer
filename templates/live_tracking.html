@@ -1227,6 +1227,7 @@
 
         function createRoadGeoLayer(geometry, color) {
             return L.geoJSON(geometry, {
+                interactive: false,
                 style: {
                     color: color,
                     weight: 5,
@@ -1374,7 +1375,8 @@
                     color: color,
                     weight: 2,
                     opacity: 0.8,
-                    dashArray: '3, 4'
+                    dashArray: '3, 4',
+                    interactive: false
                 }).addTo(map);
                 activeSpiderLayers.push(leg);
 
@@ -1397,7 +1399,11 @@
                         ${phoneHtml}
                     </div>
                 `;
-                childMarker.bindPopup(childPopup);
+                childMarker.bindPopup(childPopup, { autoPan: true, closeButton: true });
+                childMarker.on('click', function(e) {
+                    if (e && e.originalEvent) L.DomEvent.stopPropagation(e);
+                    this.openPopup();
+                });
                 activeSpiderLayers.push(childMarker);
             });
         }
@@ -1417,6 +1423,9 @@
                     const removed = new Set();
                     Object.values(state.stopMarkers).forEach(entry => {
                         if (entry && entry.marker && !removed.has(entry.marker)) {
+                            if (entry.clickHandler) {
+                                entry.marker.off('click', entry.clickHandler);
+                            }
                             map.removeLayer(entry.marker);
                             removed.add(entry.marker);
                         }
@@ -1511,14 +1520,20 @@
                         popupAnchor: [0, -14]
                     });
                     const sm = L.marker([lat, lng], { icon: pinIcon }).addTo(map);
-                    sm.bindPopup(popupHtml);
-                    if (count > 1) {
-                        sm.on('click', () => {
+                    sm.bindPopup(popupHtml, { autoPan: true, closeButton: true });
+                    const clickHandler = (e) => {
+                        if (e && e.originalEvent) {
+                            L.DomEvent.stopPropagation(e);
+                        }
+                        sm.openPopup();
+                        if (cl.customers.length > 1) {
                             spiderfyCluster(cl, strId, color);
-                        });
-                    }
+                        }
+                    };
+                    sm.on('click', clickHandler);
                     existing = {
                         marker: sm,
+                        clickHandler: clickHandler,
                         seq: seq,
                         color: color,
                         iconHtml: iconHtml,
@@ -1550,15 +1565,23 @@
                     if (existing.popupHtml !== popupHtml) {
                         const popup = existing.marker.getPopup();
                         if (popup) popup.setContent(popupHtml);
-                        else existing.marker.bindPopup(popupHtml);
+                        else existing.marker.bindPopup(popupHtml, { autoPan: true, closeButton: true });
                         existing.popupHtml = popupHtml;
                     }
-                    existing.marker.off('click');
-                    if (count > 1) {
-                        existing.marker.on('click', () => {
-                            spiderfyCluster(cl, strId, color);
-                        });
+                    // Safely detach previous clickHandler reference without destroying Leaflet internal popup handlers
+                    if (existing.clickHandler) {
+                        existing.marker.off('click', existing.clickHandler);
                     }
+                    existing.clickHandler = (e) => {
+                        if (e && e.originalEvent) {
+                            L.DomEvent.stopPropagation(e);
+                        }
+                        existing.marker.openPopup();
+                        if (cl.customers.length > 1) {
+                            spiderfyCluster(cl, strId, color);
+                        }
+                    };
+                    existing.marker.on('click', existing.clickHandler);
                 }
 
                 cl.customers.forEach(c => {
@@ -1575,6 +1598,9 @@
                     if (entry && entry.marker) {
                         const isShared = Array.from(currentIds).some(cid => state.stopMarkers[cid] && state.stopMarkers[cid].marker === entry.marker);
                         if (!isShared && !removedMarkers.has(entry.marker)) {
+                            if (entry.clickHandler) {
+                                entry.marker.off('click', entry.clickHandler);
+                            }
                             map.removeLayer(entry.marker);
                             removedMarkers.add(entry.marker);
                         }
@@ -1590,13 +1616,17 @@
                 if (!state.depotMarker) {
                     const depotIcon = L.divIcon({
                         className: 'depot-pin-' + strId,
-                        html: `<div style="background:#0f172a; color:white; width:26px; height:26px; border-radius:6px; border:2px solid #ffffff; box-shadow:0 3px 8px rgba(0,0,0,0.35); display:flex; align-items:center; justify-content:center; font-size:12px;" title="Depot / End"><i class="fa-solid fa-warehouse"></i></div>`,
+                        html: `<div style="background:#0f172a; color:white; width:26px; height:26px; border-radius:6px; border:2px solid #ffffff; box-shadow:0 3px 8px rgba(0,0,0,0.35); display:flex; align-items:center; justify-content:center; font-size:12px; cursor:pointer;" title="Depot / End"><i class="fa-solid fa-warehouse"></i></div>`,
                         iconSize: [26, 26],
                         iconAnchor: [13, 13],
                         popupAnchor: [0, -14]
                     });
                     const dm = L.marker([dLat, dLng], { icon: depotIcon }).addTo(map);
-                    dm.bindPopup(dPopup);
+                    dm.bindPopup(dPopup, { autoPan: true, closeButton: true });
+                    dm.on('click', function(e) {
+                        if (e && e.originalEvent) L.DomEvent.stopPropagation(e);
+                        this.openPopup();
+                    });
                     state.depotMarker = { marker: dm, lat: dLat, lng: dLng, popupHtml: dPopup };
                 } else {
                     if (Math.abs(state.depotMarker.lat - dLat) > 1e-6 || Math.abs(state.depotMarker.lng - dLng) > 1e-6) {
@@ -1607,6 +1637,7 @@
                     if (state.depotMarker.popupHtml !== dPopup) {
                         const p = state.depotMarker.marker.getPopup();
                         if (p) p.setContent(dPopup);
+                        else state.depotMarker.marker.bindPopup(dPopup, { autoPan: true, closeButton: true });
                         state.depotMarker.popupHtml = dPopup;
                     }
                 }
@@ -1670,7 +1701,8 @@
                     weight: 4,
                     opacity: 0.75,
                     dashArray: '6, 8',
-                    lineJoin: 'round'
+                    lineJoin: 'round',
+                    interactive: false
                 }).addTo(map);
                 syncTruckLayerArrays(state);
             }
