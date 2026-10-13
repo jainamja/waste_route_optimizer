@@ -101,6 +101,7 @@ class SavedTemplate(db.Model):
     created_at = db.Column(db.DateTime, server_default=db.func.now())
     metadata_json = db.Column(db.Text)
     customers_json = db.Column(db.Text)
+    is_assigned_instance = db.Column(db.Boolean, default=False)
 
 with app.app_context():
     db.create_all()
@@ -138,6 +139,30 @@ with app.app_context():
         
     try:
         db.session.execute(text("ALTER TABLE customers ALTER COLUMN id TYPE BIGINT;"))
+        db.session.commit()
+    except:
+        db.session.rollback()
+        
+    try:
+        db.session.execute(text("ALTER TABLE saved_templates ADD COLUMN is_assigned_instance BOOLEAN DEFAULT 0;"))
+        db.session.commit()
+    except:
+        db.session.rollback()
+
+    try:
+        drivers_with_tmpl = User.query.filter(User.assigned_template_id != None).all()
+        for d in drivers_with_tmpl:
+            orig_t = SavedTemplate.query.get(d.assigned_template_id)
+            if orig_t and not getattr(orig_t, 'is_assigned_instance', False):
+                inst = SavedTemplate(
+                    name=orig_t.name,
+                    metadata_json=orig_t.metadata_json,
+                    customers_json=orig_t.customers_json,
+                    is_assigned_instance=True
+                )
+                db.session.add(inst)
+                db.session.flush()
+                d.assigned_template_id = inst.id
         db.session.commit()
     except:
         db.session.rollback()
@@ -979,7 +1004,7 @@ def assign_driver():
         User.query.filter(User.role == 'DRIVER', User.truck_id == truck_id, User.id != driver.id).update({'truck_id': None, 'assigned_template_id': None})
         driver.truck_id = truck_id
         
-        # Link to current workspace template if applicable
+        # Dedicated assigned instance for this driver
         ws_meta = Metadata.query.filter_by(key='workspace_truck_ids').first()
         ws_trucks = []
         if ws_meta and ws_meta.value:
@@ -987,27 +1012,53 @@ def assign_driver():
                 ws_trucks = json.loads(ws_meta.value)
             except:
                 ws_trucks = []
-                
+
         curr = Metadata.query.filter_by(key='current_template_id').first()
-        if curr and curr.value and (not ws_trucks or truck_id in ws_trucks or not driver.assigned_template_id):
-            driver.assigned_template_id = int(curr.value)
-            
-        if not driver.assigned_template_id:
-            # Auto-create a template entry so this assigned route is always tracked in Assigned Routes
-            cust_rows = Customer.query.filter_by(truck_id=truck_id).order_by(Customer.stop_number.asc()).all()
-            cust_list = [{
-                'id': c.id, 'name': c.name, 'phone': c.phone, 'address': c.address,
-                'location_url': c.location_url, 'lat': c.lat, 'lng': c.lng,
-                'status': c.status, 'truck_id': 1, 'stop_number': c.stop_number,
-                'confirmation': c.confirmation if c.confirmation else 'NOT_CONFIRMED',
-                'customer_status': getattr(c, 'customer_status', 'ACTIVE') or 'ACTIVE'
-            } for c in cust_rows]
-            meta_rows = Metadata.query.all()
-            meta_dict = {m.key: m.value for m in meta_rows}
+        template_name = None
+        if curr and curr.value and (not ws_trucks or truck_id in ws_trucks):
+            master_t = SavedTemplate.query.get(int(curr.value))
+            if master_t:
+                template_name = master_t.name
+        if not template_name:
+            curr_name_meta = Metadata.query.filter_by(key='current_template_name').first()
+            if curr_name_meta and curr_name_meta.value:
+                template_name = curr_name_meta.value
+        if not template_name:
+            template_name = f"Route - {driver.name or driver.username} (Truck {truck_id})"
+
+        cust_rows = Customer.query.filter_by(truck_id=truck_id).order_by(Customer.stop_number.asc()).all()
+        cust_list = [{
+            'id': c.id, 'name': c.name, 'phone': c.phone, 'address': c.address,
+            'location_url': c.location_url, 'lat': c.lat, 'lng': c.lng,
+            'status': c.status, 'truck_id': 1, 'stop_number': c.stop_number,
+            'confirmation': c.confirmation if c.confirmation else 'NOT_CONFIRMED',
+            'customer_status': getattr(c, 'customer_status', 'ACTIVE') or 'ACTIVE'
+        } for c in cust_rows]
+        meta_rows = Metadata.query.all()
+        meta_dict = {m.key: m.value for m in meta_rows}
+
+        if driver.assigned_template_id:
+            old_inst = SavedTemplate.query.get(driver.assigned_template_id)
+            if old_inst and getattr(old_inst, 'is_assigned_instance', False):
+                old_inst.name = template_name
+                old_inst.metadata_json = json.dumps(meta_dict)
+                old_inst.customers_json = json.dumps(cust_list)
+            else:
+                auto_t = SavedTemplate(
+                    name=template_name,
+                    metadata_json=json.dumps(meta_dict),
+                    customers_json=json.dumps(cust_list),
+                    is_assigned_instance=True
+                )
+                db.session.add(auto_t)
+                db.session.flush()
+                driver.assigned_template_id = auto_t.id
+        else:
             auto_t = SavedTemplate(
-                name=f"Route - {driver.name or driver.username} (Truck {truck_id})",
+                name=template_name,
                 metadata_json=json.dumps(meta_dict),
-                customers_json=json.dumps(cust_list)
+                customers_json=json.dumps(cust_list),
+                is_assigned_instance=True
             )
             db.session.add(auto_t)
             db.session.flush()
@@ -1914,6 +1965,10 @@ def assign_route():
         id_token = None
     
     if not template_id:
+        if driver.assigned_template_id:
+            old_inst = SavedTemplate.query.get(driver.assigned_template_id)
+            if old_inst and getattr(old_inst, 'is_assigned_instance', False):
+                db.session.delete(old_inst)
         driver.assigned_template_id = None
         Customer.query.filter_by(truck_id=driver.truck_id).delete()
         db.session.commit()
@@ -1925,7 +1980,34 @@ def assign_route():
     t = SavedTemplate.query.get(template_id)
     if not t: return jsonify({'error': 'Template not found'}), 404
     
-    driver.assigned_template_id = int(template_id)
+    # Create or update dedicated assigned instance for this driver
+    if driver.assigned_template_id:
+        old_inst = SavedTemplate.query.get(driver.assigned_template_id)
+        if old_inst and getattr(old_inst, 'is_assigned_instance', False):
+            old_inst.name = t.name
+            old_inst.metadata_json = t.metadata_json
+            old_inst.customers_json = t.customers_json
+            assigned_inst = old_inst
+        else:
+            assigned_inst = SavedTemplate(
+                name=t.name,
+                metadata_json=t.metadata_json,
+                customers_json=t.customers_json,
+                is_assigned_instance=True
+            )
+            db.session.add(assigned_inst)
+            db.session.flush()
+    else:
+        assigned_inst = SavedTemplate(
+            name=t.name,
+            metadata_json=t.metadata_json,
+            customers_json=t.customers_json,
+            is_assigned_instance=True
+        )
+        db.session.add(assigned_inst)
+        db.session.flush()
+
+    driver.assigned_template_id = assigned_inst.id
     Customer.query.filter_by(truck_id=driver.truck_id).delete()
     
     import json
@@ -1990,6 +2072,7 @@ def assign_route():
 def save_template():
     name = request.json.get('name')
     t_id = request.json.get('id')
+    is_edit_assigned = request.json.get('is_edit_assigned', False)
     if not name: return jsonify({'error': 'Name is required'}), 400
     
     import json
@@ -2004,10 +2087,20 @@ def save_template():
             ws_trucks = json.loads(meta_dict['workspace_truck_ids'])
         except:
             ws_trucks = []
+            
+    # Check if target is an assigned instance or master library template
+    target_is_assigned = False
+    t = None
+    if t_id:
+        t = SavedTemplate.query.get(t_id)
+        if t and getattr(t, 'is_assigned_instance', False):
+            target_is_assigned = True
+    if is_edit_assigned:
+        target_is_assigned = True
     
     # Dump Customers (only for the target template or current workspace, never mixing other drivers' routes)
     cust_rows = None
-    if t_id:
+    if target_is_assigned and t_id:
         drivers = User.query.filter_by(assigned_template_id=t_id).all()
         if drivers:
             truck_ids = [d.truck_id for d in drivers if d.truck_id is not None]
@@ -2017,7 +2110,11 @@ def save_template():
         if ws_trucks:
             cust_rows = Customer.query.filter(Customer.truck_id.in_(ws_trucks)).order_by(Customer.truck_id.asc(), Customer.stop_number.asc()).all()
         else:
-            cust_rows = Customer.query.order_by(Customer.truck_id.asc(), Customer.stop_number.asc()).all()
+            protected_trucks = get_active_assigned_trucks()
+            if protected_trucks:
+                cust_rows = Customer.query.filter((Customer.truck_id == None) | (~Customer.truck_id.in_(protected_trucks))).order_by(Customer.truck_id.asc(), Customer.stop_number.asc()).all()
+            else:
+                cust_rows = Customer.query.order_by(Customer.truck_id.asc(), Customer.stop_number.asc()).all()
             
     cust_list = [{
         'id': c.id, 'name': c.name, 'phone': c.phone, 'address': c.address,
@@ -2027,11 +2124,8 @@ def save_template():
         'customer_status': getattr(c, 'customer_status', 'ACTIVE') or 'ACTIVE'
     } for c in cust_rows]
     
-    t = None
-    if t_id:
-        t = SavedTemplate.query.get(t_id)
-    if not t:
-        t = SavedTemplate.query.filter_by(name=name).first()
+    if not t and not target_is_assigned:
+        t = SavedTemplate.query.filter_by(name=name, is_assigned_instance=False).first()
         
     if t:
         t.name = name
@@ -2042,96 +2136,101 @@ def save_template():
         t = SavedTemplate(
             name=name,
             metadata_json=json.dumps(meta_dict),
-            customers_json=json.dumps(cust_list)
+            customers_json=json.dumps(cust_list),
+            is_assigned_instance=target_is_assigned
         )
         db.session.add(t)
     db.session.commit()
     
-    # Update current_template_id and current_template_name in Metadata so subsequent driver assignment links to this template
-    curr_id_meta = Metadata.query.filter_by(key='current_template_id').first()
-    if not curr_id_meta:
-        curr_id_meta = Metadata(key='current_template_id')
-        db.session.add(curr_id_meta)
-    curr_id_meta.value = str(t.id)
+    if not target_is_assigned:
+        # Update current_template_id and current_template_name in Metadata so subsequent driver assignment links to this template
+        curr_id_meta = Metadata.query.filter_by(key='current_template_id').first()
+        if not curr_id_meta:
+            curr_id_meta = Metadata(key='current_template_id')
+            db.session.add(curr_id_meta)
+        curr_id_meta.value = str(t.id)
+        
+        curr_name_meta = Metadata.query.filter_by(key='current_template_name').first()
+        if not curr_name_meta:
+            curr_name_meta = Metadata(key='current_template_name')
+            db.session.add(curr_name_meta)
+        curr_name_meta.value = str(t.name)
+        db.session.commit()
     
-    curr_name_meta = Metadata.query.filter_by(key='current_template_name').first()
-    if not curr_name_meta:
-        curr_name_meta = Metadata(key='current_template_name')
-        db.session.add(curr_name_meta)
-    curr_name_meta.value = str(t.name)
-    db.session.commit()
-    
-    # Auto-sync to any driver assigned to this template
-    affected_drivers = User.query.filter_by(assigned_template_id=t.id).all()
-    if affected_drivers:
-        try:
-            import requests
-            firebase_url = "https://wasteroutelive-default-rtdb.firebaseio.com"
-            id_token = get_firebase_token()
-        except:
-            id_token = None
-            
-        for d in affected_drivers:
-            if not d.truck_id:
-                continue
-            Customer.query.filter_by(truck_id=d.truck_id).delete()
-            db.session.flush()
-            existing_ids = set(r[0] for r in db.session.query(Customer.id).all())
-            max_id = db.session.query(db.func.max(Customer.id)).scalar() or 0
-            if max_id < 0:
-                max_id = 0
+    # Auto-sync to drivers and Firebase ONLY if this is an assigned route instance
+    if target_is_assigned:
+        affected_drivers = User.query.filter_by(assigned_template_id=t.id).all()
+        if affected_drivers:
+            try:
+                import requests
+                firebase_url = "https://wasteroutelive-default-rtdb.firebaseio.com"
+                id_token = get_firebase_token()
+            except:
+                id_token = None
                 
-            for c in cust_list:
-                raw_id = int(c['id'])
-                if raw_id <= -1000 or c.get('name') == 'End Location / Depot':
-                    cid = -1000 - int(d.truck_id)
-                    if cid in existing_ids:
-                        Customer.query.filter_by(id=cid).delete()
-                else:
-                    cid = raw_id
-                    if cid in existing_ids:
-                        max_id += 1
-                        cid = max_id
-                existing_ids.add(cid)
-                new_cust = Customer(
-                    id=cid, name=c['name'], phone=c.get('phone'), address=c.get('address'),
-                    location_url=c.get('location_url'), lat=c['lat'], lng=c['lng'],
-                    status=c.get('status', 'PENDING'), truck_id=d.truck_id, stop_number=c.get('stop_number'),
-                    confirmation=c.get('confirmation', 'NOT_CONFIRMED'),
-                    customer_status=c.get('customer_status', 'ACTIVE')
-                )
-                db.session.add(new_cust)
-            db.session.commit()
-            
-            if id_token:
-                try:
-                    new_custs = Customer.query.filter_by(truck_id=d.truck_id).all()
-                    if new_custs:
-                        route_key = f"route_{d.truck_id}"
-                        stops_payload = {}
-                        for c in new_custs:
-                            stops_payload[str(c.id)] = {
-                                "name": c.name,
-                                "address": c.address,
-                                "phone": c.phone or '',
-                                "lat": c.lat,
-                                "lng": c.lng,
-                                "sequence": c.stop_number,
-                                "status": c.status,
-                                "confirmation": c.confirmation,
-                                "customer_status": getattr(c, 'customer_status', 'ACTIVE')
-                            }
-                        requests.put(f"{firebase_url}/routes/{route_key}.json?auth={id_token}", json={"stops": stops_payload})
-                except Exception as e:
-                    print("Firebase sync error on template save:", e)
-        recompute_route_metrics()
+            for d in affected_drivers:
+                if not d.truck_id:
+                    continue
+                Customer.query.filter_by(truck_id=d.truck_id).delete()
+                db.session.flush()
+                existing_ids = set(r[0] for r in db.session.query(Customer.id).all())
+                max_id = db.session.query(db.func.max(Customer.id)).scalar() or 0
+                if max_id < 0:
+                    max_id = 0
+                    
+                for c in cust_list:
+                    raw_id = int(c['id'])
+                    if raw_id <= -1000 or c.get('name') == 'End Location / Depot':
+                        cid = -1000 - int(d.truck_id)
+                        if cid in existing_ids:
+                            Customer.query.filter_by(id=cid).delete()
+                    else:
+                        cid = raw_id
+                        if cid in existing_ids:
+                            max_id += 1
+                            cid = max_id
+                    existing_ids.add(cid)
+                    new_cust = Customer(
+                        id=cid, name=c['name'], phone=c.get('phone'), address=c.get('address'),
+                        location_url=c.get('location_url'), lat=c['lat'], lng=c['lng'],
+                        status=c.get('status', 'PENDING'), truck_id=d.truck_id, stop_number=c.get('stop_number'),
+                        confirmation=c.get('confirmation', 'NOT_CONFIRMED'),
+                        customer_status=c.get('customer_status', 'ACTIVE')
+                    )
+                    db.session.add(new_cust)
+                db.session.commit()
+                
+                if id_token:
+                    try:
+                        new_custs = Customer.query.filter_by(truck_id=d.truck_id).all()
+                        if new_custs:
+                            route_key = f"route_{d.truck_id}"
+                            stops_payload = {}
+                            for c in new_custs:
+                                stops_payload[str(c.id)] = {
+                                    "name": c.name,
+                                    "address": c.address,
+                                    "phone": c.phone or '',
+                                    "lat": c.lat,
+                                    "lng": c.lng,
+                                    "sequence": c.stop_number,
+                                    "status": c.status,
+                                    "confirmation": c.confirmation,
+                                    "customer_status": getattr(c, 'customer_status', 'ACTIVE')
+                                }
+                            requests.put(f"{firebase_url}/routes/{route_key}.json?auth={id_token}", json={"stops": stops_payload})
+                    except Exception as e:
+                        print("Firebase sync error on template save:", e)
+            recompute_route_metrics()
     
     return jsonify({'success': True})
 
 @app.route('/api/templates', methods=['GET'])
 @login_required
 def get_templates():
-    templates = SavedTemplate.query.order_by(SavedTemplate.created_at.desc()).all()
+    templates = SavedTemplate.query.filter(
+        (SavedTemplate.is_assigned_instance == False) | (SavedTemplate.is_assigned_instance == None)
+    ).order_by(SavedTemplate.created_at.desc()).all()
     res = []
     for t in templates:
         res.append({
@@ -2167,6 +2266,10 @@ def get_assigned_routes():
         # If all stops on the route are completed or skipped (0 pending left), or if no customers exist:
         # The route is finished! Automatically clear the driver's assignment so it disappears from Assigned Routes!
         if (total_stops > 0 and pending_stops == 0) or total_stops == 0:
+            if d.assigned_template_id:
+                old_inst = SavedTemplate.query.get(d.assigned_template_id)
+                if old_inst and getattr(old_inst, 'is_assigned_instance', False):
+                    db.session.delete(old_inst)
             d.assigned_template_id = None
             continue
 
@@ -2199,6 +2302,10 @@ def unassign_route():
         except: pass
         
     for d in drivers:
+        if d.assigned_template_id:
+            old_inst = SavedTemplate.query.get(d.assigned_template_id)
+            if old_inst and getattr(old_inst, 'is_assigned_instance', False):
+                db.session.delete(old_inst)
         d.assigned_template_id = None
     db.session.commit()
     return jsonify({'success': True})
@@ -2218,6 +2325,10 @@ def driver_finish_route():
         except: pass
         
     if driver:
+        if driver.assigned_template_id:
+            old_inst = SavedTemplate.query.get(driver.assigned_template_id)
+            if old_inst and getattr(old_inst, 'is_assigned_instance', False):
+                db.session.delete(old_inst)
         driver.assigned_template_id = None
         db.session.commit()
         return jsonify({'success': True})
@@ -2228,6 +2339,7 @@ def driver_finish_route():
 def delete_template(t_id):
     t = SavedTemplate.query.get(t_id)
     if t:
+        User.query.filter_by(assigned_template_id=t_id).update({'assigned_template_id': None})
         db.session.delete(t)
         db.session.commit()
     return jsonify({'success': True})
@@ -2328,57 +2440,58 @@ def deploy_template(t_id):
         traceback.print_exc()
         return jsonify({'error': f'Database error during deploy: {str(e)}'}), 200
     
-    # Sync with Firebase immediately while preserving protected active routes
-    try:
-        import requests
-        firebase_url = "https://wasteroutelive-default-rtdb.firebaseio.com"
-        API_KEY = "AIzaSyAhLnjh0gRa2pf29G90zr-6AMcjLjbQpPg"
-        auth_url = f"https://identitytoolkit.googleapis.com/v1/accounts:signUp?key={API_KEY}"
-        auth_res = requests.post(auth_url, json={"returnSecureToken": True})
-        
-        if auth_res.status_code == 200:
-            id_token = auth_res.json().get('idToken')
+    # Sync with Firebase immediately while preserving protected active routes (only when deploying, NOT when opening to edit)
+    if mode == 'deploy':
+        try:
+            import requests
+            firebase_url = "https://wasteroutelive-default-rtdb.firebaseio.com"
+            API_KEY = "AIzaSyAhLnjh0gRa2pf29G90zr-6AMcjLjbQpPg"
+            auth_url = f"https://identitytoolkit.googleapis.com/v1/accounts:signUp?key={API_KEY}"
+            auth_res = requests.post(auth_url, json={"returnSecureToken": True})
             
-            # Only remove non-protected routes in Firebase
-            routes_res = requests.get(f"{firebase_url}/routes.json?auth={id_token}")
-            if routes_res.status_code == 200 and routes_res.json():
-                routes_data = routes_res.json()
-                routes_items = routes_data.items() if isinstance(routes_data, dict) else enumerate(routes_data) if isinstance(routes_data, list) else []
-                for rid, val in routes_items:
-                    if val is not None:
-                        try:
-                            tid_num = int(str(rid).replace('route_', ''))
-                            if tid_num in protected_trucks:
-                                continue
-                        except:
-                            pass
-                        requests.delete(f"{firebase_url}/routes/{rid}.json?auth={id_token}")
-            
-            routes_payload = {}
-            for c in deployed_customers:
-                tid = c.get('truck_id')
-                if tid:
-                    route_key = f"route_{tid}"
-                    if route_key not in routes_payload: routes_payload[route_key] = {}
-                    
-                    routes_payload[route_key][str(c['id'])] = {
-                        "name": c['name'],
-                        "address": c['address'],
-                        "phone": c.get('phone', ''),
-                        "lat": c['lat'],
-                        "lng": c['lng'],
-                        "sequence": c.get('stop_number'),
-                        "status": "PENDING",
-                        "confirmation": c.get("confirmation", "NOT_CONFIRMED"),
-                        "customer_status": c.get("customer_status", "ACTIVE")
-                    }
-                    
-            for route_key, stops in routes_payload.items():
-                requests.put(f"{firebase_url}/routes/{route_key}.json?auth={id_token}", json={"stops": stops})
-                tid = route_key.split('_')[1]
-                requests.put(f"{firebase_url}/trucks/{tid}.json?auth={id_token}", json={"status": "offline"})
-    except Exception as e:
-        print("Deploy Firebase error:", e)
+            if auth_res.status_code == 200:
+                id_token = auth_res.json().get('idToken')
+                
+                # Only remove non-protected routes in Firebase
+                routes_res = requests.get(f"{firebase_url}/routes.json?auth={id_token}")
+                if routes_res.status_code == 200 and routes_res.json():
+                    routes_data = routes_res.json()
+                    routes_items = routes_data.items() if isinstance(routes_data, dict) else enumerate(routes_data) if isinstance(routes_data, list) else []
+                    for rid, val in routes_items:
+                        if val is not None:
+                            try:
+                                tid_num = int(str(rid).replace('route_', ''))
+                                if tid_num in protected_trucks:
+                                    continue
+                            except:
+                                pass
+                            requests.delete(f"{firebase_url}/routes/{rid}.json?auth={id_token}")
+                
+                routes_payload = {}
+                for c in deployed_customers:
+                    tid = c.get('truck_id')
+                    if tid:
+                        route_key = f"route_{tid}"
+                        if route_key not in routes_payload: routes_payload[route_key] = {}
+                        
+                        routes_payload[route_key][str(c['id'])] = {
+                            "name": c['name'],
+                            "address": c['address'],
+                            "phone": c.get('phone', ''),
+                            "lat": c['lat'],
+                            "lng": c['lng'],
+                            "sequence": c.get('stop_number'),
+                            "status": "PENDING",
+                            "confirmation": c.get("confirmation", "NOT_CONFIRMED"),
+                            "customer_status": c.get("customer_status", "ACTIVE")
+                        }
+                        
+                for route_key, stops in routes_payload.items():
+                    requests.put(f"{firebase_url}/routes/{route_key}.json?auth={id_token}", json={"stops": stops})
+                    tid = route_key.split('_')[1]
+                    requests.put(f"{firebase_url}/trucks/{tid}.json?auth={id_token}", json={"status": "offline"})
+        except Exception as e:
+            print("Deploy Firebase error:", e)
         
     recompute_route_metrics()
     return jsonify({'success': True})

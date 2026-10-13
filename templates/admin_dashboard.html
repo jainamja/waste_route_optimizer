@@ -226,7 +226,7 @@
         };
 
         window.editTemplate = async function(id) {
-            if(!confirm("Are you sure you want to edit this template? This will OVERWRITE your currently active routes and take you to the Route Dashboard to make changes.")) return;
+            if(!confirm("Are you sure you want to edit this template? This will load it into the Route Dashboard so you can make changes without affecting active driver routes.")) return;
             
             try {
                 let res = await fetch('/api/deploy_template/' + id + '?mode=edit', { method: 'POST' });

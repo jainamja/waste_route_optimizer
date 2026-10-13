@@ -897,7 +897,11 @@
                                 fetch('/api/save_template', {
                                     method: 'POST',
                                     headers: {'Content-Type': 'application/json'},
-                                    body: JSON.stringify({id: window.editingAssignedRouteId, name: window.currentTemplateName || 'Assigned Route'})
+                                    body: JSON.stringify({
+                                        id: window.editingAssignedRouteId,
+                                        name: window.currentTemplateName || 'Assigned Route',
+                                        is_edit_assigned: true
+                                    })
                                 }).then(r => r.json()).then(res => {
                                     if(res.success) window.location.href = '/dashboard';
                                     else alert('Error: ' + res.error);
@@ -1471,7 +1475,7 @@
             btn.disabled = true;
             btn.innerText = "Saving...";
             
-            let payload = {name: name};
+            let payload = {name: name, is_edit_assigned: false};
             if (window.currentTemplateId) {
                 payload.id = window.currentTemplateId;
             }
