@@ -208,7 +208,7 @@
         <div id="progress-panel" class="progress-panel collapsed">
             <div class="panel-header" onclick="this.parentElement.classList.toggle('collapsed')">
                 <div class="drag-handle"></div>
-                <h3 style="font-size: 16px; font-weight: 800;">Fleet Progress <span style="font-size:10px;color:#ef4444;" id="v-tag">v2</span></h3>
+                <h3 style="font-size: 16px; font-weight: 800;">Fleet Progress</h3>
                 <div class="fleet-summary" id="fleet-summary">
                     <!-- Fleet summary injected here -->
                 </div>
@@ -238,7 +238,7 @@
         const db = firebase.database();
         let liveTruckMarkers = {};
         let visibleRouteTrucks = new Set();
-        let activeRouteLayers = {}; // tId -> { lines: [], markers: [] }
+        let activeRouteLayers = {}; // tId -> route layer state
         let routeRenderTokens = {};
 
         const TRUCK_COLORS = [
@@ -265,7 +265,6 @@
         let routesData = {};
 
         firebase.auth().signInAnonymously().then(() => {
-            console.log("Firebase Auth success.");
             if (!window.liveTrucks) window.liveTrucks = {};
 
             function mergeTruckData(key, data) {
@@ -283,7 +282,6 @@
             // 1. Listen to driver_locations node
             db.ref('driver_locations').on('value', snap => {
                 let locs = snap.val() || {};
-                console.log("driver_locations received:", Object.keys(locs).length, "drivers");
                 for (let k in locs) {
                     if (locs[k]) {
                         mergeTruckData(k, locs[k]);
@@ -302,7 +300,6 @@
             // 2. Listen to trucks node (legacy and fallback)
             db.ref('trucks').on('value', snap => {
                 let tData = snap.val() || {};
-                console.log("trucks received:", Object.keys(tData).length, "trucks");
                 for (let tId in tData) {
                     if (tData[tId]) {
                         mergeTruckData(String(tId), tData[tId]);
@@ -326,7 +323,6 @@
         function fetchDrivers() {
             fetch('/api/data').then(r => r.json()).then(data => {
                 let drvs = data.drivers || [];
-                console.log("Fetched drivers from API:", drvs.length);
                 drvs.forEach(d => { driverMap[d.truck_id] = d.name || d.username; truckToDriver[d.truck_id] = d.id; });
                 if (usingFallback) fallbackToIndividualListeners();
                 scheduleRender();
@@ -355,9 +351,27 @@
             return stops.sort((a,b) => (a.sequence || 0) - (b.sequence || 0));
         }
 
+        function extractDepotStop(stopsObj) {
+            if (Array.isArray(stopsObj)) {
+                for (let idx = 0; idx < stopsObj.length; idx++) {
+                    let val = stopsObj[idx];
+                    if (val && ((val.id !== undefined && parseInt(val.id) <= -1000) || val.name === 'End Location / Depot')) {
+                        return val;
+                    }
+                }
+            } else if (typeof stopsObj === 'object' && stopsObj !== null) {
+                for (let key of Object.keys(stopsObj)) {
+                    let val = stopsObj[key];
+                    if (val && (parseInt(key) <= -1000 || (val.id !== undefined && parseInt(val.id) <= -1000) || val.name === 'End Location / Depot')) {
+                        return val;
+                    }
+                }
+            }
+            return null;
+        }
+
         function attachRoutesListener() {
             db.ref('routes').on('value', snap => {
-                console.log("Root routes listener received data.");
                 routesData = snap.val() || {};
                 scheduleRender();
             }, err => {
@@ -375,7 +389,6 @@
                 if (rk.startsWith('route_')) keys.push(rk.replace('route_', ''));
             }
             keys = Array.from(new Set(keys));
-            console.log("fallbackToIndividualListeners called for", keys.length, "trucks.");
 
             keys.forEach(tId => {
                 if (!tId || isNaN(parseInt(tId))) return;
@@ -383,7 +396,6 @@
 
                 if (!routeListeners[tId]) {
                     routeListeners[tId] = true;
-                    console.log("Attaching individual listeners for truck", tId);
                     
                     // 1. Listen to route stops
                     db.ref('routes/route_' + tId + '/stops').on('value', snap => {
@@ -526,17 +538,15 @@
                 let stops = parseStops(stopsObj);
                 
                 let realStops = stops.filter(s => s.id > -1000 && s.name !== 'End Location / Depot');
+                if (realStops.length === 0) return;
                 
                 let tData = getTruckData(tId);
                 let isOnline = isTruckOnline(tData);
                 
                 let dName = driverMap[tId] || (tData && tData.driverName) || '';
-                if (realStops.length === 0 && !isOnline && !dName) return;
                 if (!dName) dName = 'Unassigned';
                 
                 validTruckIds.add(tId.toString());
-                
-                console.log(`Truck ${tId}: parsed ${stops.length} stops from object:`, JSON.stringify(stopsObj).substring(0, 200));
                 
                 let tTotal = realStops.length;
                 let tComp = 0, tSkip = 0, tCanc = 0, tLeft = 0, tNotConf = 0;
@@ -603,11 +613,12 @@
                 ` : '';
                 
                 let isRouteActive = visibleRouteTrucks.has(String(tId));
+                let isCardExpanded = window.expandedTruckCards && window.expandedTruckCards.has(String(tId));
                 let tColor = getTruckColor(tId);
                 let cardBorder = isRouteActive ? `border-left: 6px solid ${tColor}; box-shadow: 0 4px 16px rgba(0,0,0,0.1);` : '';
 
                 cardsHtml += `
-                    <div class="t-card ${isRouteActive ? 'route-active' : ''}" style="${cardBorder}" onclick="this.classList.toggle('expanded'); panToTruck(${tId});">
+                    <div class="t-card ${isRouteActive ? 'route-active' : ''} ${isCardExpanded ? 'expanded' : ''}" style="${cardBorder}" onclick="if(!window.expandedTruckCards)window.expandedTruckCards=new Set(); if(window.expandedTruckCards.has('${tId}'))window.expandedTruckCards.delete('${tId}'); else window.expandedTruckCards.add('${tId}'); this.classList.toggle('expanded'); panToTruck(${tId});">
                         <div class="t-card-header">
                             <div>
                                 <div class="t-title" style="display:flex; align-items:center; gap:6px;">
@@ -655,7 +666,7 @@
                 `;
             });
             
-            if (activeTruckIds.size === 0) {
+            if (!cardsHtml) {
                 cardsHtml = `<div style="text-align:center; padding: 20px; color:var(--text-muted); font-size:14px;">Waiting for fleet data...</div>`;
             }
             
@@ -870,17 +881,714 @@
             renderProgress();
         }
 
+        const stopsGeoCache = {};
+        const approachGeoCache = {};
+        const everHadRoadGeoByTruck = {};
+        const STOPS_CACHE_PREFIX = 'osrm_stops_geo_v1_';
+        const APPROACH_CACHE_PREFIX = 'osrm_approach_geo_v1_';
+        const OSRM_MAX_POINTS_PER_CHUNK = 40;
+        const MAX_CONCURRENT_OSRM = 2;
+        const OSRM_TIMEOUT_MS = 8000;
+        const BACKOFF_DELAYS_MS = [2000, 4000, 8000, 16000, 30000];
+
+        let activeOsrmRequests = 0;
+        let osrmQueue = [];
+        let routeTokenCounter = 0;
+
+        function haversineMeters(c1, c2) {
+            if (!c1 || !c2 || c1.length < 2 || c2.length < 2) return Infinity;
+            const R = 6371000;
+            const toRad = d => (d * Math.PI) / 180;
+            const dLat = toRad(c2[0] - c1[0]);
+            const dLng = toRad(c2[1] - c1[1]);
+            const a = Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+                      Math.cos(toRad(c1[0])) * Math.cos(toRad(c2[0])) *
+                      Math.sin(dLng / 2) * Math.sin(dLng / 2);
+            return 2 * R * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+        }
+
+        function getCachedStopsGeo(sig) {
+            if (!sig) return null;
+            if (stopsGeoCache[sig]) return stopsGeoCache[sig];
+            try {
+                const raw = sessionStorage.getItem(STOPS_CACHE_PREFIX + sig);
+                if (raw) {
+                    const parsed = JSON.parse(raw);
+                    if (parsed && parsed.type === 'LineString' && Array.isArray(parsed.coordinates)) {
+                        stopsGeoCache[sig] = parsed;
+                        return parsed;
+                    }
+                }
+            } catch (e) {}
+            return null;
+        }
+
+        function setCachedStopsGeo(sig, geo) {
+            if (!sig || !geo) return;
+            stopsGeoCache[sig] = geo;
+            try {
+                sessionStorage.setItem(STOPS_CACHE_PREFIX + sig, JSON.stringify(geo));
+            } catch (e) {}
+        }
+
+        function getCachedApproachGeo(sig) {
+            if (!sig) return null;
+            if (approachGeoCache[sig]) return approachGeoCache[sig];
+            try {
+                const raw = sessionStorage.getItem(APPROACH_CACHE_PREFIX + sig);
+                if (raw) {
+                    const parsed = JSON.parse(raw);
+                    if (parsed && parsed.type === 'LineString' && Array.isArray(parsed.coordinates)) {
+                        approachGeoCache[sig] = parsed;
+                        return parsed;
+                    }
+                }
+            } catch (e) {}
+            return null;
+        }
+
+        function setCachedApproachGeo(sig, geo) {
+            if (!sig || !geo) return;
+            approachGeoCache[sig] = geo;
+            try {
+                sessionStorage.setItem(APPROACH_CACHE_PREFIX + sig, JSON.stringify(geo));
+            } catch (e) {}
+        }
+
+        function enqueueOsrmFetch(url, timeoutMs = OSRM_TIMEOUT_MS) {
+            return new Promise((resolve, reject) => {
+                osrmQueue.push({ url, timeoutMs, resolve, reject });
+                processOsrmQueue();
+            });
+        }
+
+        function processOsrmQueue() {
+            while (activeOsrmRequests < MAX_CONCURRENT_OSRM && osrmQueue.length > 0) {
+                const item = osrmQueue.shift();
+                activeOsrmRequests++;
+                const controller = new AbortController();
+                const timer = setTimeout(() => controller.abort(), item.timeoutMs);
+                fetch(item.url, { signal: controller.signal })
+                    .then(res => {
+                        clearTimeout(timer);
+                        if (res.status === 429 || res.status >= 500 || !res.ok) {
+                            const err = new Error('OSRM HTTP ' + res.status);
+                            err.status = res.status;
+                            throw err;
+                        }
+                        return res.json();
+                    })
+                    .then(data => {
+                        if (!data || !data.routes || !data.routes[0] || !data.routes[0].geometry) {
+                            throw new Error('Invalid OSRM geometry response');
+                        }
+                        item.resolve(data.routes[0].geometry);
+                    })
+                    .catch(err => {
+                        clearTimeout(timer);
+                        item.reject(err);
+                    })
+                    .finally(() => {
+                        activeOsrmRequests--;
+                        processOsrmQueue();
+                    });
+            }
+        }
+
+        function chunkWaypoints(waypoints) {
+            if (!waypoints || waypoints.length < 2) return [];
+            if (waypoints.length <= OSRM_MAX_POINTS_PER_CHUNK) return [waypoints];
+            const chunks = [];
+            const step = OSRM_MAX_POINTS_PER_CHUNK - 1; // 39 -> overlap by 1 point
+            for (let i = 0; i < waypoints.length - 1; i += step) {
+                const slice = waypoints.slice(i, i + OSRM_MAX_POINTS_PER_CHUNK);
+                if (slice.length >= 2) {
+                    chunks.push(slice);
+                }
+                if (i + OSRM_MAX_POINTS_PER_CHUNK >= waypoints.length) break;
+            }
+            return chunks;
+        }
+
+        async function fetchChunkedOsrmGeometry(waypoints) {
+            const chunks = chunkWaypoints(waypoints);
+            if (chunks.length === 0) return null;
+            const geometries = await Promise.all(chunks.map(chunk => {
+                const coordsString = chunk.map(pt => `${pt[1]},${pt[0]}`).join(';');
+                const osrmUrl = `https://router.project-osrm.org/route/v1/driving/${coordsString}?overview=full&geometries=geojson`;
+                return enqueueOsrmFetch(osrmUrl, OSRM_TIMEOUT_MS);
+            }));
+            const mergedCoords = [];
+            geometries.forEach((geo, idx) => {
+                if (!geo || !Array.isArray(geo.coordinates)) return;
+                const coords = geo.coordinates;
+                if (idx === 0 || mergedCoords.length === 0) {
+                    mergedCoords.push(...coords);
+                } else {
+                    const last = mergedCoords[mergedCoords.length - 1];
+                    const first = coords[0];
+                    if (last && first && Math.abs(last[0] - first[0]) < 1e-6 && Math.abs(last[1] - first[1]) < 1e-6) {
+                        mergedCoords.push(...coords.slice(1));
+                    } else {
+                        mergedCoords.push(...coords);
+                    }
+                }
+            });
+            return {
+                type: 'LineString',
+                coordinates: mergedCoords
+            };
+        }
+
+        function createRoadGeoLayer(geometry, color) {
+            return L.geoJSON(geometry, {
+                style: {
+                    color: color,
+                    weight: 5,
+                    opacity: 0.85,
+                    lineCap: 'round',
+                    lineJoin: 'round'
+                }
+            });
+        }
+
+        function syncTruckLayerArrays(state) {
+            if (!state) return;
+            state.lines = [state.stopsLine, state.approachLine, state.prelimLine].filter(Boolean);
+            state.markers = [
+                ...Object.values(state.stopMarkers || {}).map(m => m.marker),
+                ...(state.depotMarker ? [state.depotMarker.marker] : [])
+            ];
+        }
+
+        function ensureTruckRouteState(strId) {
+            if (!activeRouteLayers[strId]) {
+                activeRouteLayers[strId] = {
+                    lines: [],
+                    markers: [],
+                    stopsLine: null,
+                    approachLine: null,
+                    prelimLine: null,
+                    hasEverHadRoadGeo: !!everHadRoadGeoByTruck[strId],
+                    stopMarkers: {},
+                    depotMarker: null,
+                    stopsSig: null,
+                    renderedStopsSig: null,
+                    inFlightStopsSig: null,
+                    approachSig: null,
+                    renderedApproachSig: null,
+                    inFlightApproachSig: null,
+                    initialApproachChecked: false,
+                    lastRoutedTruckCoords: null,
+                    lastApproachFetchCoords: null,
+                    lastApproachFetchTime: 0,
+                    lastApproachStopId: null,
+                    retryTimer: null,
+                    retryAttempt: 0,
+                    approachRetryTimer: null,
+                    approachRetryAttempt: 0,
+                    approachCooldownTimer: null,
+                    staggerTimer: null,
+                    hasStartedInitialFetch: false
+                };
+            }
+            return activeRouteLayers[strId];
+        }
+
+        let activeSpiderClusterId = null;
+        let activeSpiderTruckId = null;
+        let activeSpiderLayers = [];
+
+        function unspiderfy() {
+            if (activeSpiderLayers.length > 0) {
+                activeSpiderLayers.forEach(l => {
+                    if (l && map.hasLayer(l)) map.removeLayer(l);
+                });
+                activeSpiderLayers = [];
+            }
+            activeSpiderClusterId = null;
+            activeSpiderTruckId = null;
+        }
+
+        map.on('zoomstart', unspiderfy);
+        map.on('click', unspiderfy);
+
+        function clusterPendingStops(pendingStops) {
+            const clusters = [];
+            pendingStops.forEach(s => {
+                if (s.lat === undefined || s.lng === undefined || isNaN(parseFloat(s.lat)) || isNaN(parseFloat(s.lng))) return;
+                const lat = parseFloat(s.lat);
+                const lng = parseFloat(s.lng);
+
+                let matched = null;
+                for (const cl of clusters) {
+                    if (haversineMeters([cl.lat, cl.lng], [lat, lng]) <= 20) {
+                        matched = cl;
+                        break;
+                    }
+                }
+
+                const subList = (s.subStops && Array.isArray(s.subStops) && s.subStops.length > 0) ? s.subStops : [s];
+
+                if (!matched) {
+                    matched = {
+                        primaryId: String(s.id),
+                        lat: lat,
+                        lng: lng,
+                        customers: []
+                    };
+                    clusters.push(matched);
+                }
+
+                subList.forEach(item => {
+                    const cid = String(item.id || s.id);
+                    if (!matched.customers.some(c => String(c.id) === cid)) {
+                        matched.customers.push({
+                            id: item.id || s.id,
+                            name: item.name || s.name || 'Customer',
+                            address: item.address || s.address || '',
+                            phone: item.phone || s.phone || '',
+                            sequence: item.sequence || s.sequence || '',
+                            confirmation: item.confirmation || s.confirmation || '',
+                            status: item.status || s.status || 'PENDING',
+                            lat: item.lat !== undefined ? parseFloat(item.lat) : lat,
+                            lng: item.lng !== undefined ? parseFloat(item.lng) : lng
+                        });
+                    }
+                });
+            });
+
+            clusters.forEach(cl => {
+                cl.customers.sort((a, b) => (parseInt(a.sequence) || 0) - (parseInt(b.sequence) || 0));
+                cl.primarySequence = cl.customers[0]?.sequence || '';
+                cl.id = 'cluster_' + cl.customers.map(c => c.id).join('_');
+            });
+            return clusters;
+        }
+
+        function spiderfyCluster(cl, strId, color) {
+            if (activeSpiderClusterId === cl.id) {
+                unspiderfy();
+                return;
+            }
+            unspiderfy();
+            activeSpiderClusterId = cl.id;
+            activeSpiderTruckId = strId;
+
+            const N = cl.customers.length;
+            const centerPt = map.latLngToLayerPoint([cl.lat, cl.lng]);
+            const radiusPx = N <= 3 ? 42 : (N <= 6 ? 52 : 62);
+
+            cl.customers.forEach((c, idx) => {
+                const angle = (2 * Math.PI / N) * idx - Math.PI / 2;
+                const dx = radiusPx * Math.cos(angle);
+                const dy = radiusPx * Math.sin(angle);
+                const childLatLng = map.layerPointToLatLng(centerPt.add([dx, dy]));
+
+                const leg = L.polyline([[cl.lat, cl.lng], childLatLng], {
+                    color: color,
+                    weight: 2,
+                    opacity: 0.8,
+                    dashArray: '3, 4'
+                }).addTo(map);
+                activeSpiderLayers.push(leg);
+
+                const childIcon = L.divIcon({
+                    className: 'spider-child-pin-' + strId,
+                    html: `<div style="background:${color}; color:white; width:26px; height:26px; border-radius:50%; border:2px solid #ffffff; box-shadow:0 3px 8px rgba(0,0,0,0.35); display:flex; align-items:center; justify-content:center; font-weight:800; font-size:11px; cursor:pointer;" title="Stop #${c.sequence}: ${c.name}">
+                        ${c.sequence}
+                    </div>`,
+                    iconSize: [26, 26],
+                    iconAnchor: [13, 13],
+                    popupAnchor: [0, -14]
+                });
+                const childMarker = L.marker(childLatLng, { icon: childIcon }).addTo(map);
+                const phoneHtml = c.phone ? `<div style="margin-top:6px;"><a href="tel:${c.phone}" style="font-size:12px; color:var(--primary); font-weight:700; text-decoration:none;"><i class="fa-solid fa-phone"></i> ${c.phone}</a></div>` : '';
+                const childPopup = `
+                    <div style="font-family:inherit; min-width:160px; padding:2px;">
+                        <div style="font-size:11px; font-weight:700; color:${color}; text-transform:uppercase;">Truck ${strId} &middot; Stop #${c.sequence}</div>
+                        <div style="font-weight:700; font-size:14px; margin-top:2px; color:#0f172a;">${c.name}</div>
+                        <div style="font-size:12px; color:#64748b; margin-top:2px;">${c.address || 'No address'}</div>
+                        ${phoneHtml}
+                    </div>
+                `;
+                childMarker.bindPopup(childPopup);
+                activeSpiderLayers.push(childMarker);
+            });
+        }
+
         function clearRouteForTruck(tId) {
             let strId = String(tId);
-            if (activeRouteLayers[strId]) {
-                if (activeRouteLayers[strId].lines) {
-                    activeRouteLayers[strId].lines.forEach(l => map.removeLayer(l));
+            let state = activeRouteLayers[strId];
+            if (state) {
+                if (state.retryTimer) clearTimeout(state.retryTimer);
+                if (state.approachRetryTimer) clearTimeout(state.approachRetryTimer);
+                if (state.approachCooldownTimer) clearTimeout(state.approachCooldownTimer);
+                if (state.staggerTimer) clearTimeout(state.staggerTimer);
+                if (state.stopsLine) map.removeLayer(state.stopsLine);
+                if (state.approachLine) map.removeLayer(state.approachLine);
+                if (state.prelimLine) map.removeLayer(state.prelimLine);
+                if (state.stopMarkers) {
+                    const removed = new Set();
+                    Object.values(state.stopMarkers).forEach(entry => {
+                        if (entry && entry.marker && !removed.has(entry.marker)) {
+                            map.removeLayer(entry.marker);
+                            removed.add(entry.marker);
+                        }
+                    });
                 }
-                if (activeRouteLayers[strId].markers) {
-                    activeRouteLayers[strId].markers.forEach(m => map.removeLayer(m));
+                if (state.depotMarker && state.depotMarker.marker) {
+                    map.removeLayer(state.depotMarker.marker);
+                }
+                if (activeSpiderClusterId && activeSpiderTruckId === strId) {
+                    unspiderfy();
                 }
                 delete activeRouteLayers[strId];
             }
+        }
+
+        function updateTruckStopPins(strId, pendingStops, depotStop, color) {
+            const state = ensureTruckRouteState(strId);
+            const currentIds = new Set();
+            const clusters = clusterPendingStops(pendingStops);
+
+            clusters.forEach(cl => {
+                const count = cl.customers.length;
+                const seq = cl.primarySequence || '';
+                const lat = cl.lat;
+                const lng = cl.lng;
+
+                let iconHtml = '';
+                if (count > 1) {
+                    iconHtml = `<div style="background:${color}; color:white; width:28px; height:28px; border-radius:50%; border:2px solid #ffffff; box-shadow:0 3px 8px rgba(0,0,0,0.35); display:flex; align-items:center; justify-content:center; font-weight:800; font-size:11px; cursor:pointer; position:relative;" title="${count} Customers at this stop: ${cl.customers.map(c => '#' + c.sequence + ' ' + c.name).join(', ')}">
+                        ${seq}
+                        <span style="position:absolute; top:-7px; right:-7px; background:#ef4444; color:white; border-radius:10px; font-size:10px; font-weight:800; min-width:16px; height:16px; display:flex; align-items:center; justify-content:center; padding:0 3px; border:2px solid #ffffff; box-shadow:0 2px 4px rgba(0,0,0,0.3); line-height:1;">${count}</span>
+                    </div>`;
+                } else {
+                    const single = cl.customers[0];
+                    iconHtml = `<div style="background:${color}; color:white; width:26px; height:26px; border-radius:50%; border:2px solid #ffffff; box-shadow:0 3px 8px rgba(0,0,0,0.35); display:flex; align-items:center; justify-content:center; font-weight:800; font-size:11px; cursor:pointer;" title="Stop #${single.sequence}: ${single.name}">
+                        ${seq}
+                    </div>`;
+                }
+
+                let popupHtml = '';
+                if (count > 1) {
+                    popupHtml = `
+                        <div style="font-family:inherit; min-width:210px; max-width:280px; padding:2px;">
+                            <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:6px;">
+                                <span style="font-size:11px; font-weight:700; color:${color}; text-transform:uppercase;">Truck ${strId} &middot; Stop #${seq}</span>
+                                <span style="background:#ef4444; color:white; font-size:10px; font-weight:800; border-radius:10px; padding:1px 6px;">${count} Customers</span>
+                            </div>
+                            <div style="max-height:180px; overflow-y:auto; display:flex; flex-direction:column; gap:6px; margin-bottom:6px;">
+                                ${cl.customers.map(c => `
+                                    <div style="background:#f8fafc; border:1px solid #e2e8f0; border-radius:6px; padding:6px 8px;">
+                                        <div style="display:flex; justify-content:space-between; align-items:center;">
+                                            <div style="font-weight:700; font-size:13px; color:#0f172a;">${c.name}</div>
+                                            <span style="font-size:10px; font-weight:800; color:var(--primary); background:#eff6ff; border-radius:4px; padding:1px 4px;">#${c.sequence}</span>
+                                        </div>
+                                        <div style="font-size:11px; color:#64748b; margin-top:1px;">${c.address || 'No address'}</div>
+                                        ${c.phone ? `<div style="margin-top:2px;"><a href="tel:${c.phone}" style="font-size:11px; color:var(--primary); font-weight:700; text-decoration:none;"><i class="fa-solid fa-phone"></i> ${c.phone}</a></div>` : ''}
+                                    </div>
+                                `).join('')}
+                            </div>
+                            <div style="font-size:10px; color:#64748b; text-align:center; border-top:1px solid #f1f5f9; padding-top:4px;">
+                                <i class="fa-solid fa-arrows-split-up-and-left"></i> Click pin to fan out individual stops
+                            </div>
+                        </div>
+                    `;
+                } else {
+                    const single = cl.customers[0];
+                    const phoneLink = single.phone ? `<div style="margin-top:6px;"><a href="tel:${single.phone}" style="font-size:12px; color:var(--primary); font-weight:700; text-decoration:none;"><i class="fa-solid fa-phone"></i> ${single.phone}</a></div>` : '';
+                    popupHtml = `
+                        <div style="font-family:inherit; min-width:160px; padding:2px;">
+                            <div style="font-size:11px; font-weight:700; color:${color}; text-transform:uppercase;">Truck ${strId} &middot; Stop #${single.sequence}</div>
+                            <div style="font-weight:700; font-size:14px; margin-top:2px; color:#0f172a;">${single.name}</div>
+                            <div style="font-size:12px; color:#64748b; margin-top:2px;">${single.address || 'No address'}</div>
+                            ${phoneLink}
+                        </div>
+                    `;
+                }
+
+                let existing = null;
+                for (const c of cl.customers) {
+                    if (state.stopMarkers[String(c.id)]) {
+                        existing = state.stopMarkers[String(c.id)];
+                        break;
+                    }
+                }
+
+                if (!existing) {
+                    const pinIcon = L.divIcon({
+                        className: 'stop-pin-' + strId,
+                        html: iconHtml,
+                        iconSize: count > 1 ? [28, 28] : [26, 26],
+                        iconAnchor: count > 1 ? [14, 14] : [13, 13],
+                        popupAnchor: [0, -14]
+                    });
+                    const sm = L.marker([lat, lng], { icon: pinIcon }).addTo(map);
+                    sm.bindPopup(popupHtml);
+                    if (count > 1) {
+                        sm.on('click', () => {
+                            spiderfyCluster(cl, strId, color);
+                        });
+                    }
+                    existing = {
+                        marker: sm,
+                        seq: seq,
+                        color: color,
+                        iconHtml: iconHtml,
+                        popupHtml: popupHtml,
+                        lat: lat,
+                        lng: lng,
+                        cluster: cl
+                    };
+                } else {
+                    existing.cluster = cl;
+                    if (Math.abs(existing.lat - lat) > 1e-6 || Math.abs(existing.lng - lng) > 1e-6) {
+                        existing.marker.setLatLng([lat, lng]);
+                        existing.lat = lat;
+                        existing.lng = lng;
+                    }
+                    if (existing.iconHtml !== iconHtml) {
+                        const pinIcon = L.divIcon({
+                            className: 'stop-pin-' + strId,
+                            html: iconHtml,
+                            iconSize: count > 1 ? [28, 28] : [26, 26],
+                            iconAnchor: count > 1 ? [14, 14] : [13, 13],
+                            popupAnchor: [0, -14]
+                        });
+                        existing.marker.setIcon(pinIcon);
+                        existing.iconHtml = iconHtml;
+                        existing.seq = seq;
+                        existing.color = color;
+                    }
+                    if (existing.popupHtml !== popupHtml) {
+                        const popup = existing.marker.getPopup();
+                        if (popup) popup.setContent(popupHtml);
+                        else existing.marker.bindPopup(popupHtml);
+                        existing.popupHtml = popupHtml;
+                    }
+                    existing.marker.off('click');
+                    if (count > 1) {
+                        existing.marker.on('click', () => {
+                            spiderfyCluster(cl, strId, color);
+                        });
+                    }
+                }
+
+                cl.customers.forEach(c => {
+                    const cid = String(c.id);
+                    currentIds.add(cid);
+                    state.stopMarkers[cid] = existing;
+                });
+            });
+
+            const removedMarkers = new Set();
+            Object.keys(state.stopMarkers).forEach(sid => {
+                if (!currentIds.has(sid)) {
+                    const entry = state.stopMarkers[sid];
+                    if (entry && entry.marker) {
+                        const isShared = Array.from(currentIds).some(cid => state.stopMarkers[cid] && state.stopMarkers[cid].marker === entry.marker);
+                        if (!isShared && !removedMarkers.has(entry.marker)) {
+                            map.removeLayer(entry.marker);
+                            removedMarkers.add(entry.marker);
+                        }
+                    }
+                    delete state.stopMarkers[sid];
+                }
+            });
+
+            if (depotStop && depotStop.lat !== undefined && depotStop.lng !== undefined && !isNaN(parseFloat(depotStop.lat)) && !isNaN(parseFloat(depotStop.lng))) {
+                const dLat = parseFloat(depotStop.lat);
+                const dLng = parseFloat(depotStop.lng);
+                const dPopup = `<b>Depot / End Location</b><br>${depotStop.address || ''}`;
+                if (!state.depotMarker) {
+                    const depotIcon = L.divIcon({
+                        className: 'depot-pin-' + strId,
+                        html: `<div style="background:#0f172a; color:white; width:26px; height:26px; border-radius:6px; border:2px solid #ffffff; box-shadow:0 3px 8px rgba(0,0,0,0.35); display:flex; align-items:center; justify-content:center; font-size:12px;" title="Depot / End"><i class="fa-solid fa-warehouse"></i></div>`,
+                        iconSize: [26, 26],
+                        iconAnchor: [13, 13],
+                        popupAnchor: [0, -14]
+                    });
+                    const dm = L.marker([dLat, dLng], { icon: depotIcon }).addTo(map);
+                    dm.bindPopup(dPopup);
+                    state.depotMarker = { marker: dm, lat: dLat, lng: dLng, popupHtml: dPopup };
+                } else {
+                    if (Math.abs(state.depotMarker.lat - dLat) > 1e-6 || Math.abs(state.depotMarker.lng - dLng) > 1e-6) {
+                        state.depotMarker.marker.setLatLng([dLat, dLng]);
+                        state.depotMarker.lat = dLat;
+                        state.depotMarker.lng = dLng;
+                    }
+                    if (state.depotMarker.popupHtml !== dPopup) {
+                        const p = state.depotMarker.marker.getPopup();
+                        if (p) p.setContent(dPopup);
+                        state.depotMarker.popupHtml = dPopup;
+                    }
+                }
+            } else if (state.depotMarker) {
+                map.removeLayer(state.depotMarker.marker);
+                state.depotMarker = null;
+            }
+
+            syncTruckLayerArrays(state);
+        }
+
+        function applyStopsRoadGeometry(strId, sig, geometry, color, currentFirstStopId) {
+            const state = activeRouteLayers[strId];
+            if (!state || !visibleRouteTrucks.has(strId)) return;
+            const newLayer = createRoadGeoLayer(geometry, color).addTo(map);
+            if (state.stopsLine) {
+                map.removeLayer(state.stopsLine);
+            }
+            state.stopsLine = newLayer;
+            state.renderedStopsSig = sig;
+            state.inFlightStopsSig = null;
+            state.hasEverHadRoadGeo = true;
+            everHadRoadGeoByTruck[strId] = true;
+            if (state.prelimLine) {
+                map.removeLayer(state.prelimLine);
+                state.prelimLine = null;
+            }
+            if (state.approachLine && currentFirstStopId !== null && state.lastApproachStopId !== null && String(state.lastApproachStopId) !== String(currentFirstStopId)) {
+                map.removeLayer(state.approachLine);
+                state.approachLine = null;
+            }
+            syncTruckLayerArrays(state);
+        }
+
+        function applyApproachRoadGeometry(strId, sig, geometry, color) {
+            const state = activeRouteLayers[strId];
+            if (!state || !visibleRouteTrucks.has(strId)) return;
+            const newLayer = createRoadGeoLayer(geometry, color).addTo(map);
+            if (state.approachLine) {
+                map.removeLayer(state.approachLine);
+            }
+            state.approachLine = newLayer;
+            state.renderedApproachSig = sig;
+            state.inFlightApproachSig = null;
+            state.hasEverHadRoadGeo = true;
+            everHadRoadGeoByTruck[strId] = true;
+            if (state.prelimLine) {
+                map.removeLayer(state.prelimLine);
+                state.prelimLine = null;
+            }
+            syncTruckLayerArrays(state);
+        }
+
+        function ensurePrelimFallbackIfNeeded(strId, fallbackWaypoints, color) {
+            const state = activeRouteLayers[strId];
+            if (!state || !visibleRouteTrucks.has(strId)) return;
+            if (state.hasEverHadRoadGeo || everHadRoadGeoByTruck[strId] || state.stopsLine || state.approachLine) return;
+            if (!state.prelimLine && fallbackWaypoints && fallbackWaypoints.length >= 2) {
+                state.prelimLine = L.polyline(fallbackWaypoints, {
+                    color: color,
+                    weight: 4,
+                    opacity: 0.75,
+                    dashArray: '6, 8',
+                    lineJoin: 'round'
+                }).addTo(map);
+                syncTruckLayerArrays(state);
+            }
+        }
+
+        function fetchStopsPathForTruck(strId, stopsSig, stopsWaypoints, fallbackWaypoints, color, currentFirstStopId) {
+            const state = activeRouteLayers[strId];
+            if (!state || !visibleRouteTrucks.has(strId)) return;
+            if (state.retryTimer) {
+                clearTimeout(state.retryTimer);
+                state.retryTimer = null;
+            }
+            const token = ++routeTokenCounter;
+            routeRenderTokens[strId] = token;
+            state.inFlightStopsSig = stopsSig;
+
+            ensurePrelimFallbackIfNeeded(strId, fallbackWaypoints, color);
+
+            fetchChunkedOsrmGeometry(stopsWaypoints)
+                .then(geometry => {
+                    if (!geometry || !geometry.coordinates || geometry.coordinates.length === 0) {
+                        throw new Error('Empty OSRM geometry');
+                    }
+                    setCachedStopsGeo(stopsSig, geometry);
+                    const curState = activeRouteLayers[strId];
+                    if (!curState || !visibleRouteTrucks.has(strId)) return;
+                    if (routeRenderTokens[strId] !== token || curState.stopsSig !== stopsSig) return;
+                    curState.retryAttempt = 0;
+                    applyStopsRoadGeometry(strId, stopsSig, geometry, color, currentFirstStopId);
+                })
+                .catch(err => {
+                    const curState = activeRouteLayers[strId];
+                    if (!curState || !visibleRouteTrucks.has(strId)) return;
+                    if (routeRenderTokens[strId] !== token || curState.stopsSig !== stopsSig) return;
+                    curState.inFlightStopsSig = null;
+                    ensurePrelimFallbackIfNeeded(strId, fallbackWaypoints, color);
+                    const delay = BACKOFF_DELAYS_MS[Math.min(curState.retryAttempt, BACKOFF_DELAYS_MS.length - 1)];
+                    curState.retryAttempt++;
+                    curState.retryTimer = setTimeout(() => {
+                        curState.retryTimer = null;
+                        if (visibleRouteTrucks.has(strId) && activeRouteLayers[strId] && activeRouteLayers[strId].stopsSig === stopsSig) {
+                            fetchStopsPathForTruck(strId, stopsSig, stopsWaypoints, fallbackWaypoints, color, currentFirstStopId);
+                        }
+                    }, delay);
+                });
+        }
+
+        function fetchApproachLegForTruck(strId, approachSig, truckCoords, firstStop, fallbackWaypoints, color) {
+            const state = activeRouteLayers[strId];
+            if (!state || !visibleRouteTrucks.has(strId) || !truckCoords || !firstStop) return;
+            if (state.approachRetryTimer) {
+                clearTimeout(state.approachRetryTimer);
+                state.approachRetryTimer = null;
+            }
+            const firstStopCoords = [parseFloat(firstStop.lat), parseFloat(firstStop.lng)];
+            const distToFirst = haversineMeters(truckCoords, firstStopCoords);
+            state.lastApproachFetchCoords = [truckCoords[0], truckCoords[1]];
+            state.lastApproachFetchTime = Date.now();
+            state.lastApproachStopId = firstStop.id;
+
+            if (distToFirst <= 30 && state.stopsLine) {
+                return;
+            }
+
+            const cached = getCachedApproachGeo(approachSig);
+            if (cached) {
+                applyApproachRoadGeometry(strId, approachSig, cached, color);
+                return;
+            }
+
+            const approachToken = ++routeTokenCounter;
+            state.approachRequestToken = approachToken;
+            state.inFlightApproachSig = approachSig;
+
+            fetchChunkedOsrmGeometry([truckCoords, firstStopCoords])
+                .then(geometry => {
+                    if (!geometry || !geometry.coordinates || geometry.coordinates.length === 0) {
+                        throw new Error('Empty approach geometry');
+                    }
+                    setCachedApproachGeo(approachSig, geometry);
+                    const curState = activeRouteLayers[strId];
+                    if (!curState || !visibleRouteTrucks.has(strId)) return;
+                    if (curState.approachRequestToken !== approachToken || curState.approachSig !== approachSig) return;
+                    curState.approachRetryAttempt = 0;
+                    applyApproachRoadGeometry(strId, approachSig, geometry, color);
+                })
+                .catch(err => {
+                    const curState = activeRouteLayers[strId];
+                    if (!curState || !visibleRouteTrucks.has(strId)) return;
+                    if (curState.approachRequestToken !== approachToken || curState.approachSig !== approachSig) return;
+                    curState.inFlightApproachSig = null;
+                    if (!curState.stopsSig) {
+                        ensurePrelimFallbackIfNeeded(strId, fallbackWaypoints, color);
+                        const delay = BACKOFF_DELAYS_MS[Math.min(curState.approachRetryAttempt, BACKOFF_DELAYS_MS.length - 1)];
+                        curState.approachRetryAttempt++;
+                        curState.approachRetryTimer = setTimeout(() => {
+                            curState.approachRetryTimer = null;
+                            if (visibleRouteTrucks.has(strId) && activeRouteLayers[strId] && activeRouteLayers[strId].approachSig === approachSig) {
+                                fetchApproachLegForTruck(strId, approachSig, truckCoords, firstStop, fallbackWaypoints, color);
+                            }
+                        }, delay);
+                    }
+                });
         }
 
         function renderRoutesOnMap() {
@@ -891,124 +1599,135 @@
                 }
             }
 
+            let initialFetchCountInPass = 0;
+
             visibleRouteTrucks.forEach(tId => {
-                let strId = String(tId);
-                let color = getTruckColor(tId);
-                let routeNode = routesData['route_' + strId] || {};
-                let stopsObj = routeNode.stops || routeNode;
-                let stops = parseStops(stopsObj);
+                const strId = String(tId);
+                const color = getTruckColor(tId);
+                const routeNode = routesData['route_' + strId] || {};
+                const stopsObj = routeNode.stops || routeNode;
+                const stops = parseStops(stopsObj);
 
-                let pendingStops = stops.filter(s => s.id > -1000 && s.name !== 'End Location / Depot' && s.status !== 'COMPLETED' && s.status !== 'SKIPPED' && s.confirmation !== 'CANCELLED');
-                let depotStop = stops.find(s => s.id <= -1000 || s.name === 'End Location / Depot');
+                const pendingStops = stops.filter(s => s.id > -1000 && s.name !== 'End Location / Depot' && s.status !== 'COMPLETED' && s.status !== 'SKIPPED' && s.confirmation !== 'CANCELLED' && s.lat !== undefined && s.lng !== undefined && !isNaN(parseFloat(s.lat)) && !isNaN(parseFloat(s.lng)));
+                const depotStop = extractDepotStop(stopsObj);
 
-                let tData = getTruckData(strId);
-                let truckCoords = getTruckCoords(tData);
+                const tData = getTruckData(strId);
+                const truckCoords = getTruckCoords(tData);
 
-                let coordKey = `${truckCoords ? (truckCoords[0].toFixed(4) + ',' + truckCoords[1].toFixed(4)) : 'none'}_${pendingStops.length}`;
-                if (activeRouteLayers[strId] && activeRouteLayers[strId]._lastCoordKey === coordKey) {
-                    return; // Coordinates & stops unchanged, keep smooth display
+                const state = ensureTruckRouteState(strId);
+
+                // 1. Update stop & depot pins in place without rebuilding unchanged markers
+                updateTruckStopPins(strId, pendingStops, depotStop, color);
+
+                // 2. Construct stops-path waypoints (pending stops -> depot)
+                const stopsWaypoints = pendingStops.map(s => [parseFloat(s.lat), parseFloat(s.lng)]);
+                if (depotStop && depotStop.lat !== undefined && depotStop.lng !== undefined && !isNaN(parseFloat(depotStop.lat)) && !isNaN(parseFloat(depotStop.lng))) {
+                    stopsWaypoints.push([parseFloat(depotStop.lat), parseFloat(depotStop.lng)]);
                 }
 
-                clearRouteForTruck(strId);
-                activeRouteLayers[strId] = { lines: [], markers: [], _lastCoordKey: coordKey };
+                const allWaypoints = [];
+                if (truckCoords) allWaypoints.push(truckCoords);
+                stopsWaypoints.forEach(pt => allWaypoints.push(pt));
 
-                // 1. Draw upcoming stop pins
-                pendingStops.forEach(s => {
-                    if (!s.lat || !s.lng || isNaN(parseFloat(s.lat)) || isNaN(parseFloat(s.lng))) return;
-                    let pinIcon = L.divIcon({
-                        className: 'stop-pin-' + strId,
-                        html: `<div style="background:${color}; color:white; width:26px; height:26px; border-radius:50%; border:2px solid #ffffff; box-shadow:0 3px 8px rgba(0,0,0,0.35); display:flex; align-items:center; justify-content:center; font-weight:800; font-size:11px; cursor:pointer;" title="Stop #${s.sequence}: ${s.name}">
-                            ${s.sequence || ''}
-                        </div>`,
-                        iconSize: [26, 26],
-                        iconAnchor: [13, 13],
-                        popupAnchor: [0, -14]
-                    });
-                    let sm = L.marker([s.lat, s.lng], { icon: pinIcon }).addTo(map);
-                    let phoneLink = s.phone ? `<div style="margin-top:6px;"><a href="tel:${s.phone}" style="font-size:12px; color:var(--primary); font-weight:700; text-decoration:none;"><i class="fa-solid fa-phone"></i> ${s.phone}</a></div>` : '';
-                    sm.bindPopup(`
-                        <div style="font-family:inherit; min-width:160px; padding:2px;">
-                            <div style="font-size:11px; font-weight:700; color:${color}; text-transform:uppercase;">Truck ${strId} &middot; Stop #${s.sequence}</div>
-                            <div style="font-weight:700; font-size:14px; margin-top:2px; color:#0f172a;">${s.name}</div>
-                            <div style="font-size:12px; color:#64748b; margin-top:2px;">${s.address || 'No address'}</div>
-                            ${phoneLink}
-                        </div>
-                    `);
-                    activeRouteLayers[strId].markers.push(sm);
-                });
-
-                // 2. Draw depot pin if present
-                if (depotStop && depotStop.lat && depotStop.lng) {
-                    let depotIcon = L.divIcon({
-                        className: 'depot-pin-' + strId,
-                        html: `<div style="background:#0f172a; color:white; width:26px; height:26px; border-radius:6px; border:2px solid #ffffff; box-shadow:0 3px 8px rgba(0,0,0,0.35); display:flex; align-items:center; justify-content:center; font-size:12px;" title="Depot / End"><i class="fa-solid fa-warehouse"></i></div>`,
-                        iconSize: [26, 26],
-                        iconAnchor: [13, 13],
-                        popupAnchor: [0, -14]
-                    });
-                    let dm = L.marker([depotStop.lat, depotStop.lng], { icon: depotIcon }).addTo(map);
-                    dm.bindPopup(`<b>Depot / End Location</b><br>${depotStop.address || ''}`);
-                    activeRouteLayers[strId].markers.push(dm);
+                if (pendingStops.length === 0 && stopsWaypoints.length < 2) {
+                    if (state.stopsLine) { map.removeLayer(state.stopsLine); state.stopsLine = null; }
+                    if (state.approachLine) { map.removeLayer(state.approachLine); state.approachLine = null; }
+                    if (state.prelimLine) { map.removeLayer(state.prelimLine); state.prelimLine = null; }
+                    state.stopsSig = null;
+                    state.renderedStopsSig = null;
+                    syncTruckLayerArrays(state);
+                    return;
                 }
 
-                // 3. Construct waypoints list starting from truck's live location
-                let waypoints = [];
-                if (truckCoords) {
-                    waypoints.push(truckCoords);
-                }
-                pendingStops.forEach(s => {
-                    if (s.lat && s.lng) waypoints.push([s.lat, s.lng]);
-                });
-                if (depotStop && depotStop.lat && depotStop.lng) {
-                    waypoints.push([depotStop.lat, depotStop.lng]);
-                }
+                const currentFirstStop = pendingStops.length > 0 ? pendingStops[0] : null;
+                const currentFirstStopId = currentFirstStop ? currentFirstStop.id : null;
 
-                if (waypoints.length >= 2) {
-                    // Instant preliminary polyline
-                    let prelimLine = L.polyline(waypoints, {
-                        color: color,
-                        weight: 4,
-                        opacity: 0.75,
-                        dashArray: '6, 8',
-                        lineJoin: 'round'
-                    }).addTo(map);
-                    activeRouteLayers[strId].lines.push(prelimLine);
+                // Layer A: Stops path (pendingStops -> depot)
+                if (stopsWaypoints.length >= 2) {
+                    const stopsSig = pendingStops.map(s => `${s.id}:${Number(s.lat).toFixed(5)},${Number(s.lng).toFixed(5)}`).join('|') +
+                        (depotStop && depotStop.lat !== undefined && depotStop.lng !== undefined ? `|depot:${Number(depotStop.lat).toFixed(5)},${Number(depotStop.lng).toFixed(5)}` : '');
+                    if (state.stopsSig !== stopsSig) {
+                        if (state.retryTimer) {
+                            clearTimeout(state.retryTimer);
+                            state.retryTimer = null;
+                        }
+                        state.retryAttempt = 0;
+                        state.stopsSig = stopsSig;
+                    }
 
-                    // Fetch road geometry via OSRM
-                    let token = Date.now() + Math.random();
-                    routeRenderTokens[strId] = token;
-
-                    let osrmPoints = waypoints.slice(0, 50);
-                    let coordsString = osrmPoints.map(pt => `${pt[1]},${pt[0]}`).join(';');
-                    let osrmUrl = `https://router.project-osrm.org/route/v1/driving/${coordsString}?overview=full&geometries=geojson`;
-
-                    fetch(osrmUrl)
-                        .then(res => res.json())
-                        .then(data => {
-                            if (routeRenderTokens[strId] !== token) return;
-                            if (data.routes && data.routes[0] && data.routes[0].geometry) {
-                                if (activeRouteLayers[strId] && activeRouteLayers[strId].lines.includes(prelimLine)) {
-                                    map.removeLayer(prelimLine);
-                                    let idx = activeRouteLayers[strId].lines.indexOf(prelimLine);
-                                    if (idx > -1) activeRouteLayers[strId].lines.splice(idx, 1);
-                                }
-                                let roadGeo = L.geoJSON(data.routes[0].geometry, {
-                                    style: {
-                                        color: color,
-                                        weight: 5,
-                                        opacity: 0.85,
-                                        lineCap: 'round',
-                                        lineJoin: 'round'
+                    if (state.renderedStopsSig !== stopsSig) {
+                        const cachedGeo = getCachedStopsGeo(stopsSig);
+                        if (cachedGeo) {
+                            if (state.retryTimer) { clearTimeout(state.retryTimer); state.retryTimer = null; }
+                            state.retryAttempt = 0;
+                            applyStopsRoadGeometry(strId, stopsSig, cachedGeo, color, currentFirstStopId);
+                            state.hasStartedInitialFetch = true;
+                        } else if (state.inFlightStopsSig !== stopsSig && !state.retryTimer) {
+                            ensurePrelimFallbackIfNeeded(strId, allWaypoints, color);
+                            state.inFlightStopsSig = stopsSig;
+                            const isFirstFetchForTruck = !state.hasStartedInitialFetch;
+                            state.hasStartedInitialFetch = true;
+                            const staggerDelay = isFirstFetchForTruck ? (initialFetchCountInPass++ * 80) : 0;
+                            if (staggerDelay > 0) {
+                                if (state.staggerTimer) clearTimeout(state.staggerTimer);
+                                state.staggerTimer = setTimeout(() => {
+                                    state.staggerTimer = null;
+                                    if (visibleRouteTrucks.has(strId) && activeRouteLayers[strId] && activeRouteLayers[strId].stopsSig === stopsSig) {
+                                        fetchStopsPathForTruck(strId, stopsSig, stopsWaypoints, allWaypoints, color, currentFirstStopId);
                                     }
-                                }).addTo(map);
-                                if (activeRouteLayers[strId]) {
-                                    activeRouteLayers[strId].lines.push(roadGeo);
+                                }, staggerDelay);
+                            } else {
+                                fetchStopsPathForTruck(strId, stopsSig, stopsWaypoints, allWaypoints, color, currentFirstStopId);
+                            }
+                        }
+                    }
+                } else {
+                    state.stopsSig = null;
+                }
+
+                // Layer B: Approach leg (truck's live position -> first pending stop)
+                if (truckCoords && currentFirstStop) {
+                    const firstStopCoords = [parseFloat(currentFirstStop.lat), parseFloat(currentFirstStop.lng)];
+                    const approachSig = `${truckCoords[0].toFixed(4)},${truckCoords[1].toFixed(4)}->${currentFirstStop.id}:${firstStopCoords[0].toFixed(5)},${firstStopCoords[1].toFixed(5)}`;
+
+                    if (!state.initialApproachChecked) {
+                        state.initialApproachChecked = true;
+                        state.lastRoutedTruckCoords = [truckCoords[0], truckCoords[1]];
+                        state.lastApproachFetchCoords = [truckCoords[0], truckCoords[1]];
+                        state.lastApproachFetchTime = Date.now();
+                        state.lastApproachStopId = currentFirstStop.id;
+                        state.approachSig = approachSig;
+
+                        const cachedApproach = getCachedApproachGeo(approachSig);
+                        if (cachedApproach) {
+                            applyApproachRoadGeometry(strId, approachSig, cachedApproach, color);
+                        } else if (haversineMeters(truckCoords, firstStopCoords) > 30 || stopsWaypoints.length < 2) {
+                            fetchApproachLegForTruck(strId, approachSig, truckCoords, currentFirstStop, allWaypoints, color);
+                        }
+                    } else {
+                        // Ignore GPS jitter <= 25 m for routing
+                        const movedFromRouted = state.lastRoutedTruckCoords ? haversineMeters(truckCoords, state.lastRoutedTruckCoords) : Infinity;
+                        if (movedFromRouted > 25) {
+                            state.lastRoutedTruckCoords = [truckCoords[0], truckCoords[1]];
+                            const movedFromLastFetch = state.lastApproachFetchCoords ? haversineMeters(truckCoords, state.lastApproachFetchCoords) : Infinity;
+                            if (movedFromLastFetch > 30) {
+                                const elapsed = Date.now() - state.lastApproachFetchTime;
+                                if (elapsed >= 10000) {
+                                    if (state.approachCooldownTimer) {
+                                        clearTimeout(state.approachCooldownTimer);
+                                        state.approachCooldownTimer = null;
+                                    }
+                                    state.approachSig = approachSig;
+                                    fetchApproachLegForTruck(strId, approachSig, truckCoords, currentFirstStop, allWaypoints, color);
+                                } else if (!state.approachCooldownTimer) {
+                                    state.approachCooldownTimer = setTimeout(() => {
+                                        state.approachCooldownTimer = null;
+                                        renderRoutesOnMap();
+                                    }, 10000 - elapsed + 25);
                                 }
                             }
-                        })
-                        .catch(err => {
-                            // prelimLine remains visible as clean fallback
-                        });
+                        }
+                    }
                 }
             });
         }

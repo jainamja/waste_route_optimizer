@@ -554,6 +554,7 @@
         const urlParams = new URLSearchParams(window.location.search);
         window.isEditAssigned = urlParams.get('mode') === 'edit_assigned';
         window.editingAssignedRouteId = urlParams.get('template_id') || null;
+        window.editingAssignedTruckId = urlParams.get('truck_id') || null;
 
         const firebaseConfig = {
             apiKey: "AIzaSyAhLnjh0gRa2pf29G90zr-6AMcjLjbQpPg",
@@ -627,6 +628,9 @@
             let dataUrl = '/api/data?_t=' + Date.now();
             if (window.isEditAssigned && window.editingAssignedRouteId) {
                 dataUrl += '&template_id=' + window.editingAssignedRouteId;
+                if (window.editingAssignedTruckId) {
+                    dataUrl += '&truck_id=' + window.editingAssignedTruckId;
+                }
             }
             fetch(dataUrl, { cache: 'no-store' })
                 .then(res => res.json())
@@ -831,16 +835,17 @@
             
             data.customers.forEach(c => {
                 let t = c.truck;
-                if (!trucksInfo[t]) trucksInfo[t] = { total: 0, completed: 0, confirmed: 0, realCount: 0 };
+                if (!trucksInfo[t]) trucksInfo[t] = { total: 0, completed: 0, confirmed: 0, cancelled: 0, realCount: 0 };
                 trucksInfo[t].total++;
                 if (c.status === 'COMPLETED') trucksInfo[t].completed++;
                 if (c.id > -1000 && c.name !== 'End Location / Depot') {
                     trucksInfo[t].realCount++;
                     if (c.confirmation === 'CONFIRMED') trucksInfo[t].confirmed++;
+                    if (c.confirmation === 'CANCELLED') trucksInfo[t].cancelled++;
                 }
             });
 
-            Object.keys(trucksInfo).sort().forEach((t, i) => {
+            Object.keys(trucksInfo).sort((a, b) => parseInt(a) - parseInt(b)).forEach((t, i) => {
                 let info = trucksInfo[t];
                 let pct = Math.round((info.completed / info.total) * 100) || 0;
                 let actualTruckId = parseInt(t);
@@ -894,7 +899,7 @@
                                     headers: {'Content-Type': 'application/json'},
                                     body: JSON.stringify({id: window.editingAssignedRouteId, name: window.currentTemplateName || 'Assigned Route'})
                                 }).then(r => r.json()).then(res => {
-                                    if(res.success) window.location.href = '/admin';
+                                    if(res.success) window.location.href = '/dashboard';
                                     else alert('Error: ' + res.error);
                                 });
                             };
@@ -937,14 +942,9 @@
                     distStr = `<span style="display:flex;align-items:center;gap:4px;"><i class="fa-solid fa-road" style="color:var(--text-muted);"></i> ${distanceKm} km</span>`;
                 }
 
-                // Build driver dropdown
-                let driverOptions = '<option value="">-- Assign Driver --</option>';
-                if (data.drivers) {
-                    data.drivers.forEach(function(d) {
-                        let sel = (String(d.truck_id) === String(t)) ? 'selected' : '';
-                        driverOptions += '<option value="' + d.id + '" ' + sel + '>' + (d.name || d.username) + '</option>';
-                    });
-                }
+                // Check if an active driver is assigned to this truck
+                let assignedDriver = data.drivers ? data.drivers.find(d => String(d.truck_id) === String(t) && d.assigned_template_id) : null;
+                let assignBtnLabel = assignedDriver ? `<i class="fa-solid fa-user-check"></i> Assigned: ${assignedDriver.name || assignedDriver.username}` : `<i class="fa-solid fa-user-check"></i> Assign Driver`;
 
                 html += `
                     <div class="truck-card">
@@ -965,8 +965,8 @@
                         ${stopsListHtml}
 
                         <div style="display:flex;gap:10px;margin-top:16px;">
-                            <button onclick="openAssignModal('${t}')" style="flex:1;display:flex;align-items:center;justify-content:center;gap:8px;padding:10px 0;border:none;border-radius:10px;background:var(--primary);color:white;font-size:13px;font-weight:600;cursor:pointer;font-family:Inter,sans-serif;">
-                                <i class="fa-solid fa-user-check"></i> Assign Driver
+                            <button onclick="openAssignModal('${t}')" style="flex:1;display:flex;align-items:center;justify-content:center;gap:8px;padding:10px 0;border:none;border-radius:10px;background:${assignedDriver ? '#10b981' : 'var(--primary)'};color:white;font-size:13px;font-weight:600;cursor:pointer;font-family:Inter,sans-serif;">
+                                ${assignBtnLabel}
                             </button>
                         </div>
                         <div style="display:flex;gap:10px;margin-top:10px;">
@@ -981,7 +981,7 @@
             
             document.getElementById('truck-stats').innerHTML = html;
             
-            Object.keys(trucksInfo).sort().forEach((t) => {
+            Object.keys(trucksInfo).sort((a, b) => parseInt(a) - parseInt(b)).forEach((t) => {
                 let listEl = document.getElementById(`stop-list-${t}`);
                 if (listEl) {
                     new Sortable(listEl, {
@@ -1084,7 +1084,8 @@
             if (!isSameSession) {
                 currentConfData = {};
                 data.customers.forEach(c => {
-                    if (String(c.truck) === String(truckId) && c.id > -1000 && c.name !== 'End Location / Depot') {
+                    let isInactive = (c.customer_status || 'ACTIVE').toUpperCase() === 'INACTIVE';
+                    if (String(c.truck) === String(truckId) && c.id > -1000 && c.name !== 'End Location / Depot' && !isInactive) {
                         currentConfData[c.id] = {
                             id: c.id,
                             name: c.name,

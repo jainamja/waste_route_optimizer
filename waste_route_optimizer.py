@@ -445,6 +445,24 @@ def login_required(f):
 
 leg_cache = {}
 
+def get_active_assigned_trucks(exclude_template_id=None):
+    q = User.query.filter(User.role == 'DRIVER', User.assigned_template_id != None, User.truck_id != None)
+    if exclude_template_id is not None:
+        try:
+            q = q.filter(User.assigned_template_id != int(exclude_template_id))
+        except:
+            pass
+    active_trucks = set()
+    for d in q.all():
+        pending_cnt = Customer.query.filter(
+            Customer.truck_id == d.truck_id,
+            Customer.id > -1000,
+            Customer.status == 'PENDING'
+        ).count()
+        if pending_cnt > 0:
+            active_trucks.add(int(d.truck_id))
+    return active_trucks
+
 def recompute_route_metrics():
     import json
     from geopy.distance import geodesic
@@ -455,7 +473,18 @@ def recompute_route_metrics():
             
         start_coords = json.loads(start_meta.value)
         
-        customers = Customer.query.filter(Customer.truck_id != None).order_by(Customer.truck_id, Customer.stop_number).all()
+        ws_meta = Metadata.query.filter_by(key='workspace_truck_ids').first()
+        ws_trucks = None
+        if ws_meta and ws_meta.value:
+            try:
+                ws_trucks = json.loads(ws_meta.value)
+            except:
+                ws_trucks = None
+                
+        q = Customer.query.filter(Customer.truck_id != None)
+        if ws_trucks:
+            q = q.filter(Customer.truck_id.in_(ws_trucks))
+        customers = q.order_by(Customer.truck_id, Customer.stop_number).all()
         truck_map = {}
         for c in customers:
             if c.truck_id not in truck_map:
@@ -707,15 +736,22 @@ def upload():
             
     import secrets
     driver_tokens = {}
+    protected_trucks = get_active_assigned_trucks()
+    used_trucks = set(protected_trucks)
+    workspace_trucks = []
     
     for truck_idx, route in enumerate(active_routes):
         truck_id = truck_idx + 1
+        while truck_id in used_trucks:
+            truck_id += 1
+        used_trucks.add(truck_id)
+        workspace_trucks.append(truck_id)
         driver_tokens[str(truck_id)] = secrets.token_urlsafe(16)
         
         for stop_num, customer_id in enumerate(route):
             for c in customers_data:
                 if c['id'] == customer_id:
-                    c['truck'] = truck_idx + 1
+                    c['truck'] = truck_id
                     c['stop_number'] = stop_num + 1
                     
         # Append End Location as the final stop
@@ -723,7 +759,7 @@ def upload():
             end_idx = min(truck_idx, len(end_coords) - 1)
             depot_lat, depot_lng = end_coords[end_idx]
             customers_data.append({
-                'id': -1000 - truck_idx,
+                'id': -1000 - truck_id,
                 'name': 'End Location / Depot',
                 'phone': '',
                 'address': 'Return to Depot',
@@ -731,7 +767,7 @@ def upload():
                 'lat': depot_lat,
                 'lng': depot_lng,
                 'status': 'PENDING',
-                'truck': truck_idx + 1,
+                'truck': truck_id,
                 'stop_number': len(route) + 1
             })
 
@@ -750,8 +786,11 @@ def upload():
     if unassigned_customers:
         print(f"[WARNING] Route generation failed to assign stops for: {unassigned_customers}")
 
-    # Clear old data
-    Customer.query.delete()
+    # Clear old unassigned/non-active data while preserving active assigned trucks
+    if protected_trucks:
+        Customer.query.filter((Customer.truck_id == None) | (~Customer.truck_id.in_(protected_trucks))).delete(synchronize_session=False)
+    else:
+        Customer.query.delete()
     Metadata.query.delete()
     
     # Insert new data
@@ -762,14 +801,26 @@ def upload():
     m4 = Metadata(key='route_distances', value=json.dumps(active_route_distances))
     m_tokens = Metadata(key='driver_tokens', value=json.dumps(driver_tokens))
     m_template = Metadata(key='is_from_template', value='false')
-    db.session.add_all([m1, m2, m3, m4, m_tokens, m_template])
+    m_ws = Metadata(key='workspace_truck_ids', value=json.dumps(workspace_trucks))
+    db.session.add_all([m1, m2, m3, m4, m_tokens, m_template, m_ws])
     
-    inserted_ids = set()
+    existing_ids = set(r[0] for r in db.session.query(Customer.id).all())
+    max_id = db.session.query(db.func.max(Customer.id)).scalar() or 0
+    if max_id < 0:
+        max_id = 0
+
     for c in customers_data:
-        cid = c['id']
-        if cid in inserted_ids:
-            continue
-        inserted_ids.add(cid)
+        cid = int(c['id'])
+        if cid <= -1000 or c.get('name') == 'End Location / Depot':
+            cid = -1000 - int(c.get('truck') or 1)
+            if cid in existing_ids:
+                Customer.query.filter_by(id=cid).delete()
+        else:
+            if cid in existing_ids:
+                max_id += 1
+                cid = max_id
+        existing_ids.add(cid)
+        c['id'] = cid
         new_cust = Customer(
             id=cid, name=c['name'], phone=c['phone'], address=c['address'],
             location_url=c['location_url'], lat=c['lat'], lng=c['lng'],
@@ -793,20 +844,33 @@ def upload():
         if auth_res.status_code == 200:
             id_token = auth_res.json().get('idToken')
             
-            # fully clear old orphaned data safely by fetching keys first
+            # Clear only non-protected old data in Firebase
             trucks_res = requests.get(f"{firebase_url}/trucks.json?auth={id_token}")
             if trucks_res.status_code == 200 and trucks_res.json():
                 trucks_data = trucks_res.json()
                 trucks_items = trucks_data.items() if isinstance(trucks_data, dict) else enumerate(trucks_data) if isinstance(trucks_data, list) else []
-                for tid, _ in trucks_items:
-                    if _ is not None: requests.delete(f"{firebase_url}/trucks/{tid}.json?auth={id_token}")
+                for tid, val in trucks_items:
+                    if val is not None:
+                        try:
+                            if int(tid) in protected_trucks:
+                                continue
+                        except:
+                            pass
+                        requests.delete(f"{firebase_url}/trucks/{tid}.json?auth={id_token}")
                     
             routes_res = requests.get(f"{firebase_url}/routes.json?auth={id_token}")
             if routes_res.status_code == 200 and routes_res.json():
                 routes_data = routes_res.json()
                 routes_items = routes_data.items() if isinstance(routes_data, dict) else enumerate(routes_data) if isinstance(routes_data, list) else []
-                for rid, _ in routes_items:
-                    if _ is not None: requests.delete(f"{firebase_url}/routes/{rid}.json?auth={id_token}")
+                for rid, val in routes_items:
+                    if val is not None:
+                        try:
+                            tid_num = int(str(rid).replace('route_', ''))
+                            if tid_num in protected_trucks:
+                                continue
+                        except:
+                            pass
+                        requests.delete(f"{firebase_url}/routes/{rid}.json?auth={id_token}")
             
             # Group updates by route
             routes_payload = {}
@@ -896,6 +960,7 @@ def admin_delete_driver(driver_id):
 @app.route('/api/assign_driver', methods=['POST'])
 @login_required
 def assign_driver():
+    import json
     data = request.json
     driver_id = data.get('driver_id')
     truck_id = data.get('truck_id')
@@ -903,20 +968,50 @@ def assign_driver():
     
     if not truck_id:
         return jsonify({'error': 'Missing truck_id'}), 400
+    truck_id = int(truck_id)
         
     if driver_id:
-        driver = User.query.get(driver_id)
+        driver = User.query.get(int(driver_id))
         if not driver or driver.role != 'DRIVER':
             return jsonify({'error': 'Driver not found'}), 404
             
-        # Remove this truck_id from any other driver to prevent duplicates
-        User.query.filter_by(role='DRIVER', truck_id=truck_id).update({'truck_id': None, 'assigned_template_id': None})
+        # Remove this truck_id from any other driver to prevent duplicates on the SAME truck
+        User.query.filter(User.role == 'DRIVER', User.truck_id == truck_id, User.id != driver.id).update({'truck_id': None, 'assigned_template_id': None})
         driver.truck_id = truck_id
         
-        # Link to current global route for Admin Dashboard UI
+        # Link to current workspace template if applicable
+        ws_meta = Metadata.query.filter_by(key='workspace_truck_ids').first()
+        ws_trucks = []
+        if ws_meta and ws_meta.value:
+            try:
+                ws_trucks = json.loads(ws_meta.value)
+            except:
+                ws_trucks = []
+                
         curr = Metadata.query.filter_by(key='current_template_id').first()
-        if curr and curr.value:
+        if curr and curr.value and (not ws_trucks or truck_id in ws_trucks or not driver.assigned_template_id):
             driver.assigned_template_id = int(curr.value)
+            
+        if not driver.assigned_template_id:
+            # Auto-create a template entry so this assigned route is always tracked in Assigned Routes
+            cust_rows = Customer.query.filter_by(truck_id=truck_id).order_by(Customer.stop_number.asc()).all()
+            cust_list = [{
+                'id': c.id, 'name': c.name, 'phone': c.phone, 'address': c.address,
+                'location_url': c.location_url, 'lat': c.lat, 'lng': c.lng,
+                'status': c.status, 'truck_id': 1, 'stop_number': c.stop_number,
+                'confirmation': c.confirmation if c.confirmation else 'NOT_CONFIRMED',
+                'customer_status': getattr(c, 'customer_status', 'ACTIVE') or 'ACTIVE'
+            } for c in cust_rows]
+            meta_rows = Metadata.query.all()
+            meta_dict = {m.key: m.value for m in meta_rows}
+            auto_t = SavedTemplate(
+                name=f"Route - {driver.name or driver.username} (Truck {truck_id})",
+                metadata_json=json.dumps(meta_dict),
+                customers_json=json.dumps(cust_list)
+            )
+            db.session.add(auto_t)
+            db.session.flush()
+            driver.assigned_template_id = auto_t.id
     
     refused_cancel = []
     
@@ -928,6 +1023,7 @@ def assign_driver():
         
         for c in customers_on_truck:
             if c.id < 0: continue # Ignore depot rows
+            if getattr(c, 'customer_status', 'ACTIVE') == 'INACTIVE': continue
             
             c_val = confirmations.get(str(c.id))
             if c_val not in ['CONFIRMED', 'NOT_CONFIRMED', 'CANCELLED']:
@@ -1029,6 +1125,7 @@ def sync_firebase_to_sql(template_id=None):
 @app.route('/api/data')
 def get_data():
     template_id = request.args.get('template_id')
+    req_truck_id = request.args.get('truck_id')
     
     # Sync LIVE data from Firebase to SQL before returning
     sync_firebase_to_sql(template_id)
@@ -1054,10 +1151,22 @@ def get_data():
         end_coords = []
         
     query = Customer.query
-    if template_id:
+    if req_truck_id:
+        try:
+            query = query.filter(Customer.truck_id == int(req_truck_id))
+        except:
+            pass
+    elif template_id:
         drivers = User.query.filter_by(assigned_template_id=template_id).all()
-        truck_ids = [d.truck_id for d in drivers] if drivers else [-1]
+        truck_ids = [d.truck_id for d in drivers if d.truck_id is not None] if drivers else [-1]
         query = query.filter(Customer.truck_id.in_(truck_ids))
+    elif 'workspace_truck_ids' in metadata and metadata['workspace_truck_ids']:
+        try:
+            ws_trucks = json.loads(metadata['workspace_truck_ids'])
+            if ws_trucks and Customer.query.filter(Customer.truck_id.in_(ws_trucks)).count() > 0:
+                query = query.filter(Customer.truck_id.in_(ws_trucks))
+        except:
+            pass
         
     customers_db = query.order_by(Customer.truck_id.asc(), Customer.stop_number.asc()).all()
     
@@ -1671,20 +1780,17 @@ def update_route_manual():
     
     for truck_id, stop_ids in data.items():
         truck_id_int = int(truck_id)
+        route_key = f"route_{truck_id_int}"
+        if route_key not in routes_payload:
+            routes_payload[route_key] = {}
         
-        # We need to preserve depot stops (-1000) which are generated automatically
-        # So we just re-sequence the valid customers based on their new index
+        # Re-sequence the valid customers based on their new index
         for idx, cid in enumerate(stop_ids):
             if cid in cust_map:
                 c = cust_map[cid]
                 c.truck_id = truck_id_int
                 c.stop_number = idx + 1
                 
-                # prepare for firebase sync
-                route_key = f"route_{truck_id_int}"
-                if route_key not in routes_payload:
-                    routes_payload[route_key] = {}
-                    
                 routes_payload[route_key][str(cid)] = {
                     "name": c.name,
                     "address": c.address,
@@ -1697,23 +1803,30 @@ def update_route_manual():
                     "customer_status": getattr(c, "customer_status", "ACTIVE") or "ACTIVE"
                 }
                 
+        # Preserve depot stop for this truck
+        depot_stops = [c for c in customers if c.truck_id == truck_id_int and (c.id <= -1000 or c.name == 'End Location / Depot')]
+        for dc in depot_stops:
+            dc.stop_number = len(stop_ids) + 1
+            routes_payload[route_key][str(dc.id)] = {
+                "name": dc.name,
+                "address": dc.address,
+                "phone": '',
+                "lat": dc.lat,
+                "lng": dc.lng,
+                "sequence": dc.stop_number,
+                "status": dc.status or "PENDING",
+                "confirmation": "NOT_CONFIRMED",
+                "customer_status": "ACTIVE"
+            }
+                
     db.session.commit()
     
-    # Sync with Firebase
+    # Sync with Firebase (only update the modified routes, preserving other drivers' routes)
     try:
         import requests
         firebase_url = "https://wasteroutelive-default-rtdb.firebaseio.com"
-        API_KEY = "AIzaSyAhLnjh0gRa2pf29G90zr-6AMcjLjbQpPg"
-        auth_url = f"https://identitytoolkit.googleapis.com/v1/accounts:signUp?key={API_KEY}"
-        auth_res = requests.post(auth_url, json={"returnSecureToken": True})
-        
-        if auth_res.status_code == 200:
-            id_token = auth_res.json().get('idToken')
-            
-            # Clear all current routes in Firebase so deleted/moved stops vanish instantly
-            requests.delete(f"{firebase_url}/routes.json?auth={id_token}")
-            
-            # Push new route orders
+        id_token = get_firebase_token()
+        if id_token:
             for route_key, stops in routes_payload.items():
                 requests.put(f"{firebase_url}/routes/{route_key}.json?auth={id_token}", json={"stops": stops})
     except Exception as e:
@@ -1770,24 +1883,33 @@ def assign_route():
     driver = User.query.get(driver_id)
     if not driver: return jsonify({'error': 'Driver not found'}), 404
     
-    # If a new truck ID was provided in the UI, assign it to the driver
+    # Determine other drivers' active trucks
+    other_active_trucks = set()
+    for od in User.query.filter(User.role == 'DRIVER', User.id != driver.id, User.assigned_template_id != None, User.truck_id != None).all():
+        if Customer.query.filter(Customer.truck_id == od.truck_id, Customer.id > -1000, Customer.status == 'PENDING').count() > 0:
+            other_active_trucks.add(int(od.truck_id))
+
     if requested_truck_id:
         truck_id_int = int(requested_truck_id)
-        # Prevent duplicates
+        if truck_id_int in other_active_trucks:
+            truck_id_int = 1
+            while truck_id_int in other_active_trucks:
+                truck_id_int += 1
+        User.query.filter(User.role == 'DRIVER', User.truck_id == truck_id_int, User.id != driver.id).update({'truck_id': None})
+        driver.truck_id = truck_id_int
+        db.session.commit()
+    elif not driver.truck_id or int(driver.truck_id) in other_active_trucks:
+        truck_id_int = 1
+        while truck_id_int in other_active_trucks:
+            truck_id_int += 1
         User.query.filter(User.role == 'DRIVER', User.truck_id == truck_id_int, User.id != driver.id).update({'truck_id': None})
         driver.truck_id = truck_id_int
         db.session.commit()
         
-    if not driver.truck_id: 
-        return jsonify({'error': 'Driver must have a truck assigned before deploying a route.'}), 400
-    
     try:
         import requests
         firebase_url = "https://wasteroutelive-default-rtdb.firebaseio.com"
-        API_KEY = "AIzaSyAhLnjh0gRa2pf29G90zr-6AMcjLjbQpPg"
-        auth_url = f"https://identitytoolkit.googleapis.com/v1/accounts:signUp?key={API_KEY}"
-        auth_res = requests.post(auth_url, json={"returnSecureToken": True})
-        id_token = auth_res.json().get('idToken') if auth_res.status_code == 200 else None
+        id_token = get_firebase_token()
     except:
         id_token = None
     
@@ -1803,15 +1925,31 @@ def assign_route():
     t = SavedTemplate.query.get(template_id)
     if not t: return jsonify({'error': 'Template not found'}), 404
     
-    driver.assigned_template_id = template_id
+    driver.assigned_template_id = int(template_id)
     Customer.query.filter_by(truck_id=driver.truck_id).delete()
     
     import json
     cust_list = json.loads(t.customers_json or '[]')
     
+    existing_ids = set(r[0] for r in db.session.query(Customer.id).all())
+    max_id = db.session.query(db.func.max(Customer.id)).scalar() or 0
+    if max_id < 0:
+        max_id = 0
+
     for c in cust_list:
+        raw_id = int(c['id'])
+        if raw_id <= -1000 or c.get('name') == 'End Location / Depot':
+            cid = -1000 - int(driver.truck_id)
+            if cid in existing_ids:
+                Customer.query.filter_by(id=cid).delete()
+        else:
+            cid = raw_id
+            if cid in existing_ids:
+                max_id += 1
+                cid = max_id
+        existing_ids.add(cid)
         new_cust = Customer(
-            id=c['id'], name=c['name'], phone=c.get('phone'), address=c.get('address'),
+            id=cid, name=c['name'], phone=c.get('phone'), address=c.get('address'),
             location_url=c.get('location_url'), lat=c['lat'], lng=c['lng'],
             status='PENDING', truck_id=driver.truck_id, stop_number=c.get('stop_number'),
             confirmation=c.get('confirmation', 'NOT_CONFIRMED'),
@@ -1860,16 +1998,27 @@ def save_template():
     meta_rows = Metadata.query.all()
     meta_dict = {m.key: m.value for m in meta_rows}
     
-    # Dump Customers
+    ws_trucks = []
+    if 'workspace_truck_ids' in meta_dict and meta_dict['workspace_truck_ids']:
+        try:
+            ws_trucks = json.loads(meta_dict['workspace_truck_ids'])
+        except:
+            ws_trucks = []
+    
+    # Dump Customers (only for the target template or current workspace, never mixing other drivers' routes)
+    cust_rows = None
     if t_id:
         drivers = User.query.filter_by(assigned_template_id=t_id).all()
         if drivers:
-            truck_ids = [d.truck_id for d in drivers]
-            cust_rows = Customer.query.filter(Customer.truck_id.in_(truck_ids)).all()
+            truck_ids = [d.truck_id for d in drivers if d.truck_id is not None]
+            if truck_ids:
+                cust_rows = Customer.query.filter(Customer.truck_id.in_(truck_ids)).order_by(Customer.truck_id.asc(), Customer.stop_number.asc()).all()
+    if cust_rows is None:
+        if ws_trucks:
+            cust_rows = Customer.query.filter(Customer.truck_id.in_(ws_trucks)).order_by(Customer.truck_id.asc(), Customer.stop_number.asc()).all()
         else:
-            cust_rows = Customer.query.all()
-    else:
-        cust_rows = Customer.query.all()
+            cust_rows = Customer.query.order_by(Customer.truck_id.asc(), Customer.stop_number.asc()).all()
+            
     cust_list = [{
         'id': c.id, 'name': c.name, 'phone': c.phone, 'address': c.address,
         'location_url': c.location_url, 'lat': c.lat, 'lng': c.lng,
@@ -1898,6 +2047,20 @@ def save_template():
         db.session.add(t)
     db.session.commit()
     
+    # Update current_template_id and current_template_name in Metadata so subsequent driver assignment links to this template
+    curr_id_meta = Metadata.query.filter_by(key='current_template_id').first()
+    if not curr_id_meta:
+        curr_id_meta = Metadata(key='current_template_id')
+        db.session.add(curr_id_meta)
+    curr_id_meta.value = str(t.id)
+    
+    curr_name_meta = Metadata.query.filter_by(key='current_template_name').first()
+    if not curr_name_meta:
+        curr_name_meta = Metadata(key='current_template_name')
+        db.session.add(curr_name_meta)
+    curr_name_meta.value = str(t.name)
+    db.session.commit()
+    
     # Auto-sync to any driver assigned to this template
     affected_drivers = User.query.filter_by(assigned_template_id=t.id).all()
     if affected_drivers:
@@ -1909,12 +2072,29 @@ def save_template():
             id_token = None
             
         for d in affected_drivers:
-            # We skip wiping live if the edit is currently for this truck (already live)
-            # Actually, to be safe, just wipe and reload from the newly saved template
+            if not d.truck_id:
+                continue
             Customer.query.filter_by(truck_id=d.truck_id).delete()
+            db.session.flush()
+            existing_ids = set(r[0] for r in db.session.query(Customer.id).all())
+            max_id = db.session.query(db.func.max(Customer.id)).scalar() or 0
+            if max_id < 0:
+                max_id = 0
+                
             for c in cust_list:
+                raw_id = int(c['id'])
+                if raw_id <= -1000 or c.get('name') == 'End Location / Depot':
+                    cid = -1000 - int(d.truck_id)
+                    if cid in existing_ids:
+                        Customer.query.filter_by(id=cid).delete()
+                else:
+                    cid = raw_id
+                    if cid in existing_ids:
+                        max_id += 1
+                        cid = max_id
+                existing_ids.add(cid)
                 new_cust = Customer(
-                    id=c['id'], name=c['name'], phone=c.get('phone'), address=c.get('address'),
+                    id=cid, name=c['name'], phone=c.get('phone'), address=c.get('address'),
                     location_url=c.get('location_url'), lat=c['lat'], lng=c['lng'],
                     status=c.get('status', 'PENDING'), truck_id=d.truck_id, stop_number=c.get('stop_number'),
                     confirmation=c.get('confirmation', 'NOT_CONFIRMED'),
@@ -2063,27 +2243,82 @@ def deploy_template(t_id):
     meta_dict = json.loads(t.metadata_json or '{}')
     cust_list = json.loads(t.customers_json or '[]')
     
-    Customer.query.delete()
+    # Protect trucks that are currently assigned to active drivers
+    protected_trucks = get_active_assigned_trucks()
+    if protected_trucks:
+        Customer.query.filter((Customer.truck_id == None) | (~Customer.truck_id.in_(protected_trucks))).delete(synchronize_session=False)
+    else:
+        Customer.query.delete()
     Metadata.query.delete()
     
+    # Remap template truck IDs so they never collide with protected active trucks
+    orig_trucks = sorted(list(set(int(c.get('truck_id') or 1) for c in cust_list)))
+    if not orig_trucks:
+        orig_trucks = [1]
+    used_trucks = set(protected_trucks)
+    truck_id_map = {}
+    for orig_tid in orig_trucks:
+        new_tid = orig_tid
+        if new_tid in used_trucks:
+            new_tid = 1
+            while new_tid in used_trucks:
+                new_tid += 1
+        truck_id_map[orig_tid] = new_tid
+        used_trucks.add(new_tid)
+        
+    workspace_trucks = sorted(list(truck_id_map.values()))
+    
     for k, v in meta_dict.items():
-        if k not in ['is_from_template', 'current_template_id', 'current_template_name']:
+        if k not in ['is_from_template', 'current_template_id', 'current_template_name', 'workspace_truck_ids']:
             db.session.add(Metadata(key=k, value=v))
             
     is_template_val = 'true' if mode == 'deploy' else 'false'
     db.session.add(Metadata(key='is_from_template', value=is_template_val))
     db.session.add(Metadata(key='current_template_id', value=str(t.id)))
     db.session.add(Metadata(key='current_template_name', value=str(t.name)))
+    db.session.add(Metadata(key='workspace_truck_ids', value=json.dumps(workspace_trucks)))
         
+    existing_ids = set(r[0] for r in db.session.query(Customer.id).all())
+    max_id = db.session.query(db.func.max(Customer.id)).scalar() or 0
+    if max_id < 0:
+        max_id = 0
+        
+    deployed_customers = []
     for c in cust_list:
+        orig_tid = int(c.get('truck_id') or 1)
+        new_tid = truck_id_map.get(orig_tid, orig_tid)
+        raw_id = int(c['id'])
+        if raw_id <= -1000 or c.get('name') == 'End Location / Depot':
+            cid = -1000 - new_tid
+            if cid in existing_ids:
+                Customer.query.filter_by(id=cid).delete()
+        else:
+            cid = raw_id
+            if cid in existing_ids:
+                max_id += 1
+                cid = max_id
+        existing_ids.add(cid)
+        
         new_cust = Customer(
-            id=c['id'], name=c['name'], phone=c['phone'], address=c['address'],
+            id=cid, name=c['name'], phone=c.get('phone'), address=c.get('address'),
             location_url=c.get('location_url'), lat=c['lat'], lng=c['lng'],
-            status='PENDING', truck_id=c.get('truck_id'), stop_number=c.get('stop_number'),
+            status='PENDING', truck_id=new_tid, stop_number=c.get('stop_number'),
             confirmation=c.get('confirmation', 'NOT_CONFIRMED'),
             customer_status=c.get('customer_status', 'ACTIVE')
         )
         db.session.add(new_cust)
+        deployed_customers.append({
+            'id': cid,
+            'name': c['name'],
+            'address': c.get('address', ''),
+            'phone': c.get('phone', ''),
+            'lat': c['lat'],
+            'lng': c['lng'],
+            'truck_id': new_tid,
+            'stop_number': c.get('stop_number'),
+            'confirmation': c.get('confirmation', 'NOT_CONFIRMED'),
+            'customer_status': c.get('customer_status', 'ACTIVE')
+        })
         
     try:
         db.session.commit()
@@ -2093,7 +2328,7 @@ def deploy_template(t_id):
         traceback.print_exc()
         return jsonify({'error': f'Database error during deploy: {str(e)}'}), 200
     
-    # Sync with Firebase immediately
+    # Sync with Firebase immediately while preserving protected active routes
     try:
         import requests
         firebase_url = "https://wasteroutelive-default-rtdb.firebaseio.com"
@@ -2104,10 +2339,23 @@ def deploy_template(t_id):
         if auth_res.status_code == 200:
             id_token = auth_res.json().get('idToken')
             
-            requests.delete(f"{firebase_url}/routes.json?auth={id_token}")
+            # Only remove non-protected routes in Firebase
+            routes_res = requests.get(f"{firebase_url}/routes.json?auth={id_token}")
+            if routes_res.status_code == 200 and routes_res.json():
+                routes_data = routes_res.json()
+                routes_items = routes_data.items() if isinstance(routes_data, dict) else enumerate(routes_data) if isinstance(routes_data, list) else []
+                for rid, val in routes_items:
+                    if val is not None:
+                        try:
+                            tid_num = int(str(rid).replace('route_', ''))
+                            if tid_num in protected_trucks:
+                                continue
+                        except:
+                            pass
+                        requests.delete(f"{firebase_url}/routes/{rid}.json?auth={id_token}")
             
             routes_payload = {}
-            for c in cust_list:
+            for c in deployed_customers:
                 tid = c.get('truck_id')
                 if tid:
                     route_key = f"route_{tid}"
