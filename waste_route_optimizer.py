@@ -144,10 +144,15 @@ with app.app_context():
         db.session.rollback()
         
     try:
-        db.session.execute(text("ALTER TABLE saved_templates ADD COLUMN is_assigned_instance BOOLEAN DEFAULT 0;"))
+        db.session.execute(text("ALTER TABLE saved_templates ADD COLUMN is_assigned_instance BOOLEAN DEFAULT FALSE;"))
         db.session.commit()
     except:
         db.session.rollback()
+        try:
+            db.session.execute(text("ALTER TABLE saved_templates ADD COLUMN is_assigned_instance BOOLEAN DEFAULT 0;"))
+            db.session.commit()
+        except:
+            db.session.rollback()
 
     try:
         drivers_with_tmpl = User.query.filter(User.assigned_template_id != None).all()
@@ -2228,9 +2233,26 @@ def save_template():
 @app.route('/api/templates', methods=['GET'])
 @login_required
 def get_templates():
-    templates = SavedTemplate.query.filter(
-        (SavedTemplate.is_assigned_instance == False) | (SavedTemplate.is_assigned_instance == None)
-    ).order_by(SavedTemplate.created_at.desc()).all()
+    try:
+        templates = SavedTemplate.query.filter(
+            (SavedTemplate.is_assigned_instance == False) | (SavedTemplate.is_assigned_instance == None)
+        ).order_by(SavedTemplate.created_at.desc()).all()
+    except Exception as e:
+        db.session.rollback()
+        from sqlalchemy import text
+        try:
+            db.session.execute(text("ALTER TABLE saved_templates ADD COLUMN is_assigned_instance BOOLEAN DEFAULT FALSE;"))
+            db.session.commit()
+            templates = SavedTemplate.query.filter(
+                (SavedTemplate.is_assigned_instance == False) | (SavedTemplate.is_assigned_instance == None)
+            ).order_by(SavedTemplate.created_at.desc()).all()
+        except:
+            db.session.rollback()
+            try:
+                templates = SavedTemplate.query.order_by(SavedTemplate.created_at.desc()).all()
+            except:
+                db.session.rollback()
+                templates = []
     res = []
     for t in templates:
         res.append({
@@ -2254,7 +2276,11 @@ def get_assigned_routes():
     
     res = []
     for d in drivers:
-        t = SavedTemplate.query.get(d.assigned_template_id)
+        try:
+            t = SavedTemplate.query.get(d.assigned_template_id)
+        except Exception as e:
+            db.session.rollback()
+            t = None
         if not t:
             d.assigned_template_id = None
             continue
