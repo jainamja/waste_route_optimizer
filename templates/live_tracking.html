@@ -601,10 +601,11 @@
                 let stops = parseStops(stopsObj);
                 
                 let realStops = stops.filter(s => s.id > -1000 && s.name !== 'End Location / Depot');
-                if (realStops.length === 0) return;
-                
                 let tData = getTruckData(tId);
                 let isOnline = isTruckOnline(tData);
+                
+                // Hide truck if it has no stops and is completely offline
+                if (realStops.length === 0 && !isOnline) return;
                 
                 let dName = driverMap[tId] || (tData && tData.driverName) || '';
                 if (!dName) dName = 'Unassigned';
