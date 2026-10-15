@@ -2605,7 +2605,19 @@
                 read: false
             };
             
-            db.ref(`trucks/${adminActiveTruckId}/messages`).push(newMsg).catch(err => {
+            const msgKey = db.ref(`trucks/${adminActiveTruckId}/messages`).push().key;
+            const updates = {};
+            updates[`trucks/${adminActiveTruckId}/messages/${msgKey}`] = newMsg;
+            updates[`trucks/${adminActiveTruckId}/latest_alert`] = {
+                msgKey: msgKey,
+                sender: 'admin',
+                senderName: 'Dispatch',
+                text: text,
+                timestamp: Date.now(),
+                read: false
+            };
+
+            db.ref().update(updates).catch(err => {
                 console.error("Failed to send admin message:", err);
                 alert("Error sending message to driver. Please check connection.");
             });

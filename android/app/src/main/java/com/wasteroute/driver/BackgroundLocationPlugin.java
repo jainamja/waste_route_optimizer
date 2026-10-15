@@ -10,6 +10,8 @@ import android.content.Intent;
 import android.content.pm.PackageManager;
 import android.os.Build;
 import android.os.PowerManager;
+import android.net.Uri;
+import android.provider.Settings;
 import android.util.Log;
 
 import androidx.core.app.NotificationCompat;
@@ -153,5 +155,29 @@ public class BackgroundLocationPlugin extends Plugin {
         } catch (Exception e) {
             Log.e(TAG, "showHeadsUpNotification error", e);
         }
+    }
+
+    @PluginMethod
+    public void checkOverlayPermission(PluginCall call) {
+        boolean canDraw = true;
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+            canDraw = Settings.canDrawOverlays(getContext());
+        }
+        JSObject ret = new JSObject();
+        ret.put("hasPermission", canDraw);
+        call.resolve(ret);
+    }
+
+    @PluginMethod
+    public void requestOverlayPermission(PluginCall call) {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+            if (!Settings.canDrawOverlays(getContext())) {
+                Intent intent = new Intent(Settings.ACTION_MANAGE_OVERLAY_PERMISSION,
+                        Uri.parse("package:" + getContext().getPackageName()));
+                intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+                getContext().startActivity(intent);
+            }
+        }
+        call.resolve();
     }
 }

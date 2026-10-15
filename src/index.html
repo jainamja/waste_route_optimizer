@@ -325,6 +325,17 @@
         </div>
     </div>
 
+    <!-- Overlay Permission Prompt (Appear on top for auto-opening alerts) -->
+    <div id="overlay-perm-prompt" style="display:none; position:fixed; top:calc(max(env(safe-area-inset-top, 16px), 16px) + 60px); left:16px; right:16px; z-index:9999; background:#fef3c7; border:1px solid #f59e0b; border-radius:12px; padding:10px 14px; box-shadow:0 8px 24px rgba(0,0,0,0.15); align-items:center; justify-content:space-between; gap:10px; color:#92400e; animation:slideDownAlert 0.3s cubic-bezier(0.16, 1, 0.3, 1);">
+        <div style="font-size:12px; font-weight:600; display:flex; align-items:center; gap:8px;">
+            <i class="fa-solid fa-triangle-exclamation" style="font-size:16px; color:#d97706; flex-shrink:0;"></i>
+            <span>Enable <b>"Appear on top"</b> so dispatch messages open automatically while driving.</span>
+        </div>
+        <button onclick="requestOverlay()" style="background:#d97706; color:white; border:none; border-radius:8px; padding:6px 12px; font-weight:700; font-size:12px; cursor:pointer; flex-shrink:0;">
+            Enable
+        </button>
+    </div>
+
     <!-- FAB -->
     <button id="fab" onclick="openNavigation()"><i class="fa-solid fa-location-arrow"></i></button>
 
@@ -1524,6 +1535,7 @@
                 initMap();
                 init();
                 initDriverMessaging(truckId);
+                checkAndPromptOverlayPermission();
             } catch (err) {
                 console.error(err);
                 
@@ -1676,6 +1688,55 @@
                     driverMessagesInitialLoad = false;
                 }, 1000);
             });
+
+            // Listen to latest_alert node for instant background/foreground trigger
+            let lastDriverAlertTs = Date.now();
+            const alertRef = db.ref(`trucks/${tId}/latest_alert`);
+            alertRef.on('value', snapshot => {
+                const alertData = snapshot.val();
+                if (!alertData || alertData.read || alertData.sender !== 'admin') return;
+                
+                if (alertData.timestamp > lastDriverAlertTs) {
+                    lastDriverAlertTs = alertData.timestamp;
+                    alertRef.update({ read: true }).catch(e=>{});
+
+                    playDriverNotificationSound();
+                    showDriverAlertBanner(alertData.text || '');
+                    openDriverChat(true);
+
+                    if (window.Capacitor && window.Capacitor.Plugins && window.Capacitor.Plugins.BackgroundLocation && typeof window.Capacitor.Plugins.BackgroundLocation.bringToFront === 'function') {
+                        try {
+                            window.Capacitor.Plugins.BackgroundLocation.bringToFront({
+                                title: "🚨 Message from Dispatch",
+                                text: alertData.text || "New message received"
+                            });
+                        } catch(e) {}
+                    }
+                }
+            });
+        }
+
+        function checkAndPromptOverlayPermission() {
+            if (window.Capacitor && window.Capacitor.Plugins && window.Capacitor.Plugins.BackgroundLocation && typeof window.Capacitor.Plugins.BackgroundLocation.checkOverlayPermission === 'function') {
+                window.Capacitor.Plugins.BackgroundLocation.checkOverlayPermission().then(res => {
+                    const promptEl = document.getElementById('overlay-perm-prompt');
+                    if (promptEl) {
+                        if (res && res.hasPermission === false) {
+                            promptEl.style.display = 'flex';
+                        } else {
+                            promptEl.style.display = 'none';
+                        }
+                    }
+                }).catch(e=>{});
+            }
+        }
+
+        function requestOverlay() {
+            if (window.Capacitor && window.Capacitor.Plugins && window.Capacitor.Plugins.BackgroundLocation && typeof window.Capacitor.Plugins.BackgroundLocation.requestOverlayPermission === 'function') {
+                window.Capacitor.Plugins.BackgroundLocation.requestOverlayPermission();
+                const promptEl = document.getElementById('overlay-perm-prompt');
+                if (promptEl) promptEl.style.display = 'none';
+            }
         }
 
         function updateDriverUnreadBadge() {
@@ -1794,9 +1855,8 @@
                     driverMessages[k].read = true;
                 }
             }
-            if (Object.keys(updates).length > 0) {
-                db.ref().update(updates).catch(e => console.warn(e));
-            }
+            updates[`trucks/${tId}/latest_alert/read`] = true;
+            db.ref().update(updates).catch(e => console.warn(e));
             updateDriverUnreadBadge();
         }
 

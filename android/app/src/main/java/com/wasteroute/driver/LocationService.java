@@ -6,12 +6,20 @@ import android.app.NotificationChannel;
 import android.app.NotificationManager;
 import android.app.PendingIntent;
 import android.app.Service;
+import android.content.Context;
 import android.content.Intent;
 import android.content.pm.ServiceInfo;
 import android.location.Location;
+import android.media.Ringtone;
+import android.media.RingtoneManager;
+import android.net.Uri;
 import android.os.Build;
+import android.os.Handler;
 import android.os.IBinder;
 import android.os.Looper;
+import android.os.PowerManager;
+import android.os.VibrationEffect;
+import android.os.Vibrator;
 import android.util.Log;
 
 import androidx.annotation.Nullable;
@@ -41,11 +49,17 @@ public class LocationService extends Service {
     private String truckId;
     private String idToken;
     private final String CHANNEL_ID = "RouteTrackingChannel";
+    private final String ALERT_CHANNEL_ID = "DispatchAlertChannel";
+
+    private volatile boolean isRunning = true;
+    private long lastProcessedAlertTime = 0;
+    private boolean alertPollingStarted = false;
 
     @Override
     public void onCreate() {
         super.onCreate();
         fusedLocationClient = LocationServices.getFusedLocationProviderClient(this);
+        lastProcessedAlertTime = System.currentTimeMillis();
     }
 
     @SuppressLint("MissingPermission")
@@ -62,7 +76,7 @@ public class LocationService extends Service {
         if (driverId == null && truckId != null) driverId = truckId;
         if (truckId == null && driverId != null) truckId = driverId;
         
-        createNotificationChannel();
+        createNotificationChannels();
         
         Intent notificationIntent = new Intent(this, MainActivity.class);
         PendingIntent pendingIntent = PendingIntent.getActivity(this,
@@ -84,8 +98,191 @@ public class LocationService extends Service {
         }
         
         startLocationUpdates();
+
+        if (!alertPollingStarted) {
+            alertPollingStarted = true;
+            startAlertPolling();
+        }
         
         return START_STICKY;
+    }
+
+    private void startAlertPolling() {
+        new Thread(() -> {
+            Log.i(TAG, "Started native background alert polling thread for truck: " + truckId);
+            while (isRunning) {
+                try {
+                    checkIncomingAlerts();
+                    Thread.sleep(1500); // Check every 1.5s
+                } catch (InterruptedException e) {
+                    break;
+                } catch (Exception e) {
+                    Log.w(TAG, "checkIncomingAlerts exception: " + e.getMessage());
+                    try { Thread.sleep(3000); } catch (Exception ignored) {}
+                }
+            }
+        }).start();
+    }
+
+    private void checkIncomingAlerts() {
+        final String effectiveTruckId = truckId != null ? truckId : driverId;
+        if (effectiveTruckId == null) return;
+
+        ensureIdToken();
+        if (idToken == null || idToken.isEmpty()) return;
+
+        String urlStr = "https://wasteroutelive-default-rtdb.firebaseio.com/trucks/" + effectiveTruckId + "/latest_alert.json?auth=" + idToken;
+        String responseStr = getFromFirebase(urlStr);
+        if (responseStr == null || responseStr.trim().isEmpty() || responseStr.trim().equals("null")) {
+            return;
+        }
+
+        try {
+            JSONObject obj = new JSONObject(responseStr);
+            boolean read = obj.optBoolean("read", false);
+            long timestamp = obj.optLong("timestamp", 0);
+            String text = obj.optString("text", "New message from Dispatch");
+
+            if (!read && timestamp > lastProcessedAlertTime) {
+                lastProcessedAlertTime = timestamp;
+                Log.i(TAG, "🚨 NEW ALERT DETECTED IN BACKGROUND: " + text);
+
+                // Mark read in latest_alert so it doesn't loop
+                patchToFirebase("https://wasteroutelive-default-rtdb.firebaseio.com/trucks/" + effectiveTruckId + "/latest_alert.json?auth=" + idToken, "{\"read\":true}");
+
+                // Wake device, play sound, vibrate, and launch MainActivity
+                wakeScreenAndLaunchApp(text);
+            }
+        } catch (Exception e) {
+            Log.e(TAG, "Error parsing latest_alert", e);
+        }
+    }
+
+    private void wakeScreenAndLaunchApp(String text) {
+        try {
+            // 1. Wake screen up
+            PowerManager pm = (PowerManager) getSystemService(Context.POWER_SERVICE);
+            if (pm != null) {
+                @SuppressWarnings("deprecation")
+                PowerManager.WakeLock wakeLock = pm.newWakeLock(
+                    PowerManager.SCREEN_BRIGHT_WAKE_LOCK |
+                    PowerManager.ACQUIRE_CAUSES_WAKEUP |
+                    PowerManager.ON_AFTER_RELEASE,
+                    "wasteroute:dispatch_wake"
+                );
+                wakeLock.acquire(5000);
+            }
+
+            // 2. Play native alert audio for 3.6s
+            playNativeUrgentAlertSound();
+
+            // 3. Vibrate phone
+            Vibrator vibrator = (Vibrator) getSystemService(Context.VIBRATOR_SERVICE);
+            if (vibrator != null) {
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                    vibrator.vibrate(VibrationEffect.createWaveform(new long[]{0, 400, 150, 400, 150, 400, 150, 800, 200, 900}, -1));
+                } else {
+                    vibrator.vibrate(new long[]{0, 400, 150, 400, 150, 400, 150, 800, 200, 900}, -1);
+                }
+            }
+
+            // 4. Launch MainActivity
+            Intent launchIntent = new Intent(this, MainActivity.class);
+            launchIntent.addFlags(
+                Intent.FLAG_ACTIVITY_NEW_TASK |
+                Intent.FLAG_ACTIVITY_REORDER_TO_FRONT |
+                Intent.FLAG_ACTIVITY_SINGLE_TOP |
+                Intent.FLAG_ACTIVITY_CLEAR_TOP
+            );
+            launchIntent.putExtra("openChat", true);
+            launchIntent.putExtra("alertText", text);
+            startActivity(launchIntent);
+
+            // 5. Post high-priority Heads-Up Notification with FullScreenIntent
+            showUrgentHeadsUpNotification(text);
+
+        } catch (Exception e) {
+            Log.e(TAG, "wakeScreenAndLaunchApp error", e);
+        }
+    }
+
+    private void playNativeUrgentAlertSound() {
+        try {
+            Uri soundUri = RingtoneManager.getDefaultUri(RingtoneManager.TYPE_NOTIFICATION);
+            if (soundUri == null) soundUri = RingtoneManager.getDefaultUri(RingtoneManager.TYPE_ALARM);
+            final Ringtone ringtone = RingtoneManager.getRingtone(getApplicationContext(), soundUri);
+            if (ringtone != null) {
+                ringtone.play();
+                new Handler(Looper.getMainLooper()).postDelayed(() -> {
+                    try {
+                        if (ringtone.isPlaying()) ringtone.stop();
+                    } catch (Exception ignored) {}
+                }, 3600);
+            }
+        } catch (Exception e) {
+            Log.w(TAG, "playNativeUrgentAlertSound error: " + e.getMessage());
+        }
+    }
+
+    private void showUrgentHeadsUpNotification(String text) {
+        try {
+            NotificationManager manager = (NotificationManager) getSystemService(Context.NOTIFICATION_SERVICE);
+            if (manager == null) return;
+
+            Intent notifyIntent = new Intent(this, MainActivity.class);
+            notifyIntent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_CLEAR_TOP | Intent.FLAG_ACTIVITY_SINGLE_TOP);
+            notifyIntent.putExtra("openChat", true);
+
+            int flags = PendingIntent.FLAG_UPDATE_CURRENT;
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+                flags |= PendingIntent.FLAG_IMMUTABLE;
+            }
+
+            PendingIntent pendingIntent = PendingIntent.getActivity(this, 3001, notifyIntent, flags);
+
+            NotificationCompat.Builder builder = new NotificationCompat.Builder(this, ALERT_CHANNEL_ID)
+                .setSmallIcon(android.R.drawable.ic_dialog_info)
+                .setContentTitle("🚨 Message from Dispatch")
+                .setContentText(text)
+                .setStyle(new NotificationCompat.BigTextStyle().bigText(text))
+                .setPriority(NotificationCompat.PRIORITY_MAX)
+                .setCategory(NotificationCompat.CATEGORY_ALARM)
+                .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
+                .setAutoCancel(true)
+                .setContentIntent(pendingIntent)
+                .setFullScreenIntent(pendingIntent, true);
+
+            manager.notify(3001, builder.build());
+        } catch (Exception e) {
+            Log.e(TAG, "showUrgentHeadsUpNotification error: " + e.getMessage());
+        }
+    }
+
+    private String getFromFirebase(String urlStr) {
+        try {
+            URL url = new URL(urlStr);
+            HttpURLConnection conn = (HttpURLConnection) url.openConnection();
+            conn.setRequestMethod("GET");
+            conn.setConnectTimeout(3000);
+            conn.setReadTimeout(3000);
+            
+            int code = conn.getResponseCode();
+            if (code == 401) {
+                idToken = null; // refresh next time
+                conn.disconnect();
+                return null;
+            }
+            if (code == 200) {
+                try (InputStream is = conn.getInputStream();
+                     Scanner scanner = new Scanner(is, "UTF-8").useDelimiter("\\A")) {
+                    String res = scanner.hasNext() ? scanner.next() : "";
+                    conn.disconnect();
+                    return res;
+                }
+            }
+            conn.disconnect();
+        } catch (Exception ignored) {}
+        return null;
     }
 
     @SuppressLint("MissingPermission")
@@ -208,21 +405,39 @@ public class LocationService extends Service {
         }
     }
 
-    private void createNotificationChannel() {
+    private void createNotificationChannels() {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            NotificationManager manager = getSystemService(NotificationManager.class);
+            if (manager == null) return;
+
+            // Route tracking service channel
             NotificationChannel serviceChannel = new NotificationChannel(
                     CHANNEL_ID,
                     "Route Tracking",
                     NotificationManager.IMPORTANCE_LOW
             );
-            NotificationManager manager = getSystemService(NotificationManager.class);
-            if (manager != null) manager.createNotificationChannel(serviceChannel);
+            manager.createNotificationChannel(serviceChannel);
+
+            // Dispatch alert high priority channel
+            NotificationChannel alertChannel = new NotificationChannel(
+                    ALERT_CHANNEL_ID,
+                    "Dispatch Urgent Alerts",
+                    NotificationManager.IMPORTANCE_HIGH
+            );
+            alertChannel.setDescription("Incoming messages and urgent dispatch notifications");
+            alertChannel.enableVibration(true);
+            alertChannel.setVibrationPattern(new long[]{0, 400, 150, 400, 150, 400, 150, 800, 200, 900});
+            alertChannel.setLockscreenVisibility(Notification.VISIBILITY_PUBLIC);
+            alertChannel.setBypassDnd(true);
+            manager.createNotificationChannel(alertChannel);
         }
     }
 
     @Override
     public void onDestroy() {
         super.onDestroy();
+        isRunning = false;
+
         if (fusedLocationClient != null && locationCallback != null) {
             fusedLocationClient.removeLocationUpdates(locationCallback);
             locationCallback = null;
