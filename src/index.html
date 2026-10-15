@@ -764,9 +764,15 @@
                 map = null;
             }
             map = L.map("map", { zoomControl: false }).setView([23.0225, 72.5714], 12);
-            L.tileLayer("https://{s}.google.com/vt/lyrs=m&hl=en&x={x}&y={y}&z={z}", {
+            
+            // High-DPI crisp map tiles for modern mobile Retina displays
+            const isRetina = (window.devicePixelRatio && window.devicePixelRatio > 1.2);
+            const scaleParam = isRetina ? '&scale=2' : '';
+            L.tileLayer(`https://{s}.google.com/vt/lyrs=m&hl=en&x={x}&y={y}&z={z}${scaleParam}`, {
                 maxZoom: 20, 
-                subdomains:["mt0","mt1","mt2","mt3"],
+                subdomains: ["mt0", "mt1", "mt2", "mt3"],
+                tileSize: 256,
+                zoomOffset: 0,
                 attribution: 'Map data &copy; Google'
             }).addTo(map);
             setTimeout(() => { if (map) map.invalidateSize(); }, 100);
