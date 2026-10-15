@@ -1154,6 +1154,46 @@
             focusTruckRoute(strId);
         }
 
+        const osrmGeometryCache = {};
+        const inFlightOsrmRequests = new Set();
+
+        function chunkWaypoints(waypoints, maxChunk = 35) {
+            if (!waypoints || waypoints.length < 2) return [];
+            if (waypoints.length <= maxChunk) return [waypoints];
+            const chunks = [];
+            const step = maxChunk - 1;
+            for (let i = 0; i < waypoints.length - 1; i += step) {
+                const slice = waypoints.slice(i, i + maxChunk);
+                if (slice.length >= 2) chunks.push(slice);
+                if (i + maxChunk >= waypoints.length) break;
+            }
+            return chunks;
+        }
+
+        async function fetchChunkedOsrmGeometry(waypoints) {
+            const chunks = chunkWaypoints(waypoints, 35);
+            if (!chunks.length) return null;
+            try {
+                const results = await Promise.all(chunks.map(chunk => {
+                    const coordsStr = chunk.map(pt => `${pt[1]},${pt[0]}`).join(';');
+                    return fetch(`https://router.project-osrm.org/route/v1/driving/${coordsStr}?overview=full&geometries=geojson`)
+                        .then(res => res.json())
+                        .then(d => (d && d.routes && d.routes[0]) ? d.routes[0].geometry.coordinates : null)
+                        .catch(() => null);
+                }));
+
+                const mergedLatLngs = [];
+                results.forEach(coords => {
+                    if (coords && Array.isArray(coords)) {
+                        coords.forEach(c => mergedLatLngs.push([c[1], c[0]]));
+                    }
+                });
+                return mergedLatLngs.length > 0 ? mergedLatLngs : null;
+            } catch(e) {
+                return null;
+            }
+        }
+
         function renderRoutesOnMap() {
             for (let tId in activeRouteLayers) {
                 if (!visibleRouteTrucks.has(String(tId))) {
@@ -1193,8 +1233,53 @@
 
                 let waypoints = pendingStops.map(s => [parseFloat(s.lat), parseFloat(s.lng)]);
                 if (waypoints.length > 1) {
-                    if (state.stopsLine) map.removeLayer(state.stopsLine);
-                    state.stopsLine = L.polyline(waypoints, { color: color, weight: 4, opacity: 0.8, dashArray: '6, 6' }).addTo(map);
+                    const stopsSig = strId + '_' + waypoints.length + '_' + waypoints[0].join(',') + '_' + waypoints[waypoints.length - 1].join(',');
+                    
+                    if (osrmGeometryCache[stopsSig]) {
+                        // Render cached true road geometry
+                        if (state.stopsLine) map.removeLayer(state.stopsLine);
+                        state.stopsLine = L.polyline(osrmGeometryCache[stopsSig], {
+                            color: color,
+                            weight: 5,
+                            opacity: 0.9,
+                            lineCap: 'round',
+                            lineJoin: 'round'
+                        }).addTo(map);
+                    } else {
+                        // Solid line while road geometry fetches
+                        if (!state.stopsLine) {
+                            state.stopsLine = L.polyline(waypoints, {
+                                color: color,
+                                weight: 4,
+                                opacity: 0.75,
+                                lineCap: 'round',
+                                lineJoin: 'round'
+                            }).addTo(map);
+                        }
+
+                        if (!inFlightOsrmRequests.has(stopsSig)) {
+                            inFlightOsrmRequests.add(stopsSig);
+                            fetchChunkedOsrmGeometry(waypoints).then(roadLatLngs => {
+                                inFlightOsrmRequests.delete(stopsSig);
+                                if (roadLatLngs && roadLatLngs.length > 0) {
+                                    osrmGeometryCache[stopsSig] = roadLatLngs;
+                                    if (visibleRouteTrucks.has(strId)) {
+                                        if (state.stopsLine) map.removeLayer(state.stopsLine);
+                                        state.stopsLine = L.polyline(roadLatLngs, {
+                                            color: color,
+                                            weight: 5,
+                                            opacity: 0.9,
+                                            lineCap: 'round',
+                                            lineJoin: 'round'
+                                        }).addTo(map);
+                                    }
+                                }
+                            });
+                        }
+                    }
+                } else if (state.stopsLine) {
+                    map.removeLayer(state.stopsLine);
+                    state.stopsLine = null;
                 }
             });
         }
