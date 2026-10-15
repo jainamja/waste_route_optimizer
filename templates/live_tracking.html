@@ -156,18 +156,20 @@
         }
 
         .btn-route-toggle {
-            padding: 4px 8px;
+            padding: 6px 10px;
             font-size: 11px;
             font-weight: 700;
-            border-radius: 6px;
+            border-radius: 8px;
             border: 1px solid var(--border);
             background: #f8fafc;
             color: var(--text-main);
             cursor: pointer;
             display: inline-flex;
             align-items: center;
-            gap: 4px;
+            justify-content: center;
+            gap: 5px;
             transition: all 0.2s;
+            white-space: nowrap;
         }
         .btn-route-toggle:hover {
             background: #e2e8f0;
@@ -177,6 +179,28 @@
             color: white;
             border-color: var(--primary);
             box-shadow: 0 2px 8px rgba(47, 95, 255, 0.35);
+        }
+        .btn-chat-toggle {
+            padding: 6px 10px;
+            font-size: 11px;
+            font-weight: 700;
+            border-radius: 8px;
+            border: 1px solid #cbd5e1;
+            background: #ffffff;
+            color: #2563eb;
+            cursor: pointer;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            gap: 5px;
+            transition: all 0.2s;
+            white-space: nowrap;
+            position: relative;
+            box-shadow: 0 1px 2px rgba(0,0,0,0.04);
+        }
+        .btn-chat-toggle:hover {
+            background: #eff6ff;
+            border-color: #93c5fd;
         }
         .t-card.route-active {
             box-shadow: 0 4px 16px rgba(47, 95, 255, 0.12);
@@ -787,26 +811,30 @@
 
                 cardsHtml += `
                     <div class="t-card ${isRouteActive ? 'route-active' : ''} ${isCardExpanded ? 'expanded' : ''}" style="${cardBorder}" onclick="handleCardClick('${tId}', event)">
-                        <div class="t-card-header">
-                            <div>
-                                <div class="t-title" style="display:flex; align-items:center; gap:6px;">
-                                    <span style="width:10px; height:10px; border-radius:50%; background:${tColor}; display:inline-block;"></span>
-                                    Truck ${tId}
-                                    ${isOnlyThisRoute ? `<span style="font-size:9px; font-weight:800; color:white; background:${tColor}; padding:2px 6px; border-radius:10px; letter-spacing:0.4px;">SOLO ROUTE</span>` : ''}
+                        <div class="t-card-header" style="display:flex; flex-direction:column; gap:10px; margin-bottom:10px;">
+                            <div style="display:flex; justify-content:space-between; align-items:center; width:100%; gap:8px;">
+                                <div style="display:flex; align-items:center; gap:8px; min-width:0; flex:1;">
+                                    <span style="width:10px; height:10px; border-radius:50%; background:${tColor}; flex-shrink:0;"></span>
+                                    <div class="t-title" style="font-weight:800; font-size:15px; white-space:nowrap; display:inline-flex; align-items:center; gap:6px; flex-shrink:0;">
+                                        Truck ${tId}
+                                        ${isOnlyThisRoute ? `<span style="font-size:9px; font-weight:800; color:white; background:${tColor}; padding:2px 6px; border-radius:10px; letter-spacing:0.4px;">SOLO</span>` : ''}
+                                    </div>
+                                    <div class="t-driver" style="color:var(--text-muted); font-size:13px; font-weight:500; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; min-width:0;">&bull; ${dName}</div>
                                 </div>
-                                <div class="t-driver">${dName}</div>
+                                <div style="flex-shrink:0;">
+                                    ${pillHtml}
+                                </div>
                             </div>
-                            <div style="display:flex; gap:6px; align-items:center;">
-                                <button onclick="event.stopPropagation(); openAdminChat('${tId}', '${typeof escapeAdminString === 'function' ? escapeAdminString(dName) : dName}');" class="btn-chat-toggle" title="Chat with driver" style="position:relative; padding:4px 8px; font-size:11px; font-weight:700; border-radius:6px; border:1px solid var(--border); background:#f8fafc; color:#2563eb; cursor:pointer; display:inline-flex; align-items:center; gap:4px; transition:all 0.15s;">
-                                    <i class="fa-solid fa-comment-dots"></i> Chat
-                                    <span class="truck-unread-badge" id="truck-unread-badge-${tId}" style="${tUnread > 0 ? 'display:inline-flex;' : 'display:none;'} background:#ef4444; color:white; font-size:10px; font-weight:800; border-radius:10px; min-width:16px; height:16px; padding:0 4px; align-items:center; justify-content:center;">${tUnread}</span>
-                                </button>
+                            <div style="display:flex; gap:8px; align-items:center; width:100%;" onclick="event.stopPropagation();">
                                 ${hasAssignedRoute ? `
-                                <button onclick="event.stopPropagation(); toggleTruckRoute('${tId}');" class="btn-route-toggle ${isRouteActive ? 'active' : ''}" title="${isRouteActive ? 'Click to hide this route path' : 'Click to show ONLY this truck route'}">
+                                <button onclick="toggleTruckRoute('${tId}');" class="btn-route-toggle ${isRouteActive ? 'active' : ''}" style="flex:1;" title="${isRouteActive ? 'Click to hide this route path' : 'Click to show ONLY this truck route'}">
                                     <i class="fa-solid fa-route"></i> ${isRouteActive ? 'Hide Path' : 'Show Route'}
                                 </button>
                                 ` : ''}
-                                ${pillHtml}
+                                <button onclick="openAdminChat('${tId}', '${typeof escapeAdminString === 'function' ? escapeAdminString(dName) : dName}');" class="btn-chat-toggle" style="flex:1;" title="Chat with driver">
+                                    <i class="fa-solid fa-comment-dots"></i> Chat
+                                    <span class="truck-unread-badge" id="truck-unread-badge-${tId}" style="${tUnread > 0 ? 'display:inline-flex;' : 'display:none;'} background:#ef4444; color:white; font-size:10px; font-weight:800; border-radius:10px; min-width:16px; height:16px; padding:0 4px; align-items:center; justify-content:center;">${tUnread}</span>
+                                </button>
                             </div>
                         </div>
                         <div class="prog-bar-wrap" style="${progStyle} margin-top:8px;">
