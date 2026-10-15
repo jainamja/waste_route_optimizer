@@ -302,6 +302,9 @@
         let usingFallback = false;
         let driverMap = {};
         let truckToDriver = {};
+        let driverAssignedRoutes = {}; // truck_id -> assigned_template_id (or null)
+        let driverAssignedTemplateNames = {}; // truck_id -> assigned_template_name
+        let driversLoaded = false;
         let routesData = {};
 
         firebase.auth().signInAnonymously().then(() => {
@@ -365,15 +368,24 @@
                 let drvs = data.drivers || [];
                 driverMap = {};
                 truckToDriver = {};
+                driverAssignedRoutes = {};
+                driverAssignedTemplateNames = {};
                 drvs.forEach(d => {
                     if (d.truck_id) {
                         driverMap[d.truck_id] = d.name || d.username;
                         truckToDriver[d.truck_id] = d.id;
+                        driverAssignedRoutes[d.truck_id] = d.assigned_template_id || null;
+                        driverAssignedTemplateNames[d.truck_id] = d.assigned_template_name || null;
                     }
                 });
+                driversLoaded = true;
                 if (usingFallback) fallbackToIndividualListeners();
                 scheduleRender();
-            }).catch(e => console.error("fetchDrivers failed:", e));
+            }).catch(e => {
+                console.error("fetchDrivers failed:", e);
+                driversLoaded = true;
+                scheduleRender();
+            });
         }
         setInterval(fetchDrivers, 60000);
 
@@ -574,6 +586,7 @@
         }
 
         function renderProgress() {
+            if (!driversLoaded) return;
             let trucks = window.liveTrucks || {};
             let activeTruckIds = new Set([
                 ...Object.keys(driverMap),
@@ -596,18 +609,20 @@
             tIds.forEach(tId => {
                 if (!tId || tId === 'undefined' || isNaN(parseInt(tId))) return;
                 
-                let routeNode = routesData['route_' + tId] || {};
+                let strId = String(tId);
+                let hasAssignedRoute = Boolean(driverAssignedRoutes[tId] || driverAssignedRoutes[strId]);
+                let routeNode = hasAssignedRoute ? (routesData['route_' + tId] || routesData['route_' + strId] || {}) : {};
                 let stopsObj = routeNode.stops || routeNode;
-                let stops = parseStops(stopsObj);
+                let stops = hasAssignedRoute ? parseStops(stopsObj) : [];
                 
                 let realStops = stops.filter(s => s.id > -1000 && s.name !== 'End Location / Depot');
                 let tData = getTruckData(tId);
                 let isOnline = isTruckOnline(tData);
                 
-                // Hide truck if it has no stops and is completely offline
+                // Hide truck if it has no assigned stops and is completely offline
                 if (realStops.length === 0 && !isOnline) return;
                 
-                let dName = driverMap[tId] || (tData && tData.driverName) || '';
+                let dName = driverMap[tId] || driverMap[strId] || (tData && tData.driverName) || '';
                 if (!dName) dName = 'Unassigned';
                 
                 validTruckIds.add(tId.toString());
@@ -634,7 +649,7 @@
                 
                 truckStats[tId] = { total: tTotal, comp: tComp, skip: tSkip, left: tLeft };
                 
-                let isFinished = (tTotal > 0 && tLeft === 0);
+                let isFinished = (hasAssignedRoute && tTotal > 0 && tLeft === 0);
                 
                 let pillHtml = '';
                 if (isFinished) pillHtml = `<span class="t-pill finished">Finished</span>`;
@@ -643,7 +658,9 @@
                 
                 let statsStr = "";
                 let progStyle = "display:none;";
-                if (tTotal === 0) {
+                if (!hasAssignedRoute) {
+                    statsStr = "Standby / No Route Assigned";
+                } else if (tTotal === 0) {
                     if (Object.keys(routeNode).length === 0) statsStr = "Standby / Waiting for routes...";
                     else statsStr = "No stops";
                 } else {
@@ -694,9 +711,11 @@
                                 <div class="t-driver">${dName}</div>
                             </div>
                             <div style="display:flex; gap:6px; align-items:center;">
+                                ${hasAssignedRoute ? `
                                 <button onclick="event.stopPropagation(); toggleTruckRoute('${tId}');" class="btn-route-toggle ${isRouteActive ? 'active' : ''}" title="${isRouteActive ? 'Click to hide this route path' : 'Click to show ONLY this truck route'}">
                                     <i class="fa-solid fa-route"></i> ${isRouteActive ? 'Hide Path' : 'Show Route'}
                                 </button>
+                                ` : ''}
                                 ${pillHtml}
                             </div>
                         </div>
@@ -804,8 +823,7 @@
             let allTrackableTruckIds = new Set([
                 ...Object.keys(truckStats),
                 ...Object.keys(driverMap),
-                ...Object.keys(truckToDriver),
-                ...Object.keys(routesData).map(k => k.replace('route_', ''))
+                ...Object.keys(truckToDriver)
             ]);
             let trucks = window.liveTrucks || {};
             for (let k in trucks) {
@@ -833,7 +851,9 @@
                 }
                 
                 let [lat, lng] = coords;
-                let dName = driverMap[tId] || (tData && tData.driverName) || 'Unassigned';
+                let strId = String(tId);
+                let hasAssigned = Boolean(driverAssignedRoutes[tId] || driverAssignedRoutes[strId]);
+                let dName = driverMap[tId] || driverMap[strId] || (tData && tData.driverName) || 'Unassigned';
                 let st = truckStats[tId];
                 
                 let tColor = getTruckColor(tId);
@@ -868,6 +888,7 @@
                     liveTruckMarkers[tId]._lastOnlineState = isOnline;
                     liveTruckMarkers[tId].bindPopup(`<b>Truck ${tId}</b>`);
                     liveTruckMarkers[tId].on('click', () => {
+                        if (!hasAssigned) return;
                         if (!visibleRouteTrucks.has(String(tId)) || visibleRouteTrucks.size > 1) {
                             visibleRouteTrucks.clear();
                             visibleRouteTrucks.add(String(tId));
@@ -878,7 +899,7 @@
                     });
                 }
                 
-                let countsStr = st ? `<br><span style="font-size:12px; color:#64748b;">${st.comp} done &middot; ${st.left} left</span>` : `<br><span style="font-size:12px; color:#64748b;">Standby / Active</span>`;
+                let countsStr = (st && hasAssigned) ? `<br><span style="font-size:12px; color:#64748b;">${st.comp} done &middot; ${st.left} left</span>` : `<br><span style="font-size:12px; color:#64748b;">Standby / No Route Assigned</span>`;
                 let timeStr = '<span style="color:#64748b; font-weight:600;">Offline</span>';
                 let latestTime = tData.lastUpdated || tData.timestamp;
                 if (latestTime) {
@@ -899,11 +920,12 @@
                         <div style="font-weight:700; font-size:14px; color:#0f172a; display:flex; align-items:center; gap:6px;">
                             <span style="width:10px; height:10px; border-radius:50%; background:${tColor}; display:inline-block;"></span>
                             Truck ${tId}
-                            ${isRouteActive ? `<span style="font-size:10px; background:${tColor}; color:white; padding:1px 5px; border-radius:8px; margin-left:auto;">Active</span>` : ''}
+                            ${isRouteActive && hasAssigned ? `<span style="font-size:10px; background:${tColor}; color:white; padding:1px 5px; border-radius:8px; margin-left:auto;">Active</span>` : ''}
                         </div>
                         <div style="font-size:12px; color:#475569; margin-bottom:4px;">${dName}</div>
                         <div style="font-size:12px;">${timeStr}</div>
                         ${countsStr}
+                        ${hasAssigned ? `
                         <div style="display:flex; gap:6px; margin-top:8px;">
                             <button onclick="focusTruckRoute('${tId}')" style="flex:1; padding:6px 8px; background:${tColor}; color:white; border:none; border-radius:6px; font-weight:700; font-size:11px; cursor:pointer; display:flex; align-items:center; justify-content:center; gap:4px;">
                                 <i class="fa-solid fa-route"></i> ${isOnlyThis ? 'Only This' : 'Focus Route'}
@@ -914,6 +936,7 @@
                             </button>
                             ` : ''}
                         </div>
+                        ` : ''}
                     </div>
                 `;
                 let popup = liveTruckMarkers[tId].getPopup();
@@ -946,22 +969,9 @@
 
         function getAllTrackableTruckIds() {
             let ids = new Set();
-            for (let rk in routesData) {
-                if (rk.startsWith('route_')) {
-                    let tid = rk.replace('route_', '');
-                    if (!isNaN(parseInt(tid))) ids.add(String(tid));
-                }
-            }
-            if (window.liveTrucks) {
-                for (let k in window.liveTrucks) {
-                    let t = window.liveTrucks[k];
-                    let tid = (t && (t.truckId || t.truck_id)) || k;
-                    if (!isNaN(parseInt(tid))) ids.add(String(tid));
-                }
-            }
-            if (window.driverMap) {
-                for (let k in window.driverMap) {
-                    if (!isNaN(parseInt(k))) ids.add(String(k));
+            for (let tid in driverAssignedRoutes) {
+                if (driverAssignedRoutes[tid] && !isNaN(parseInt(tid))) {
+                    ids.add(String(tid));
                 }
             }
             return Array.from(ids).sort((a,b) => parseInt(a) - parseInt(b));
@@ -969,6 +979,8 @@
 
         function focusTruckRoute(tId) {
             let strId = String(tId);
+            let hasAssigned = Boolean(driverAssignedRoutes[tId] || driverAssignedRoutes[strId]);
+            if (!hasAssigned) return;
             let allIds = getAllTrackableTruckIds();
             
             // If already the only active route, clicking again restores all routes
@@ -994,6 +1006,8 @@
 
         function toggleTruckRoute(tId, forceState) {
             let strId = String(tId);
+            let hasAssigned = Boolean(driverAssignedRoutes[tId] || driverAssignedRoutes[strId]);
+            if (!hasAssigned) return;
             if (forceState !== undefined) {
                 if (forceState) visibleRouteTrucks.add(strId);
                 else visibleRouteTrucks.delete(strId);
@@ -1072,6 +1086,16 @@
             if (event.target.closest('button') || event.target.closest('a')) return;
             
             let strId = String(tId);
+            let hasAssigned = Boolean(driverAssignedRoutes[tId] || driverAssignedRoutes[strId]);
+            if (!hasAssigned) {
+                let tData = getTruckData(strId);
+                let coords = getTruckCoords(tData);
+                if (coords) {
+                    map.flyTo(coords, 16);
+                    if (liveTruckMarkers[strId]) liveTruckMarkers[strId].openPopup();
+                }
+                return;
+            }
             if (!window.expandedTruckCards) window.expandedTruckCards = new Set();
             if (window.expandedTruckCards.has(strId)) {
                 window.expandedTruckCards.delete(strId);
@@ -1825,9 +1849,11 @@
         }
 
         function renderRoutesOnMap() {
-            // Remove layers for trucks that are no longer visible
+            // Remove layers for trucks that are no longer visible or no longer have an assigned route
             for (let tId in activeRouteLayers) {
-                if (!visibleRouteTrucks.has(String(tId))) {
+                const strId = String(tId);
+                const hasAssigned = Boolean(driverAssignedRoutes[tId] || driverAssignedRoutes[strId]);
+                if (!visibleRouteTrucks.has(strId) || !hasAssigned) {
                     clearRouteForTruck(tId);
                 }
             }
@@ -1836,6 +1862,11 @@
 
             visibleRouteTrucks.forEach(tId => {
                 const strId = String(tId);
+                const hasAssigned = Boolean(driverAssignedRoutes[tId] || driverAssignedRoutes[strId]);
+                if (!hasAssigned) {
+                    clearRouteForTruck(strId);
+                    return;
+                }
                 const color = getTruckColor(tId);
                 const routeNode = routesData['route_' + strId] || {};
                 const stopsObj = routeNode.stops || routeNode;
