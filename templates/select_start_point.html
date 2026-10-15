@@ -630,15 +630,16 @@
             if (!map) return;
             if (mapTileLayer) map.removeLayer(mapTileLayer);
 
-            const isLight = document.documentElement.classList.contains('light');
-            const tileUrl = isLight 
-                ? 'https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png'
-                : 'https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png';
+            const isRetina = (window.devicePixelRatio && window.devicePixelRatio > 1.2);
+            const scaleParam = isRetina ? '&scale=2' : '';
+            const tileUrl = `https://{s}.google.com/vt/lyrs=m&hl=en&x={x}&y={y}&z={z}${scaleParam}`;
 
             mapTileLayer = L.tileLayer(tileUrl, {
                 maxZoom: 20,
-                subdomains: 'abcd',
-                attribution: '&copy; CartoDB &copy; OpenStreetMap'
+                subdomains: ["mt0", "mt1", "mt2", "mt3"],
+                tileSize: 256,
+                zoomOffset: 0,
+                attribution: 'Map data &copy; Google'
             }).addTo(map);
         }
 
