@@ -4,6 +4,17 @@
  */
 
 // Theme Management
+function updateThemeIcons() {
+    const isLight = document.documentElement.classList.contains('light');
+    document.querySelectorAll('.theme-toggle-btn').forEach(btn => {
+        btn.innerHTML = isLight 
+            ? '<i data-lucide="moon" style="width: 16px; height: 16px;"></i>' 
+            : '<i data-lucide="sun" style="width: 16px; height: 16px;"></i>';
+        btn.title = isLight ? 'Switch to Dark Mode (Mission Control)' : 'Switch to Light Mode';
+    });
+    if (window.lucide) window.lucide.createIcons();
+}
+
 (function initTheme() {
     const savedTheme = localStorage.getItem('onroute_theme') || 'dark';
     if (savedTheme === 'light') {
@@ -13,13 +24,14 @@
         document.documentElement.classList.add('dark');
         document.documentElement.classList.remove('light');
     }
+    document.addEventListener('DOMContentLoaded', updateThemeIcons);
 })();
 
 function toggleTheme() {
     const isLight = document.documentElement.classList.toggle('light');
     document.documentElement.classList.toggle('dark', !isLight);
     localStorage.setItem('onroute_theme', isLight ? 'light' : 'dark');
-    if (window.lucide) window.lucide.createIcons();
+    updateThemeIcons();
 }
 
 // Toast Notifications System (Replaces raw alert)
