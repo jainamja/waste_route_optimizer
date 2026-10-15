@@ -220,6 +220,81 @@
             border-color: var(--primary);
             box-shadow: 0 2px 8px rgba(47, 95, 255, 0.25);
         }
+
+        /* Admin Messenger and Notification Styles */
+        .admin-quick-chip {
+            padding: 5px 11px;
+            font-size: 11px;
+            font-weight: 600;
+            border-radius: 16px;
+            border: 1px solid #e2e8f0;
+            background: #f8fafc;
+            color: #475569;
+            cursor: pointer;
+            white-space: nowrap;
+            transition: all 0.15s;
+            font-family: inherit;
+            display: inline-flex;
+            align-items: center;
+        }
+        .admin-quick-chip:hover {
+            background: #e2e8f0;
+            color: #0f172a;
+        }
+        .admin-chat-bubble {
+            max-width: 82%;
+            padding: 9px 13px;
+            border-radius: 14px;
+            font-size: 13px;
+            line-height: 1.4;
+            word-break: break-word;
+            position: relative;
+        }
+        .admin-chat-bubble.driver {
+            align-self: flex-start;
+            background: white;
+            color: #0f172a;
+            border: 1px solid #e2e8f0;
+            border-bottom-left-radius: 4px;
+            box-shadow: 0 1px 3px rgba(0,0,0,0.05);
+        }
+        .admin-chat-bubble.admin {
+            align-self: flex-end;
+            background: #2563eb;
+            color: white;
+            border-bottom-right-radius: 4px;
+            box-shadow: 0 2px 8px rgba(37,99,235,0.25);
+        }
+        .admin-chat-meta {
+            font-size: 10px;
+            margin-top: 4px;
+            display: flex;
+            align-items: center;
+            justify-content: flex-end;
+            gap: 4px;
+            opacity: 0.8;
+        }
+        @keyframes toastSlideIn {
+            from { transform: translateX(120%); opacity: 0; }
+            to { transform: translateX(0); opacity: 1; }
+        }
+        @media (max-width: 768px) {
+            #admin-chat-widget {
+                width: 100% !important;
+                max-width: 100% !important;
+                bottom: 0 !important;
+                right: 0 !important;
+                left: 0 !important;
+                height: 75vh !important;
+                border-radius: 20px 20px 0 0 !important;
+            }
+            #admin-message-toast {
+                left: 16px !important;
+                right: 16px !important;
+                max-width: calc(100% - 32px) !important;
+                top: 70px !important;
+            }
+        }
 </style>
 </head>
 <body>
@@ -235,6 +310,10 @@
             </div>
         </div>
         <div style="display:flex; gap:12px; align-items:center;">
+            <button onclick="toggleAdminChatWidget()" id="btn-admin-messages" class="btn btn-outline" style="position:relative;">
+                <i class="fa-solid fa-comments"></i> Messages
+                <span id="global-unread-badge" style="display:none; position:absolute; top:-6px; right:-6px; background:#ef4444; color:white; font-size:11px; font-weight:800; border-radius:12px; min-width:20px; height:20px; padding:0 6px; align-items:center; justify-content:center; border:2px solid white; box-shadow:0 2px 6px rgba(239,68,68,0.4);">0</span>
+            </button>
             <button onclick="toggleAllRoutes()" id="btn-toggle-all-routes" class="btn btn-outline"><i class="fa-solid fa-route"></i> Show All Routes</button>
             <button onclick="aiRebalance()" id="btn-rebalance" class="btn" style="background:#8b5cf6; color:white;"><i class="fa-solid fa-wand-magic-sparkles"></i> AI Re-balance</button>
             <a href="/" class="btn btn-outline"><i class="fa-solid fa-house"></i> Control Panel</a>
@@ -626,6 +705,10 @@
                 if (!dName) dName = 'Unassigned';
                 
                 validTruckIds.add(tId.toString());
+                if (typeof ensureAdminTruckMessageListener === 'function') {
+                    ensureAdminTruckMessageListener(tId);
+                }
+                let tUnread = typeof getTruckUnreadCount === 'function' ? getTruckUnreadCount(tId) : 0;
                 
                 let tTotal = realStops.length;
                 let tComp = 0, tSkip = 0, tCanc = 0, tLeft = 0, tNotConf = 0;
@@ -711,6 +794,10 @@
                                 <div class="t-driver">${dName}</div>
                             </div>
                             <div style="display:flex; gap:6px; align-items:center;">
+                                <button onclick="event.stopPropagation(); openAdminChat('${tId}', '${typeof escapeAdminString === 'function' ? escapeAdminString(dName) : dName}');" class="btn-chat-toggle" title="Chat with driver" style="position:relative; padding:4px 8px; font-size:11px; font-weight:700; border-radius:6px; border:1px solid var(--border); background:#f8fafc; color:#2563eb; cursor:pointer; display:inline-flex; align-items:center; gap:4px; transition:all 0.15s;">
+                                    <i class="fa-solid fa-comment-dots"></i> Chat
+                                    <span class="truck-unread-badge" id="truck-unread-badge-${tId}" style="${tUnread > 0 ? 'display:inline-flex;' : 'display:none;'} background:#ef4444; color:white; font-size:10px; font-weight:800; border-radius:10px; min-width:16px; height:16px; padding:0 4px; align-items:center; justify-content:center;">${tUnread}</span>
+                                </button>
                                 ${hasAssignedRoute ? `
                                 <button onclick="event.stopPropagation(); toggleTruckRoute('${tId}');" class="btn-route-toggle ${isRouteActive ? 'active' : ''}" title="${isRouteActive ? 'Click to hide this route path' : 'Click to show ONLY this truck route'}">
                                     <i class="fa-solid fa-route"></i> ${isRouteActive ? 'Hide Path' : 'Show Route'}
@@ -925,18 +1012,21 @@
                         <div style="font-size:12px; color:#475569; margin-bottom:4px;">${dName}</div>
                         <div style="font-size:12px;">${timeStr}</div>
                         ${countsStr}
-                        ${hasAssigned ? `
                         <div style="display:flex; gap:6px; margin-top:8px;">
-                            <button onclick="focusTruckRoute('${tId}')" style="flex:1; padding:6px 8px; background:${tColor}; color:white; border:none; border-radius:6px; font-weight:700; font-size:11px; cursor:pointer; display:flex; align-items:center; justify-content:center; gap:4px;">
-                                <i class="fa-solid fa-route"></i> ${isOnlyThis ? 'Only This' : 'Focus Route'}
+                            <button onclick="openAdminChat('${tId}', '${typeof escapeAdminString === 'function' ? escapeAdminString(dName) : dName}')" style="flex:1; padding:6px 8px; background:#2563eb; color:white; border:none; border-radius:6px; font-weight:700; font-size:11px; cursor:pointer; display:flex; align-items:center; justify-content:center; gap:4px;">
+                                <i class="fa-solid fa-comment-dots"></i> Message
                             </button>
-                            ${isRouteActive ? `
+                            ${hasAssigned ? `
+                            <button onclick="focusTruckRoute('${tId}')" style="flex:1; padding:6px 8px; background:${tColor}; color:white; border:none; border-radius:6px; font-weight:700; font-size:11px; cursor:pointer; display:flex; align-items:center; justify-content:center; gap:4px;">
+                                <i class="fa-solid fa-route"></i> ${isOnlyThis ? 'Only This' : 'Focus'}
+                            </button>
+                            ` : ''}
+                            ${(hasAssigned && isRouteActive) ? `
                             <button onclick="toggleTruckRoute('${tId}')" style="padding:6px 8px; background:#f1f5f9; color:#475569; border:1px solid #cbd5e1; border-radius:6px; font-weight:700; font-size:11px; cursor:pointer;" title="Hide path">
                                 <i class="fa-solid fa-eye-slash"></i>
                             </button>
                             ` : ''}
                         </div>
-                        ` : ''}
                     </div>
                 `;
                 let popup = liveTruckMarkers[tId].getPopup();
@@ -2048,6 +2138,476 @@
         }
 </script>
 
+    <!-- Admin Floating Message Toast Banner -->
+    <div id="admin-message-toast" style="display:none; position:fixed; top:80px; right:24px; max-width:360px; background:#0f172a; color:white; border-radius:12px; padding:12px 16px; box-shadow:0 10px 30px rgba(0,0,0,0.25); z-index:10000; font-family:'Inter', sans-serif; border-left:5px solid #2563eb; animation:toastSlideIn 0.3s cubic-bezier(0.16, 1, 0.3, 1);">
+        <div style="display:flex; align-items:flex-start; justify-content:space-between; gap:10px;">
+            <div style="display:flex; align-items:center; gap:8px;">
+                <span style="width:8px; height:8px; border-radius:50%; background:#10b981; display:inline-block;"></span>
+                <span id="admin-toast-sender" style="font-size:13px; font-weight:700; color:#f8fafc;">Driver</span>
+            </div>
+            <button onclick="dismissAdminToast()" style="background:transparent; border:none; color:#94a3b8; font-size:16px; cursor:pointer; padding:0 4px; line-height:1;" title="Dismiss">&times;</button>
+        </div>
+        <div id="admin-toast-text" style="font-size:13px; color:#cbd5e1; margin-top:6px; line-height:1.4; word-break:break-word;"></div>
+        <div style="margin-top:10px; display:flex; justify-content:flex-end; gap:8px;">
+            <button id="admin-toast-btn" style="background:#2563eb; color:white; border:none; padding:5px 12px; border-radius:6px; font-size:12px; font-weight:700; cursor:pointer; display:inline-flex; align-items:center; gap:5px;">
+                <i class="fa-solid fa-reply"></i> Open Chat
+            </button>
+        </div>
+    </div>
+
+    <!-- Admin Chat Widget (Docked Floating Window) -->
+    <div id="admin-chat-widget" style="display:none; position:fixed; bottom:20px; right:20px; width:380px; max-width:calc(100vw - 32px); height:530px; max-height:85vh; background:white; border-radius:16px; box-shadow:0 12px 40px rgba(15,23,42,0.22); border:1px solid #e2e8f0; z-index:9999; flex-direction:column; overflow:hidden; font-family:'Inter', sans-serif;">
+        <!-- Header -->
+        <div style="background:#0f172a; color:white; padding:12px 16px; display:flex; align-items:center; justify-content:space-between; gap:10px;">
+            <div style="display:flex; align-items:center; gap:10px; min-width:0; flex:1;">
+                <div style="width:34px; height:34px; border-radius:10px; background:#2563eb; display:flex; align-items:center; justify-content:center; flex-shrink:0;">
+                    <i class="fa-solid fa-headset" style="font-size:16px; color:white;"></i>
+                </div>
+                <div style="min-width:0; flex:1;">
+                    <div style="font-size:11px; font-weight:700; color:#94a3b8; text-transform:uppercase; letter-spacing:0.5px;">Dispatch Messenger</div>
+                    <div style="margin-top:2px;">
+                        <select id="admin-chat-truck-select" onchange="switchAdminChatTruck(this.value)" style="width:100%; background:#1e293b; color:#f8fafc; border:1px solid #334155; border-radius:6px; padding:3px 6px; font-size:12px; font-weight:600; font-family:inherit; outline:none; cursor:pointer;">
+                            <!-- Populated dynamically -->
+                        </select>
+                    </div>
+                </div>
+            </div>
+            <div style="display:flex; align-items:center; gap:4px;">
+                <button onclick="closeAdminChatWidget()" style="background:transparent; border:none; color:#94a3b8; font-size:16px; cursor:pointer; width:30px; height:30px; display:flex; align-items:center; justify-content:center; border-radius:6px;" onmouseover="this.style.color='white'" onmouseout="this.style.color='#94a3b8'" title="Close">
+                    <i class="fa-solid fa-xmark"></i>
+                </button>
+            </div>
+        </div>
+        
+        <!-- Messages Scrollable Thread -->
+        <div id="admin-chat-messages" style="flex:1; overflow-y:auto; padding:16px; display:flex; flex-direction:column; gap:10px; background:#f8fafc;">
+            <!-- Chat bubbles injected dynamically -->
+        </div>
+        
+        <!-- Quick Dispatch Chips -->
+        <div style="background:white; border-top:1px solid #e2e8f0; padding:8px 12px; display:flex; gap:6px; overflow-x:auto; white-space:nowrap; scrollbar-width:none;">
+            <button onclick="sendAdminCanned('📞 Please call dispatch when safe.')" class="admin-quick-chip">📞 Call Dispatch</button>
+            <button onclick="sendAdminCanned('📍 What is your current status/ETA?')" class="admin-quick-chip">📍 Status / ETA?</button>
+            <button onclick="sendAdminCanned('⚠️ Road delay reported. Proceed carefully.')" class="admin-quick-chip">⚠️ Road Delay</button>
+            <button onclick="sendAdminCanned('✅ Route updated. Please refresh stop list.')" class="admin-quick-chip">✅ Route Updated</button>
+            <button onclick="sendAdminCanned('🥪 Feel free to take your lunch break.')" class="admin-quick-chip">🥪 Lunch Break</button>
+            <button onclick="sendAdminCanned('👍 Message received, acknowledged.')" class="admin-quick-chip">👍 Acknowledged</button>
+        </div>
+        
+        <!-- Input Form -->
+        <form onsubmit="event.preventDefault(); sendAdminChat();" style="display:flex; gap:8px; padding:12px 14px; background:white; border-top:1px solid #e2e8f0; align-items:center;">
+            <input type="text" id="admin-chat-input" placeholder="Type message to driver..." autocomplete="off" style="flex:1; padding:10px 14px; border:1px solid #cbd5e1; border-radius:24px; font-size:13px; font-family:inherit; outline:none; transition:border-color 0.2s;" onfocus="this.style.borderColor='#2563eb'" onblur="this.style.borderColor='#cbd5e1'">
+            <button type="submit" style="width:38px; height:38px; border-radius:50%; background:#2563eb; color:white; border:none; cursor:pointer; display:flex; align-items:center; justify-content:center; box-shadow:0 3px 10px rgba(37,99,235,0.3); flex-shrink:0;">
+                <i class="fa-solid fa-paper-plane" style="font-size:13px; margin-left:2px;"></i>
+            </button>
+        </form>
+    </div>
+
+    <!-- Admin Messaging Script Logic -->
+    <script>
+        let adminTruckMessages = {}; // tId -> { msgId: msgObj }
+        let adminActiveTruckId = null;
+        let adminChatWidgetOpen = false;
+        let adminInitialLoadDone = {}; // tId -> bool
+        let adminMessageListeners = {}; // tId -> bool
+        let adminToastTimeout = null;
+        let adminAudioCtx = null;
+
+        function getAdminAudioContext() {
+            if (!adminAudioCtx) {
+                const AudioContext = window.AudioContext || window.webkitAudioContext;
+                if (AudioContext) {
+                    adminAudioCtx = new AudioContext();
+                }
+            }
+            if (adminAudioCtx && adminAudioCtx.state === 'suspended') {
+                adminAudioCtx.resume();
+            }
+            return adminAudioCtx;
+        }
+        document.addEventListener('click', () => getAdminAudioContext(), { once: false });
+        document.addEventListener('keydown', () => getAdminAudioContext(), { once: false });
+        document.addEventListener('touchstart', () => getAdminAudioContext(), { once: false });
+
+        function playAdminNotificationSound() {
+            try {
+                const ctx = getAdminAudioContext();
+                if (!ctx) return;
+                const now = ctx.currentTime;
+                
+                // Crisp 2-tone chime for dispatch (E5: 659.25Hz -> B5: 987.77Hz)
+                const notes = [
+                    { f: 659.25, start: now, dur: 0.14, gain: 0.35 },
+                    { f: 987.77, start: now + 0.11, dur: 0.28, gain: 0.45 }
+                ];
+                
+                notes.forEach(n => {
+                    const osc = ctx.createOscillator();
+                    const gain = ctx.createGain();
+                    osc.type = 'sine';
+                    osc.frequency.setValueAtTime(n.f, n.start);
+                    
+                    gain.gain.setValueAtTime(0.001, n.start);
+                    gain.gain.linearRampToValueAtTime(n.gain, n.start + 0.02);
+                    gain.gain.exponentialRampToValueAtTime(0.0001, n.start + n.dur);
+                    
+                    osc.connect(gain);
+                    gain.connect(ctx.destination);
+                    
+                    osc.start(n.start);
+                    osc.stop(n.start + n.dur);
+                });
+            } catch(e) {
+                console.warn("Sound play error:", e);
+            }
+        }
+
+        function escapeAdminHtml(str) {
+            if (!str) return '';
+            return String(str).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+        }
+
+        function escapeAdminString(str) {
+            if (!str) return '';
+            return String(str).replace(/\\/g, '\\\\').replace(/'/g, "\\'").replace(/"/g, '&quot;');
+        }
+
+        function getAllTruckIdsForChat() {
+            let ids = new Set();
+            if (typeof getAllTrackableTruckIds === 'function') {
+                getAllTrackableTruckIds().forEach(id => ids.add(String(id)));
+            }
+            if (driverMap) {
+                Object.keys(driverMap).forEach(id => ids.add(String(id)));
+            }
+            if (routesData) {
+                Object.keys(routesData).forEach(k => {
+                    if (k.startsWith('route_')) ids.add(k.replace('route_', ''));
+                });
+            }
+            if (window.liveTrucks) {
+                for (let k in window.liveTrucks) {
+                    let t = window.liveTrucks[k];
+                    if (t && (t.truckId || t.truck_id)) ids.add(String(t.truckId || t.truck_id));
+                }
+            }
+            return Array.from(ids).filter(id => id && !isNaN(parseInt(id))).sort((a,b) => parseInt(a)-parseInt(b));
+        }
+
+        function getTruckUnreadCount(tId) {
+            let count = 0;
+            const msgs = adminTruckMessages[tId];
+            if (msgs) {
+                for (let k in msgs) {
+                    if (msgs[k] && msgs[k].sender === 'driver' && !msgs[k].read) {
+                        count++;
+                    }
+                }
+            }
+            return count;
+        }
+
+        function ensureAdminTruckMessageListener(tId) {
+            if (!tId || isNaN(parseInt(tId))) return;
+            tId = String(tId);
+            if (adminMessageListeners[tId]) return;
+            adminMessageListeners[tId] = true;
+            if (!adminTruckMessages[tId]) adminTruckMessages[tId] = {};
+            
+            const msgRef = db.ref(`trucks/${tId}/messages`);
+            
+            msgRef.on('child_added', snapshot => {
+                const msg = snapshot.val();
+                if (!msg) return;
+                adminTruckMessages[tId] = adminTruckMessages[tId] || {};
+                adminTruckMessages[tId][snapshot.key] = msg;
+                
+                if (adminInitialLoadDone[tId] && msg.sender === 'driver' && !msg.read) {
+                    playAdminNotificationSound();
+                    let dName = (driverMap && driverMap[tId]) || msg.senderName || ('Driver (Truck ' + tId + ')');
+                    if (!adminChatWidgetOpen || String(adminActiveTruckId) !== String(tId)) {
+                        showAdminMessageToast(tId, dName, msg.text || '');
+                    }
+                }
+                
+                updateAdminBadges();
+                
+                if (adminChatWidgetOpen && String(adminActiveTruckId) === String(tId)) {
+                    renderAdminChatMessages();
+                    markDriverMessagesRead(tId);
+                }
+            });
+
+            msgRef.on('value', snapshot => {
+                adminTruckMessages[tId] = snapshot.val() || {};
+                updateAdminBadges();
+                if (adminChatWidgetOpen && String(adminActiveTruckId) === String(tId)) {
+                    renderAdminChatMessages();
+                }
+            });
+
+            msgRef.once('value').then(() => {
+                setTimeout(() => {
+                    adminInitialLoadDone[tId] = true;
+                }, 1200);
+            });
+        }
+
+        function updateAdminBadges() {
+            let totalUnread = 0;
+            const allIds = getAllTruckIdsForChat();
+            allIds.forEach(id => {
+                const unread = getTruckUnreadCount(id);
+                totalUnread += unread;
+                const truckBadge = document.getElementById(`truck-unread-badge-${id}`);
+                if (truckBadge) {
+                    if (unread > 0) {
+                        truckBadge.innerText = unread > 9 ? '9+' : unread;
+                        truckBadge.style.display = 'inline-flex';
+                    } else {
+                        truckBadge.style.display = 'none';
+                    }
+                }
+            });
+
+            const globalBadge = document.getElementById('global-unread-badge');
+            if (globalBadge) {
+                if (totalUnread > 0) {
+                    globalBadge.innerText = totalUnread > 99 ? '99+' : totalUnread;
+                    globalBadge.style.display = 'flex';
+                } else {
+                    globalBadge.style.display = 'none';
+                }
+            }
+            
+            renderAdminChatTruckSelect();
+        }
+
+        function renderAdminChatTruckSelect() {
+            const select = document.getElementById('admin-chat-truck-select');
+            if (!select) return;
+            const allIds = getAllTruckIdsForChat();
+            if (allIds.length === 0) {
+                select.innerHTML = '<option value="">No trucks available</option>';
+                return;
+            }
+            
+            if (!adminActiveTruckId || !allIds.includes(String(adminActiveTruckId))) {
+                adminActiveTruckId = String(allIds[0]);
+            }
+            
+            let optionsHtml = '';
+            allIds.forEach(id => {
+                let dName = (driverMap && driverMap[id]) || (window.liveTrucks && window.liveTrucks[id] && window.liveTrucks[id].driverName) || 'Driver';
+                let unread = getTruckUnreadCount(id);
+                let unreadLabel = unread > 0 ? ` (${unread} new)` : '';
+                optionsHtml += `<option value="${id}" ${String(adminActiveTruckId) === String(id) ? 'selected' : ''}>Truck ${id} &mdash; ${dName}${unreadLabel}</option>`;
+            });
+            select.innerHTML = optionsHtml;
+        }
+
+        function showAdminMessageToast(tId, dName, text) {
+            const toast = document.getElementById('admin-message-toast');
+            const senderEl = document.getElementById('admin-toast-sender');
+            const textEl = document.getElementById('admin-toast-text');
+            const btnEl = document.getElementById('admin-toast-btn');
+            if (!toast || !senderEl || !textEl || !btnEl) return;
+            
+            senderEl.innerHTML = `Truck ${tId} &bull; ${escapeAdminHtml(dName)}`;
+            textEl.innerText = text;
+            btnEl.onclick = () => {
+                openAdminChat(tId, dName);
+                dismissAdminToast();
+            };
+            
+            toast.style.display = 'block';
+            
+            if (adminToastTimeout) clearTimeout(adminToastTimeout);
+            adminToastTimeout = setTimeout(() => {
+                dismissAdminToast();
+            }, 8000);
+        }
+
+        function dismissAdminToast() {
+            const toast = document.getElementById('admin-message-toast');
+            if (toast) toast.style.display = 'none';
+            if (adminToastTimeout) clearTimeout(adminToastTimeout);
+        }
+
+        function openAdminChat(tId, driverName) {
+            if (tId) {
+                adminActiveTruckId = String(tId);
+            } else if (!adminActiveTruckId) {
+                const allIds = getAllTruckIdsForChat();
+                if (allIds.length > 0) adminActiveTruckId = String(allIds[0]);
+            }
+            
+            if (!adminActiveTruckId) {
+                alert("No active trucks found to chat with.");
+                return;
+            }
+            
+            ensureAdminTruckMessageListener(adminActiveTruckId);
+            
+            const widget = document.getElementById('admin-chat-widget');
+            if (widget) {
+                widget.style.display = 'flex';
+                adminChatWidgetOpen = true;
+            }
+            
+            dismissAdminToast();
+            renderAdminChatTruckSelect();
+            renderAdminChatMessages();
+            markDriverMessagesRead(adminActiveTruckId);
+            
+            setTimeout(() => {
+                const box = document.getElementById('admin-chat-messages');
+                if (box) box.scrollTop = box.scrollHeight;
+                const input = document.getElementById('admin-chat-input');
+                if (input) input.focus();
+            }, 100);
+        }
+
+        function closeAdminChatWidget() {
+            adminChatWidgetOpen = false;
+            const widget = document.getElementById('admin-chat-widget');
+            if (widget) widget.style.display = 'none';
+        }
+
+        function toggleAdminChatWidget() {
+            if (adminChatWidgetOpen) {
+                closeAdminChatWidget();
+            } else {
+                openAdminChat();
+            }
+        }
+
+        function switchAdminChatTruck(tId) {
+            if (!tId) return;
+            adminActiveTruckId = String(tId);
+            ensureAdminTruckMessageListener(adminActiveTruckId);
+            renderAdminChatMessages();
+            markDriverMessagesRead(adminActiveTruckId);
+            renderAdminChatTruckSelect();
+            setTimeout(() => {
+                const input = document.getElementById('admin-chat-input');
+                if (input) input.focus();
+            }, 50);
+        }
+
+        function renderAdminChatMessages() {
+            const container = document.getElementById('admin-chat-messages');
+            if (!container) return;
+            
+            if (!adminActiveTruckId || !adminTruckMessages[adminActiveTruckId]) {
+                container.innerHTML = `
+                    <div style="text-align:center; color:#94a3b8; padding:50px 20px; font-size:13px;">
+                        <i class="fa-solid fa-comments" style="font-size:36px; margin-bottom:12px; color:#cbd5e1; display:block;"></i>
+                        No messages yet.<br>Start typing below or use the quick dispatch buttons!
+                    </div>
+                `;
+                return;
+            }
+            
+            const msgs = adminTruckMessages[adminActiveTruckId];
+            const keys = Object.keys(msgs).sort((a, b) => {
+                return (msgs[a].timestamp || 0) - (msgs[b].timestamp || 0);
+            });
+            
+            if (keys.length === 0) {
+                container.innerHTML = `
+                    <div style="text-align:center; color:#94a3b8; padding:50px 20px; font-size:13px;">
+                        <i class="fa-solid fa-comments" style="font-size:36px; margin-bottom:12px; color:#cbd5e1; display:block;"></i>
+                        No messages yet with Truck ${adminActiveTruckId}.<br>Start typing below or use the quick dispatch buttons!
+                    </div>
+                `;
+                return;
+            }
+            
+            let html = '';
+            const dName = (driverMap && driverMap[adminActiveTruckId]) || 'Driver';
+            
+            keys.forEach(k => {
+                const m = msgs[k];
+                if (!m) return;
+                const isAdmin = m.sender === 'admin';
+                const timeStr = m.timestamp ? new Date(m.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : '';
+                
+                html += `
+                    <div class="admin-chat-bubble ${isAdmin ? 'admin' : 'driver'}">
+                        <div style="font-size:11px; font-weight:700; margin-bottom:2px; ${isAdmin ? 'color:#bfdbfe;' : 'color:#2563eb;'}">
+                            ${isAdmin ? '<i class="fa-solid fa-headset"></i> Dispatch' : '<i class="fa-solid fa-truck"></i> ' + escapeAdminHtml(m.senderName || dName)}
+                        </div>
+                        <div>${escapeAdminHtml(m.text || '')}</div>
+                        <div class="admin-chat-meta">
+                            <span>${timeStr}</span>
+                            ${isAdmin ? `<i class="fa-solid ${m.read ? 'fa-check-double' : 'fa-check'}" style="font-size:10px; margin-left:3px;" title="${m.read ? 'Read by driver' : 'Sent to driver'}"></i>` : ''}
+                        </div>
+                    </div>
+                `;
+            });
+            container.innerHTML = html;
+            container.scrollTop = container.scrollHeight;
+        }
+
+        function sendAdminChat() {
+            const input = document.getElementById('admin-chat-input');
+            if (!input) return;
+            const text = input.value.trim();
+            if (!text) return;
+            
+            if (!adminActiveTruckId) {
+                alert("Please select a truck to send a message to.");
+                return;
+            }
+            
+            input.value = '';
+            
+            const newMsg = {
+                sender: 'admin',
+                senderName: 'Dispatch',
+                text: text,
+                timestamp: Date.now(),
+                read: false
+            };
+            
+            db.ref(`trucks/${adminActiveTruckId}/messages`).push(newMsg).catch(err => {
+                console.error("Failed to send admin message:", err);
+                alert("Error sending message to driver. Please check connection.");
+            });
+            
+            setTimeout(() => {
+                const box = document.getElementById('admin-chat-messages');
+                if (box) box.scrollTop = box.scrollHeight;
+            }, 60);
+        }
+
+        function sendAdminCanned(text) {
+            const input = document.getElementById('admin-chat-input');
+            if (input) input.value = text;
+            sendAdminChat();
+        }
+
+        function markDriverMessagesRead(tId) {
+            if (!tId || !adminTruckMessages[tId]) return;
+            const updates = {};
+            for (let k in adminTruckMessages[tId]) {
+                if (adminTruckMessages[tId][k] && adminTruckMessages[tId][k].sender === 'driver' && !adminTruckMessages[tId][k].read) {
+                    updates[`trucks/${tId}/messages/${k}/read`] = true;
+                    adminTruckMessages[tId][k].read = true;
+                }
+            }
+            if (Object.keys(updates).length > 0) {
+                db.ref().update(updates).catch(e => console.warn("Failed marking driver messages read:", e));
+            }
+            updateAdminBadges();
+        }
+
+        // Initialize listeners as trucks become known
+        setInterval(() => {
+            getAllTruckIdsForChat().forEach(id => ensureAdminTruckMessageListener(id));
+        }, 15000);
+    </script>
 </body>
 </html>
 
