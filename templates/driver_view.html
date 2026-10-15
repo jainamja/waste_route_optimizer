@@ -680,6 +680,8 @@
 
             // 2. Render UI
             if (currentIndex >= stops.length) {
+                triggerImmediateAutoOffline();
+                
                 let totalCompleted = stops.reduce((acc, s) => {
                     if (s.subStops) return acc + s.subStops.length;
                     return acc + 1;
@@ -687,28 +689,20 @@
                 
                 const hasDepot = stops.length > 0 && (stops[stops.length-1].id < 0 || stops[stops.length-1].name === 'End Location / Depot');
                 if (hasDepot) totalCompleted -= 1;
-                
-                if (!window.hasNotifiedRouteComplete && truckId) {
-                    window.hasNotifiedRouteComplete = true;
-                    try {
-                        let backendUrl = window.location.origin.includes('localhost') || window.location.origin.includes('capacitor://') ? 'https://waste-route-optimizer-robn.onrender.com' : window.location.origin;
-                        fetch(backendUrl + '/api/driver_finish_route', {
-                            method: 'POST',
-                            headers: {'Content-Type': 'application/json'},
-                            body: JSON.stringify({ truck_id: truckId, driver_id: driverId })
-                        }).catch(e=>{});
-                    } catch(e) {}
-                }
 
                 document.getElementById('current-stop-container').innerHTML = `
                     <div style="text-align:center; padding: 20px;">
                         <i class="fa-solid fa-flag-checkered" style="font-size:48px; color:var(--green); margin-bottom:16px;"></i>
                         <h2 style="margin:0 0 8px 0;">Shift Complete!</h2>
-                        <p style="color:var(--text-muted); margin:0 0 24px 0; font-size:16px;">
-                            Great job! You completed <b>${totalCompleted}</b> stops today.
+                        <div style="display:inline-flex; align-items:center; gap:6px; background:#f1f5f9; color:#475569; font-weight:700; font-size:12px; padding:5px 14px; border-radius:20px; margin-bottom:14px; border:1px solid #cbd5e1;">
+                            <span style="width:8px; height:8px; border-radius:50%; background:#64748b; display:inline-block;"></span> Status: Offline
+                        </div>
+                        <p style="color:var(--text-muted); margin:0 0 20px 0; font-size:15px; line-height:1.5;">
+                            Great job! You completed <b>${totalCompleted}</b> stops today.<br>
+                            Your truck has <b>automatically gone offline</b>.
                         </p>
-                        <button onclick="endShift()" class="btn btn-primary" style="width:100%; padding:14px; font-size:16px; border-radius:12px; background:var(--red); border:none; box-shadow:0 4px 12px rgba(239, 68, 68, 0.3);">
-                            <i class="fa-solid fa-power-off"></i> End Shift & Go Offline
+                        <button onclick="window.driverLogout()" class="btn btn-primary" style="width:100%; padding:14px; font-size:15px; border-radius:12px; background:#334155; border:none; box-shadow:0 4px 12px rgba(0, 0, 0, 0.15);">
+                            <i class="fa-solid fa-arrow-right-from-bracket"></i> Logout & Close App
                         </button>
                     </div>`;
             } else {
@@ -847,10 +841,73 @@
             setTimeout(calculateSnapPoints, 50);
         }
 
+        function triggerImmediateAutoOffline() {
+            if (window.isAlreadyAutoOffline) return;
+            window.isAlreadyAutoOffline = true;
+            
+            console.log("[AUTO-OFFLINE] Last stop completed! Disabling GPS & marking driver offline immediately...");
+            
+            // 1. Stop Native Foreground Service
+            if (window.Capacitor && window.Capacitor.Plugins && window.Capacitor.Plugins.BackgroundLocation) {
+                window.Capacitor.Plugins.BackgroundLocation.stop().catch(e=>{});
+            }
+
+            // 2. Stop GPS Polling & Watchers
+            if (window.gpsInterval) {
+                clearInterval(window.gpsInterval);
+                window.gpsInterval = null;
+            }
+            if (window.geoWatchId) {
+                navigator.geolocation.clearWatch(window.geoWatchId);
+                window.geoWatchId = null;
+            }
+
+            // 3. Set Firebase to Offline immediately
+            const nowTs = Date.now();
+            const tId = window.currentTruckId || truckId;
+            const dId = window.currentDriverId || driverId;
+            
+            if (tId) {
+                const truckRef = db.ref(`trucks/${tId}`);
+                truckRef.update({
+                    status: 'offline',
+                    lastUpdated: nowTs,
+                    routeCompleted: true
+                }).catch(e=>{});
+                truckRef.child('status').onDisconnect().cancel().catch(e=>{});
+            }
+            if (dId) {
+                const dRef = db.ref(`driver_locations/${dId}`);
+                dRef.update({
+                    status: 'offline',
+                    lastUpdated: nowTs,
+                    routeCompleted: true
+                }).catch(e=>{});
+                dRef.child('status').onDisconnect().cancel().catch(e=>{});
+            }
+
+            // 4. Update Header status
+            const truckTitle = document.getElementById('truck-title');
+            if (truckTitle) {
+                truckTitle.innerText = "Offline";
+            }
+
+            // 5. Notify backend to clear assigned template
+            try {
+                let backendUrl = window.location.origin.includes('localhost') || window.location.origin.includes('capacitor://') ? 'https://waste-route-optimizer-robn.onrender.com' : window.location.origin;
+                fetch(backendUrl + '/api/driver_finish_route', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({ truck_id: tId, driver_id: dId })
+                }).catch(e=>{});
+            } catch(e) {}
+        }
+
         window.markStop = function(status) {
             console.log("[MARK STOP] Tapped:", status, "| Current Index:", currentIndex);
             if (currentIndex < stops.length) {
                 const stop = stops[currentIndex];
+                const isLastStop = (currentIndex === stops.length - 1);
                 
                 let actionableSubStops = stop.subStops ? stop.subStops.filter(ss => ss.status === 'PENDING' && ss.confirmation !== 'CANCELLED') : [];
                 
@@ -874,7 +931,11 @@
                     }
                 }
                 
-                db.ref(`routes/route_${truckId}/stops`).update(updates).catch(err => {
+                db.ref(`routes/route_${truckId}/stops`).update(updates).then(() => {
+                    if (isLastStop) {
+                        triggerImmediateAutoOffline();
+                    }
+                }).catch(err => {
                     console.error("Firebase write failed (markStop):", err);
                     alert("Failed to update stop status. Check connection.");
                 });

@@ -655,13 +655,13 @@
         function isTruckOnline(truckData) {
             if (!truckData) return false;
             if (truckData.status === 'offline') return false;
+            if (truckData.routeCompleted && truckData.status !== 'online') return false;
             let ts = truckData.lastUpdated || truckData.timestamp;
-            if (truckData.status === 'online') {
-                if (ts && (Date.now() - Number(ts) > 180000)) return false;
-                return true;
-            }
-            if (ts && (Date.now() - Number(ts) < 60000)) return true;
-            return false;
+            if (!ts) return false;
+            let diff = Date.now() - Number(ts);
+            if (diff > 120000) return false;
+            if (truckData.status === 'online') return true;
+            return diff < 60000;
         }
 
         function renderProgress() {
@@ -698,8 +698,8 @@
                 let tData = getTruckData(tId);
                 let isOnline = isTruckOnline(tData);
                 
-                // Hide truck if it has no assigned stops and is completely offline
-                if (realStops.length === 0 && !isOnline) return;
+                // Hide trucks without an assigned route or active stops (do not show unassigned standby trucks)
+                if (!hasAssignedRoute || realStops.length === 0) return;
                 
                 let dName = driverMap[tId] || driverMap[strId] || (tData && tData.driverName) || '';
                 if (!dName) dName = 'Unassigned';
@@ -733,6 +733,9 @@
                 truckStats[tId] = { total: tTotal, comp: tComp, skip: tSkip, left: tLeft };
                 
                 let isFinished = (hasAssignedRoute && tTotal > 0 && tLeft === 0);
+                
+                // If route is finished and truck is offline, remove from active list
+                if (isFinished && !isOnline) return;
                 
                 let pillHtml = '';
                 if (isFinished) pillHtml = `<span class="t-pill finished">Finished</span>`;
@@ -929,7 +932,13 @@
                 let isOnline = isTruckOnline(tData);
                 
                 // If truck is offline (logged out) or has no GPS, remove marker from live map
-                if (!coords || !isOnline) {
+                let strId = String(tId);
+                let hasAssigned = Boolean(driverAssignedRoutes[tId] || driverAssignedRoutes[strId]);
+                let st = truckStats[tId];
+                let isFinished = (hasAssigned && st && st.total > 0 && st.left === 0);
+
+                // If truck is offline, has no GPS, has no assigned route, or is finished & offline: remove marker from map
+                if (!coords || !isOnline || !hasAssigned || (isFinished && !isOnline)) {
                     if (liveTruckMarkers[tId]) {
                         map.removeLayer(liveTruckMarkers[tId]);
                         delete liveTruckMarkers[tId];
@@ -938,10 +947,7 @@
                 }
                 
                 let [lat, lng] = coords;
-                let strId = String(tId);
-                let hasAssigned = Boolean(driverAssignedRoutes[tId] || driverAssignedRoutes[strId]);
                 let dName = driverMap[tId] || driverMap[strId] || (tData && tData.driverName) || 'Unassigned';
-                let st = truckStats[tId];
                 
                 let tColor = getTruckColor(tId);
                 let iconColor = isOnline ? tColor : '#64748b';
