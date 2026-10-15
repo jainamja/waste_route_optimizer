@@ -3,372 +3,548 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Live Fleet Tracking</title>
+    <title>Live Fleet Telemetry & Radar - Waste Route Optimizer</title>
     
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=Manrope:wght@600;700;800&display=swap" rel="stylesheet">
-    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <!-- Fonts -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600;700&family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+    
+    <!-- Lucide Icons -->
+    <script src="https://unpkg.com/lucide@latest"></script>
     
     <!-- Leaflet -->
     <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
     <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
 
-    <!-- Firebase -->
+    <!-- Firebase SDKs -->
     <script src="https://www.gstatic.com/firebasejs/10.9.0/firebase-app-compat.js"></script>
     <script src="https://www.gstatic.com/firebasejs/10.9.0/firebase-auth-compat.js"></script>
     <script src="https://www.gstatic.com/firebasejs/10.9.0/firebase-database-compat.js"></script>
     
+    <!-- App Design System -->
+    <link rel="stylesheet" href="/static/css/app.css">
+
     <style>
-        :root {
-            --primary: #2F5FFF;
-            --bg: #f8fafc;
-            --card-bg: #ffffff;
-            --text-main: #0f172a;
-            --text-muted: #64748b;
-            --border: #e2e8f0;
-            --shadow-soft: 0 4px 20px rgba(0, 0, 0, 0.05);
-            --shadow-glow: 0 4px 20px rgba(47, 95, 255, 0.2);
+        body {
+            margin: 0;
+            padding: 0;
+            height: 100vh;
+            overflow: hidden;
+            display: flex;
+            flex-direction: column;
+            background: var(--bg-deep);
+            color: var(--text-primary);
         }
 
-        * { box-sizing: border-box; margin: 0; padding: 0; }
-        body { font-family: 'Inter', sans-serif; background: var(--bg); color: var(--text-main); height: 100vh; display: flex; flex-direction: column; }
-        
         .header-bar {
-            background: white; padding: 16px 32px; border-bottom: 1px solid var(--border);
-            display: flex; justify-content: space-between; align-items: center; z-index: 10;
-        }
-        
-        .title-area { display: flex; align-items: center; gap: 16px; }
-        .title-area h1 { font-family: 'Manrope', sans-serif; font-size: 24px; color: var(--text-main); margin:0; line-height:1;}
-        
-        .btn {
-            padding: 10px 20px; border-radius: 10px; font-family: 'Inter', sans-serif; font-size: 14px; font-weight: 600;
-            cursor: pointer; text-decoration: none; display: inline-flex; align-items: center; gap: 8px; border:none;
-        }
-        .btn-primary { background: var(--primary); color: white; box-shadow: var(--shadow-glow); }
-        .btn-outline { background: white; border: 1px solid var(--border); color: var(--text-main); }
-        
-        #map { flex: 1; width: 100%; z-index: 1;}
-        
-        .pulse {
-            display: inline-block; width: 10px; height: 10px; border-radius: 50%; background: #ef4444; margin-right: 8px;
-            animation: pulse-animation 2s infinite;
-        }
-        @keyframes pulse-animation {
-            0% { box-shadow: 0 0 0 0 rgba(239, 68, 68, 0.7); }
-            70% { box-shadow: 0 0 0 10px rgba(239, 68, 68, 0); }
-            100% { box-shadow: 0 0 0 0 rgba(239, 68, 68, 0); }
-        }
-        
-        .main-content {
-            display: flex; flex: 1; overflow: hidden; position: relative;
-        }
-        
-        .progress-panel {
-            width: 380px; background: var(--bg); border-left: 1px solid var(--border);
-            display: flex; flex-direction: column; z-index: 10;
-            box-shadow: -4px 0 20px rgba(0,0,0,0.05); overflow-y: auto;
-            transition: transform 0.3s ease;
-        }
-        
-        @media (max-width: 768px) {
-            .main-content { flex-direction: column; }
-            .progress-panel {
-                position: absolute; bottom: 0; left: 0; right: 0; width: 100%; height: auto; max-height: 80vh;
-                border-left: none; border-top: 1px solid var(--border); box-shadow: 0 -4px 20px rgba(0,0,0,0.15);
-                border-radius: 20px 20px 0 0;
-            }
-            .progress-panel.collapsed {
-                transform: translateY(calc(100% - 70px));
-            }
-            .panel-header { cursor: pointer; }
-        }
-        
-        .panel-header {
-            padding: 16px 20px; background: white; border-bottom: 1px solid var(--border);
-            position: sticky; top: 0; z-index: 2;
-        }
-        
-        .fleet-summary {
-            display: flex; justify-content: space-between; text-align: center; margin-top: 12px;
-        }
-        .fleet-stat { flex: 1; }
-        .fleet-stat-val { font-size: 24px; font-weight: 700; font-family: 'Manrope', sans-serif; }
-        .fleet-stat-label { font-size: 11px; color: var(--text-muted); font-weight: 600; text-transform: uppercase; }
-        
-        .prog-bar-wrap { height: 8px; background: #e2e8f0; border-radius: 4px; display: flex; overflow: hidden; margin-top: 12px; }
-        .prog-bar-comp { background: #10b981; }
-        .prog-bar-skip { background: #ef4444; }
-        
-        .truck-list { padding: 16px; display: flex; flex-direction: column; gap: 12px; }
-        
-        .t-card {
-            background: white; border: 1px solid var(--border); border-radius: 12px; padding: 16px;
-            box-shadow: var(--shadow-soft); cursor: pointer; transition: transform 0.15s, box-shadow 0.15s;
-        }
-        .t-card:hover { transform: translateY(-2px); box-shadow: 0 6px 24px rgba(0,0,0,0.08); }
-        .t-card-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px; }
-        .t-title { font-weight: 700; font-size: 15px; }
-        .t-driver { font-size: 13px; color: var(--text-muted); font-weight:500; }
-        .t-pill { font-size: 11px; font-weight: 700; padding: 3px 8px; border-radius: 10px; }
-        .t-pill.online { background: #dcfce7; color: #166534; }
-        .t-pill.offline { background: #f1f5f9; color: #475569; }
-        .t-pill.finished { background: #10b981; color: white; }
-        
-        .t-stats { font-size: 13px; font-weight: 600; margin-top: 10px; }
-        .t-stats-muted { font-size: 12px; color: var(--text-muted); margin-top: 2px; font-weight:500; }
-        
-        .t-expanded { display: none; margin-top: 12px; padding-top: 12px; border-top: 1px solid var(--border); }
-        .t-card.expanded .t-expanded { display: block; }
-        
-        .list-title { font-size: 11px; font-weight: 700; color: var(--text-muted); text-transform: uppercase; margin-bottom: 8px; letter-spacing: 0.5px; }
-        .cust-row { font-size: 13px; padding: 8px 0; border-bottom: 1px solid #f8fafc; }
-        .cust-row:last-child { border-bottom: none; }
-        .cust-name { font-weight: 600; display: flex; justify-content: space-between; align-items: center; }
-        .cust-addr { color: var(--text-muted); font-size: 12px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; margin-top: 2px;}
-        
-        .drag-handle { width: 40px; height: 4px; background: #cbd5e1; border-radius: 2px; margin: 0 auto 12px auto; display: none; }
-        @media (max-width: 768px) { .drag-handle { display: block; } }
-    
-        /* Mobile overrides added automatically */
-        @media (max-width: 768px) {
-            .header, .header-bar { flex-direction: column !important; align-items: flex-start !important; padding: 16px !important; gap: 12px !important; height: auto !important; }
-            .header-left, .title-area { width: 100% !important; flex-wrap: wrap !important; }
-            .header > div:last-child, .header-bar > div:last-child { width: 100% !important; display: flex !important; flex-wrap: wrap !important; gap: 8px !important; }
-            .header > div:last-child .btn, .header-bar > div:last-child .btn, .header-bar > div:last-child a.btn { flex: 1 1 45% !important; justify-content: center !important; text-align: center !important; padding: 10px 8px !important; font-size: 13px !important; }
-            .container { padding: 16px !important; gap: 16px !important; }
-            .driver-item { flex-direction: column !important; align-items: flex-start !important; gap: 12px !important; }
-            .driver-actions { width: 100% !important; display: flex !important; flex-wrap: wrap !important; gap: 8px !important; }
-            .driver-actions .btn { flex: 1 !important; justify-content: center !important; }
-            .quick-actions { grid-template-columns: 1fr !important; }
-            .main-split { flex-direction: column !important; height: auto !important; }
-            .trucks-panel { width: 100% !important; height: auto !important; overflow: visible !important; }
-            .map-panel { height: 450px !important; flex: none !important; }
-            .login-card { padding: 32px 24px !important; max-width: calc(100% - 32px) !important; box-sizing: border-box !important; }
-            body, html { overflow-x: hidden !important; }
-            .stat-strip { grid-template-columns: 1fr !important; gap: 8px !important; }
-            .stat-card { padding: 12px !important; }
+            background: var(--bg-glass);
+            backdrop-filter: blur(16px);
+            -webkit-backdrop-filter: blur(16px);
+            border-bottom: 1px solid var(--border-glass);
+            padding: 12px 24px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            z-index: 1000;
+            flex-shrink: 0;
         }
 
-        /* Smooth marker gliding and zero-flicker transitions */
+        .title-area {
+            display: flex;
+            align-items: center;
+            gap: 14px;
+        }
+
+        .brand-icon-box {
+            width: 38px;
+            height: 38px;
+            border-radius: 10px;
+            background: var(--accent-gradient);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            color: #ffffff;
+            box-shadow: var(--accent-glow);
+        }
+
+        .live-pulse-dot {
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+            background: var(--status-danger);
+            box-shadow: 0 0 10px var(--status-danger);
+            animation: radarLivePulse 1.6s infinite;
+        }
+
+        @keyframes radarLivePulse {
+            0% { transform: scale(0.9); opacity: 0.8; }
+            50% { transform: scale(1.4); opacity: 1; }
+            100% { transform: scale(0.9); opacity: 0.8; }
+        }
+
+        .main-content {
+            display: flex;
+            flex: 1;
+            overflow: hidden;
+            position: relative;
+        }
+
+        #map {
+            flex: 1;
+            width: 100%;
+            height: 100%;
+            z-index: 1;
+            background: var(--bg-deep);
+        }
+
+        /* Mission Control Floating Sidebar */
+        .progress-panel {
+            width: 420px;
+            background: var(--bg-glass);
+            backdrop-filter: blur(16px);
+            -webkit-backdrop-filter: blur(16px);
+            border-left: 1px solid var(--border-glass);
+            display: flex;
+            flex-direction: column;
+            z-index: 500;
+            box-shadow: -10px 0 30px rgba(0, 0, 0, 0.35);
+            overflow-y: auto;
+            transition: transform 0.3s ease;
+            flex-shrink: 0;
+        }
+
+        .panel-header {
+            padding: 18px 20px;
+            background: var(--bg-surface-elevated);
+            border-bottom: 1px solid var(--border-glass);
+            position: sticky;
+            top: 0;
+            z-index: 2;
+        }
+
+        .fleet-summary {
+            display: flex;
+            justify-content: space-between;
+            text-align: center;
+            margin-top: 14px;
+            gap: 8px;
+        }
+
+        .fleet-stat {
+            flex: 1;
+            padding: 8px 4px;
+            background: var(--bg-surface);
+            border: 1px solid var(--border-glass);
+            border-radius: 10px;
+        }
+
+        .fleet-stat-val {
+            font-size: 20px;
+            font-weight: 700;
+            font-family: var(--font-mono);
+            line-height: 1;
+        }
+
+        .fleet-stat-label {
+            font-size: 10px;
+            color: var(--text-muted);
+            font-weight: 600;
+            text-transform: uppercase;
+            margin-top: 4px;
+            letter-spacing: 0.5px;
+        }
+
+        .prog-bar-wrap {
+            height: 6px;
+            background: rgba(255, 255, 255, 0.08);
+            border-radius: var(--radius-pill);
+            display: flex;
+            overflow: hidden;
+            margin-top: 14px;
+        }
+
+        .prog-bar-comp { background: var(--status-completed); }
+        .prog-bar-skip { background: var(--status-danger); }
+        .prog-bar-canc { background: var(--status-warning); }
+
+        .truck-filter-bar {
+            display: flex;
+            gap: 8px;
+            padding: 12px 16px;
+            overflow-x: auto;
+            background: var(--bg-surface);
+            border-bottom: 1px solid var(--border-glass);
+            align-items: center;
+            scrollbar-width: none;
+        }
+
+        .truck-filter-pill {
+            padding: 5px 12px;
+            border-radius: var(--radius-pill);
+            font-size: 12px;
+            font-weight: 600;
+            cursor: pointer;
+            border: 1px solid var(--border-glass);
+            background: var(--bg-surface-elevated);
+            color: var(--text-secondary);
+            white-space: nowrap;
+            display: inline-flex;
+            align-items: center;
+            transition: var(--transition-smooth);
+        }
+
+        .truck-filter-pill:hover {
+            color: var(--text-primary);
+            border-color: rgba(255, 255, 255, 0.2);
+        }
+
+        .truck-filter-pill.active {
+            background: var(--accent-primary);
+            color: #ffffff;
+            border-color: var(--accent-primary);
+            box-shadow: var(--accent-glow);
+        }
+
+        .truck-list {
+            padding: 16px;
+            display: flex;
+            flex-direction: column;
+            gap: 14px;
+        }
+
+        .t-card {
+            background: var(--bg-surface-elevated);
+            border: 1px solid var(--border-glass);
+            border-radius: var(--radius-card);
+            padding: 16px;
+            cursor: pointer;
+            transition: var(--transition-smooth);
+        }
+
+        .t-card:hover {
+            transform: translateY(-2px);
+            border-color: rgba(255, 255, 255, 0.2);
+            box-shadow: 0 8px 24px rgba(0, 0, 0, 0.3);
+        }
+
+        .t-pill {
+            font-size: 11px;
+            font-weight: 700;
+            padding: 3px 8px;
+            border-radius: var(--radius-pill);
+            letter-spacing: 0.3px;
+        }
+
+        .t-pill.online {
+            background: rgba(16, 185, 129, 0.15);
+            color: #10b981;
+            border: 1px solid rgba(16, 185, 129, 0.3);
+        }
+
+        .t-pill.offline {
+            background: rgba(148, 163, 184, 0.12);
+            color: #94a3b8;
+            border: 1px solid rgba(148, 163, 184, 0.2);
+        }
+
+        .t-pill.finished {
+            background: var(--accent-gradient);
+            color: #ffffff;
+        }
+
+        .t-stats {
+            font-size: 13px;
+            font-weight: 600;
+            margin-top: 10px;
+            color: var(--text-primary);
+            font-family: var(--font-mono);
+        }
+
+        .t-expanded {
+            display: none;
+            margin-top: 14px;
+            padding-top: 12px;
+            border-top: 1px solid var(--border-glass);
+        }
+
+        .t-card.expanded .t-expanded {
+            display: block;
+        }
+
+        .list-title {
+            font-size: 11px;
+            font-weight: 700;
+            color: var(--text-muted);
+            text-transform: uppercase;
+            margin-bottom: 8px;
+            letter-spacing: 0.5px;
+        }
+
+        .cust-row {
+            font-size: 13px;
+            padding: 8px 0;
+            border-bottom: 1px solid var(--border-glass);
+        }
+
+        .cust-row:last-child {
+            border-bottom: none;
+        }
+
+        .btn-route-toggle, .btn-chat-toggle {
+            padding: 6px 12px;
+            font-size: 12px;
+            font-weight: 600;
+            border-radius: 8px;
+            border: 1px solid var(--border-glass);
+            background: var(--bg-surface);
+            color: var(--text-secondary);
+            cursor: pointer;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            gap: 6px;
+            transition: var(--transition-smooth);
+        }
+
+        .btn-route-toggle:hover, .btn-chat-toggle:hover {
+            color: var(--text-primary);
+            border-color: rgba(255, 255, 255, 0.2);
+        }
+
+        .btn-route-toggle.active {
+            background: var(--accent-primary);
+            color: #ffffff;
+            border-color: var(--accent-primary);
+        }
+
+        /* Marker Glide */
         .leaflet-marker-icon {
             transition: transform 0.4s cubic-bezier(0.25, 0.8, 0.25, 1);
             will-change: transform;
         }
 
-        .btn-route-toggle {
-            padding: 6px 10px;
-            font-size: 11px;
-            font-weight: 700;
-            border-radius: 8px;
-            border: 1px solid var(--border);
-            background: #f8fafc;
-            color: var(--text-main);
-            cursor: pointer;
-            display: inline-flex;
-            align-items: center;
-            justify-content: center;
-            gap: 5px;
-            transition: all 0.2s;
-            white-space: nowrap;
-        }
-        .btn-route-toggle:hover {
-            background: #e2e8f0;
-        }
-        .btn-route-toggle.active {
-            background: var(--primary);
-            color: white;
-            border-color: var(--primary);
-            box-shadow: 0 2px 8px rgba(47, 95, 255, 0.35);
-        }
-        .btn-chat-toggle {
-            padding: 6px 10px;
-            font-size: 11px;
-            font-weight: 700;
-            border-radius: 8px;
-            border: 1px solid #cbd5e1;
-            background: #ffffff;
-            color: #2563eb;
-            cursor: pointer;
-            display: inline-flex;
-            align-items: center;
-            justify-content: center;
-            gap: 5px;
-            transition: all 0.2s;
-            white-space: nowrap;
-            position: relative;
-            box-shadow: 0 1px 2px rgba(0,0,0,0.04);
-        }
-        .btn-chat-toggle:hover {
-            background: #eff6ff;
-            border-color: #93c5fd;
-        }
-        .t-card.route-active {
-            box-shadow: 0 4px 16px rgba(47, 95, 255, 0.12);
-        }
-        .truck-filter-bar {
-            display: flex;
-            gap: 8px;
-            padding: 10px 16px;
-            overflow-x: auto;
-            background: #f8fafc;
-            border-bottom: 1px solid var(--border);
-            align-items: center;
-            scrollbar-width: none;
-        }
-        .truck-filter-bar::-webkit-scrollbar {
-            display: none;
-        }
-        .truck-filter-pill {
-            padding: 5px 12px;
-            border-radius: 20px;
-            font-size: 12px;
-            font-weight: 700;
-            cursor: pointer;
-            border: 1px solid var(--border);
-            background: white;
-            color: var(--text-muted);
-            white-space: nowrap;
-            display: inline-flex;
-            align-items: center;
-            transition: all 0.15s ease;
-            box-shadow: 0 1px 2px rgba(0,0,0,0.04);
-        }
-        .truck-filter-pill:hover {
-            background: #f1f5f9;
-            color: var(--text-main);
-            border-color: #cbd5e1;
-        }
-        .truck-filter-pill.active {
-            background: var(--primary);
-            color: white;
-            border-color: var(--primary);
-            box-shadow: 0 2px 8px rgba(47, 95, 255, 0.25);
+        /* Messenger Window Mission Control */
+        .admin-chat-bubble {
+            max-width: 82%;
+            padding: 10px 14px;
+            border-radius: 14px;
+            font-size: 13px;
+            line-height: 1.4;
+            word-break: break-word;
         }
 
-        /* Admin Messenger and Notification Styles */
+        .admin-chat-bubble.driver {
+            align-self: flex-start;
+            background: var(--bg-surface);
+            color: var(--text-primary);
+            border: 1px solid var(--border-glass);
+            border-bottom-left-radius: 4px;
+        }
+
+        .admin-chat-bubble.admin {
+            align-self: flex-end;
+            background: var(--accent-gradient);
+            color: #ffffff;
+            border-bottom-right-radius: 4px;
+            box-shadow: var(--accent-glow);
+        }
+
         .admin-quick-chip {
             padding: 5px 11px;
             font-size: 11px;
             font-weight: 600;
             border-radius: 16px;
-            border: 1px solid #e2e8f0;
-            background: #f8fafc;
-            color: #475569;
+            border: 1px solid var(--border-glass);
+            background: var(--bg-surface-elevated);
+            color: var(--text-secondary);
             cursor: pointer;
             white-space: nowrap;
-            transition: all 0.15s;
-            font-family: inherit;
-            display: inline-flex;
-            align-items: center;
+            transition: var(--transition-smooth);
         }
+
         .admin-quick-chip:hover {
-            background: #e2e8f0;
-            color: #0f172a;
+            background: rgba(255, 255, 255, 0.1);
+            color: var(--text-primary);
         }
-        .admin-chat-bubble {
-            max-width: 82%;
-            padding: 9px 13px;
-            border-radius: 14px;
-            font-size: 13px;
-            line-height: 1.4;
-            word-break: break-word;
-            position: relative;
-        }
-        .admin-chat-bubble.driver {
-            align-self: flex-start;
-            background: white;
-            color: #0f172a;
-            border: 1px solid #e2e8f0;
-            border-bottom-left-radius: 4px;
-            box-shadow: 0 1px 3px rgba(0,0,0,0.05);
-        }
-        .admin-chat-bubble.admin {
-            align-self: flex-end;
-            background: #2563eb;
-            color: white;
-            border-bottom-right-radius: 4px;
-            box-shadow: 0 2px 8px rgba(37,99,235,0.25);
-        }
-        .admin-chat-meta {
-            font-size: 10px;
-            margin-top: 4px;
-            display: flex;
-            align-items: center;
-            justify-content: flex-end;
-            gap: 4px;
-            opacity: 0.8;
-        }
-        @keyframes toastSlideIn {
-            from { transform: translateX(120%); opacity: 0; }
-            to { transform: translateX(0); opacity: 1; }
-        }
+
         @media (max-width: 768px) {
-            #admin-chat-widget {
-                width: 100% !important;
-                max-width: 100% !important;
-                bottom: 0 !important;
-                right: 0 !important;
-                left: 0 !important;
-                height: 75vh !important;
-                border-radius: 20px 20px 0 0 !important;
+            .main-content { flex-direction: column; }
+            .progress-panel {
+                position: absolute;
+                bottom: 0; left: 0; right: 0;
+                width: 100%; height: auto; max-height: 75vh;
+                border-left: none;
+                border-top: 1px solid var(--border-glass);
+                border-radius: 20px 20px 0 0;
             }
-            #admin-message-toast {
-                left: 16px !important;
-                right: 16px !important;
-                max-width: calc(100% - 32px) !important;
-                top: 70px !important;
+            .progress-panel.collapsed {
+                transform: translateY(calc(100% - 68px));
             }
         }
-</style>
+    </style>
 </head>
 <body>
-    <div class="header-bar">
+    <!-- Mission Control Header -->
+    <header class="header-bar">
         <div class="title-area">
-            <img src="/static/logo.jpg" alt="Logo" style="height: 32px; border-radius: 8px;">
-            <div style="display: flex; flex-direction: column;">
-                <h1>Live Fleet Tracking</h1>
-                <span style="font-size: 11px; color: var(--text-muted); font-weight: 600; letter-spacing: 0.5px; margin-top: 4px;">REAL-TIME GPS</span>
+            <div class="brand-icon-box">
+                <i data-lucide="radio" style="width: 20px; height: 20px;"></i>
             </div>
-            <div style="margin-left:16px; display:flex; align-items:center; font-weight:600; font-size:14px; color:#ef4444;">
-                <span class="pulse"></span> LIVE
+            <div>
+                <h1 style="font-size: 18px; font-weight: 800; margin: 0; letter-spacing: -0.3px;">Live Fleet Telemetry</h1>
+                <div style="font-size: 11px; color: var(--text-muted); font-family: var(--font-mono);">GPS SYNC ENGINE ACTIVE</div>
+            </div>
+            <div class="badge-status active" style="margin-left: 10px;">
+                <span class="live-pulse-dot"></span>
+                <span>REALTIME RADAR</span>
             </div>
         </div>
-        <div style="display:flex; gap:12px; align-items:center;">
-            <button onclick="toggleAdminChatWidget()" id="btn-admin-messages" class="btn btn-outline" style="position:relative;">
-                <i class="fa-solid fa-comments"></i> Messages
-                <span id="global-unread-badge" style="display:none; position:absolute; top:-6px; right:-6px; background:#ef4444; color:white; font-size:11px; font-weight:800; border-radius:12px; min-width:20px; height:20px; padding:0 6px; align-items:center; justify-content:center; border:2px solid white; box-shadow:0 2px 6px rgba(239,68,68,0.4);">0</span>
+
+        <div style="display: flex; gap: 10px; align-items: center; flex-wrap: wrap;">
+            <button onclick="toggleAdminChatWidget()" id="btn-admin-messages" class="btn-control btn-secondary" style="position: relative;">
+                <i data-lucide="message-square" style="width: 16px; height: 16px;"></i>
+                <span>Messages</span>
+                <span id="global-unread-badge" style="display: none; position: absolute; top: -6px; right: -6px; background: #ef4444; color: white; font-size: 10px; font-weight: 800; border-radius: 12px; min-width: 18px; height: 18px; padding: 0 5px; align-items: center; justify-content: center;">0</span>
             </button>
-            <button onclick="toggleAllRoutes()" id="btn-toggle-all-routes" class="btn btn-outline"><i class="fa-solid fa-route"></i> Show All Routes</button>
-            <button onclick="aiRebalance()" id="btn-rebalance" class="btn" style="background:#8b5cf6; color:white;"><i class="fa-solid fa-wand-magic-sparkles"></i> AI Re-balance</button>
-            <a href="/" class="btn btn-outline"><i class="fa-solid fa-house"></i> Control Panel</a>
-            <a href="/routes" class="btn btn-primary"><i class="fa-solid fa-route"></i> Route Dashboard</a>
+
+            <button onclick="toggleAllRoutes()" id="btn-toggle-all-routes" class="btn-control btn-secondary">
+                <i data-lucide="route" style="width: 16px; height: 16px;"></i>
+                <span>All Routes</span>
+            </button>
+
+            <button onclick="aiRebalance()" id="btn-rebalance" class="btn-control btn-secondary" title="Recalculate routes based on live GPS positions">
+                <i data-lucide="sparkles" style="width: 16px; height: 16px; color: var(--accent-primary);"></i>
+                <span>AI Re-balance</span>
+            </button>
+
+            <button type="button" class="btn-control btn-secondary" onclick="toggleThemeAndMap()" title="Toggle Dark/Light Mode">
+                <i data-lucide="sun-moon" style="width: 16px; height: 16px;"></i>
+            </button>
+
+            <a href="/routes" class="btn-control btn-primary">
+                <i data-lucide="map" style="width: 16px; height: 16px;"></i>
+                <span>Route Deck</span>
+            </a>
+
+            <a href="/dashboard" class="btn-control btn-secondary">
+                <i data-lucide="layout-dashboard" style="width: 16px; height: 16px;"></i>
+                <span>Dashboard</span>
+            </a>
         </div>
-    </div>
-    
-    <div class="main-content">
+    </header>
+
+    <!-- Main Workspace -->
+    <main class="main-content">
         <div id="map"></div>
-        <div id="progress-panel" class="progress-panel collapsed">
+
+        <!-- Collapsible Progress Sidebar -->
+        <aside id="progress-panel" class="progress-panel collapsed">
             <div class="panel-header" onclick="this.parentElement.classList.toggle('collapsed')">
-                <div class="drag-handle"></div>
-                <h3 style="font-size: 16px; font-weight: 800;">Fleet Progress</h3>
-                <div class="fleet-summary" id="fleet-summary">
-                    <!-- Fleet summary injected here -->
+                <div style="width: 40px; height: 4px; background: rgba(255,255,255,0.2); border-radius: 2px; margin: 0 auto 10px auto;"></div>
+                <div style="display: flex; justify-content: space-between; align-items: center;">
+                    <h3 style="font-size: 16px; font-weight: 800; margin: 0;">Fleet Mission Progress</h3>
+                    <span class="badge-status active">LIVE</span>
                 </div>
+                <div class="fleet-summary" id="fleet-summary"></div>
                 <div class="prog-bar-wrap" id="fleet-prog-bar"></div>
             </div>
+
             <div class="truck-filter-bar" id="truck-filter-bar"></div>
-            <div class="truck-list" id="truck-list">
-                <!-- Truck cards injected here -->
+            <div class="truck-list" id="truck-list"></div>
+        </aside>
+    </main>
+
+    <!-- Admin Floating Toast Notification -->
+    <div id="admin-message-toast" style="display: none; position: fixed; top: 80px; right: 24px; max-width: 380px; background: var(--bg-surface-elevated); color: var(--text-primary); border-radius: 14px; padding: 14px 18px; box-shadow: 0 15px 40px rgba(0,0,0,0.5); z-index: 10000; border-left: 4px solid var(--accent-primary); border: 1px solid var(--border-glass);">
+        <div style="display: flex; align-items: flex-start; justify-content: space-between; gap: 10px;">
+            <div style="display: flex; align-items: center; gap: 8px;">
+                <span style="width: 8px; height: 8px; border-radius: 50%; background: #10b981;"></span>
+                <span id="admin-toast-sender" style="font-size: 13px; font-weight: 700;">Driver</span>
             </div>
+            <button onclick="dismissAdminToast()" style="background: transparent; border: none; color: var(--text-muted); cursor: pointer; font-size: 16px;">&times;</button>
+        </div>
+        <div id="admin-toast-text" style="font-size: 13px; color: var(--text-secondary); margin-top: 6px; word-break: break-word;"></div>
+        <div style="margin-top: 10px; display: flex; justify-content: flex-end;">
+            <button id="admin-toast-btn" class="btn-control btn-primary" style="padding: 6px 12px; font-size: 12px;">Open Dispatch Chat</button>
         </div>
     </div>
-    
+
+    <!-- Admin Chat Docked Window -->
+    <div id="admin-chat-widget" style="display: none; position: fixed; bottom: 20px; right: 20px; width: 400px; max-width: calc(100vw - 32px); height: 540px; max-height: 85vh; background: var(--bg-surface); border-radius: 18px; box-shadow: 0 20px 50px rgba(0,0,0,0.5); border: 1px solid var(--border-glass); z-index: 9999; flex-direction: column; overflow: hidden;">
+        <div style="background: var(--bg-surface-elevated); padding: 14px 18px; display: flex; align-items: center; justify-content: space-between; border-bottom: 1px solid var(--border-glass);">
+            <div style="display: flex; align-items: center; gap: 12px; min-width: 0; flex: 1;">
+                <div style="width: 36px; height: 36px; border-radius: 10px; background: var(--accent-gradient); display: flex; align-items: center; justify-content: center; color: white;">
+                    <i data-lucide="truck" style="width: 18px; height: 18px;"></i>
+                </div>
+                <div style="min-width: 0; flex: 1;">
+                    <div id="admin-chat-header-title" style="font-size: 15px; font-weight: 800; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">Truck • Driver</div>
+                    <div id="admin-chat-header-status" style="font-size: 11px; color: var(--text-muted); display: flex; align-items: center; gap: 5px; margin-top: 2px;">
+                        <span style="width: 6px; height: 6px; border-radius: 50%; background: #10b981;"></span> Active
+                    </div>
+                </div>
+            </div>
+            <button onclick="closeAdminChatWidget()" style="background: transparent; border: none; color: var(--text-muted); cursor: pointer; padding: 4px;">
+                <i data-lucide="x" style="width: 18px; height: 18px;"></i>
+            </button>
+        </div>
+
+        <div id="admin-chat-messages" style="flex: 1; overflow-y: auto; padding: 16px; display: flex; flex-direction: column; gap: 10px; background: var(--bg-deep);"></div>
+
+        <div style="background: var(--bg-surface-elevated); border-top: 1px solid var(--border-glass); padding: 8px 12px; display: flex; gap: 6px; overflow-x: auto; white-space: nowrap;">
+            <button onclick="sendAdminCanned('📞 Please call dispatch when safe.')" class="admin-quick-chip">📞 Call Dispatch</button>
+            <button onclick="sendAdminCanned('📍 What is your current status/ETA?')" class="admin-quick-chip">📍 Status / ETA?</button>
+            <button onclick="sendAdminCanned('⚠️ Road delay reported. Proceed carefully.')" class="admin-quick-chip">⚠️ Road Delay</button>
+            <button onclick="sendAdminCanned('✅ Route updated. Please refresh stop list.')" class="admin-quick-chip">✅ Route Updated</button>
+            <button onclick="sendAdminCanned('👍 Message received, acknowledged.')" class="admin-quick-chip">👍 Acknowledged</button>
+        </div>
+
+        <form onsubmit="event.preventDefault(); sendAdminChat();" style="display: flex; gap: 8px; padding: 12px 14px; background: var(--bg-surface); border-top: 1px solid var(--border-glass); align-items: center;">
+            <input type="text" id="admin-chat-input" placeholder="Type message to driver..." autocomplete="off" style="flex: 1; height: 40px; padding: 0 14px; background: var(--bg-surface-elevated); border: 1px solid var(--border-glass); border-radius: 20px; font-size: 13px; color: var(--text-primary); outline: none;">
+            <button type="submit" class="btn-control btn-primary" style="width: 40px; height: 40px; border-radius: 50%; padding: 0;">
+                <i data-lucide="send" style="width: 16px; height: 16px;"></i>
+            </button>
+        </form>
+    </div>
+
+    <!-- Core App JS -->
+    <script src="/static/js/app.js"></script>
+
+    <!-- Tracking Engine Logic -->
     <script>
-        let map = L.map('map').setView([23.0225, 72.5714], 12);
-        L.tileLayer("https://{s}.google.com/vt/lyrs=m&hl=en&x={x}&y={y}&z={z}", {
-            maxZoom: 20, subdomains:["mt0","mt1","mt2","mt3"]
-        }).addTo(map);
-        
+        let map = null;
+        let mapTileLayer = null;
+
+        function initMap() {
+            map = L.map('map', { zoomControl: false }).setView([23.0225, 72.5714], 12);
+            L.control.zoom({ position: 'bottomright' }).addTo(map);
+            updateMapTheme();
+        }
+
+        function updateMapTheme() {
+            if (!map) return;
+            if (mapTileLayer) map.removeLayer(mapTileLayer);
+
+            const isLight = document.documentElement.classList.contains('light');
+            const tileUrl = isLight 
+                ? 'https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png'
+                : 'https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png';
+
+            mapTileLayer = L.tileLayer(tileUrl, {
+                maxZoom: 20,
+                subdomains: 'abcd',
+                attribution: '&copy; CartoDB &copy; OpenStreetMap'
+            }).addTo(map);
+        }
+
+        function toggleThemeAndMap() {
+            toggleTheme();
+            updateMapTheme();
+        }
+
+        initMap();
+
+        // Firebase Configuration Preserved
         const firebaseConfig = {
             apiKey: "AIzaSyAhLnjh0gRa2pf29G90zr-6AMcjLjbQpPg",
             authDomain: "wasteroutelive.firebaseapp.com",
@@ -381,21 +557,13 @@
         const db = firebase.database();
         let liveTruckMarkers = {};
         let visibleRouteTrucks = new Set();
-        let activeRouteLayers = {}; // tId -> route layer state
+        let activeRouteLayers = {};
         let routeRenderTokens = {};
 
         const TRUCK_COLORS = [
-            '#2563eb', // Blue
-            '#7c3aed', // Purple
-            '#ea580c', // Orange
-            '#059669', // Emerald
-            '#db2777', // Pink
-            '#0891b2', // Cyan
-            '#d97706', // Amber
-            '#4f46e5', // Indigo
-            '#dc2626', // Red
-            '#16a34a'  // Green
+            '#10b981', '#38bdf8', '#a855f7', '#f59e0b', '#ec4899', '#6366f1', '#14b8a6', '#f97316', '#84cc16', '#06b6d4'
         ];
+
         function getTruckColor(tId) {
             let n = parseInt(tId);
             if (isNaN(n) || n < 1) n = 1;
@@ -405,8 +573,8 @@
         let usingFallback = false;
         let driverMap = {};
         let truckToDriver = {};
-        let driverAssignedRoutes = {}; // truck_id -> assigned_template_id (or null)
-        let driverAssignedTemplateNames = {}; // truck_id -> assigned_template_name
+        let driverAssignedRoutes = {};
+        let driverAssignedTemplateNames = {};
         let driversLoaded = false;
         let routesData = {};
 
@@ -419,45 +587,37 @@
                 let newTs = Number(data.lastUpdated || data.timestamp || 0);
                 let oldTs = Number(existing?.lastUpdated || existing?.timestamp || 0);
                 
-                // Never overwrite fresher live data with an older/stale snapshot
                 if (!existing || newTs >= oldTs || (oldTs - newTs < 3000)) {
                     window.liveTrucks[key] = Object.assign(existing || {}, data);
                 }
             }
 
-            // 1. Listen to driver_locations node
             db.ref('driver_locations').on('value', snap => {
                 let locs = snap.val() || {};
                 for (let k in locs) {
                     if (locs[k]) {
                         mergeTruckData(k, locs[k]);
-                        if (locs[k].truckId) {
-                            mergeTruckData(String(locs[k].truckId), locs[k]);
-                        }
+                        if (locs[k].truckId) mergeTruckData(String(locs[k].truckId), locs[k]);
                     }
                 }
                 scheduleRender();
             }, err => {
-                console.warn("driver_locations root read failed, using individual fallback.", err);
+                console.warn("driver_locations fallback", err);
                 usingFallback = true;
                 fallbackToIndividualListeners();
             });
 
-            // 2. Listen to trucks node (legacy and fallback)
             db.ref('trucks').on('value', snap => {
                 let tData = snap.val() || {};
                 for (let tId in tData) {
                     if (tData[tId]) {
                         mergeTruckData(String(tId), tData[tId]);
                         let dId = truckToDriver[tId];
-                        if (dId) {
-                            mergeTruckData(String(dId), tData[tId]);
-                        }
+                        if (dId) mergeTruckData(String(dId), tData[tId]);
                     }
                 }
                 scheduleRender();
             }, err => {
-                console.warn("trucks root read failed, using individual fallback.", err);
                 usingFallback = true;
                 fallbackToIndividualListeners();
             });
@@ -485,7 +645,6 @@
                 if (usingFallback) fallbackToIndividualListeners();
                 scheduleRender();
             }).catch(e => {
-                console.error("fetchDrivers failed:", e);
                 driversLoaded = true;
                 scheduleRender();
             });
@@ -496,7 +655,6 @@
             let stops = [];
             const isValidCustomerStop = (val, id) => {
                 if (!val || typeof val !== 'object') return false;
-                // A valid customer stop MUST have a name and not be a depot or inactive
                 if (!val.name || typeof val.name !== 'string' || !val.name.trim()) return false;
                 if (val.name === 'End Location / Depot') return false;
                 let isInactive = (val.customer_status || 'ACTIVE').toUpperCase() === 'INACTIVE';
@@ -553,7 +711,6 @@
                 routesData = snap.val() || {};
                 scheduleRender();
             }, err => {
-                console.warn("Permission denied reading 'routes'. Falling back to individual trucks.", err);
                 usingFallback = true;
                 fallbackToIndividualListeners();
             });
@@ -574,32 +731,24 @@
 
                 if (!routeListeners[tId]) {
                     routeListeners[tId] = true;
-                    
-                    // 1. Listen to route stops
                     db.ref('routes/route_' + tId + '/stops').on('value', snap => {
                         let val = snap.val();
                         if (!routesData['route_' + tId]) routesData['route_' + tId] = {};
                         routesData['route_' + tId].stops = val || {};
                         scheduleRender();
-                    }, err => {
-                        console.error("Fallback stops listener failed for truck", tId, err);
                     });
                     
-                    // 2. Listen to individual trucks/{tId} directly!
                     db.ref('trucks/' + tId).on('value', snap => {
                         let tData = snap.val();
                         if (tData) {
                             window.liveTrucks[tId] = Object.assign(window.liveTrucks[tId] || {}, tData);
                             let dId = truckToDriver[tId] || driverId;
-                            if (dId) {
-                                window.liveTrucks[dId] = Object.assign(window.liveTrucks[dId] || {}, tData);
-                            }
+                            if (dId) window.liveTrucks[dId] = Object.assign(window.liveTrucks[dId] || {}, tData);
                             scheduleRender();
                         }
                     });
                 }
 
-                // 3. Listen to individual driver_locations/{driverId}
                 if (driverId && !routeListeners['drv_' + driverId]) {
                     routeListeners['drv_' + driverId] = true;
                     db.ref('driver_locations/' + driverId).on('value', snap => {
@@ -633,8 +782,6 @@
             let strDId = dId ? String(dId) : null;
             
             let candidates = [];
-            
-            // Collect candidate nodes matching this truck ID or assigned driver ID
             [trucks[tId], trucks[strTId], dId ? trucks[dId] : null, strDId ? trucks[strDId] : null].forEach(node => {
                 if (node && (node.currentLat !== undefined || node.lat !== undefined || node.latitude !== undefined)) {
                     candidates.push(node);
@@ -650,15 +797,8 @@
                     }
                 }
             }
-            
             if (candidates.length === 0) return null;
-            
-            // Prioritize the node with the freshest timestamp
-            candidates.sort((a, b) => {
-                let tsA = Number(a.lastUpdated || a.timestamp || 0);
-                let tsB = Number(b.lastUpdated || b.timestamp || 0);
-                return tsB - tsA;
-            });
+            candidates.sort((a, b) => (Number(b.lastUpdated || b.timestamp || 0) - Number(a.lastUpdated || a.timestamp || 0)));
             return candidates[0];
         }
 
@@ -706,7 +846,6 @@
             let fleetTotal = 0, fleetComp = 0, fleetSkip = 0, fleetCanc = 0;
             let cardsHtml = '';
             let tIds = Array.from(activeTruckIds).sort((a,b) => parseInt(a)-parseInt(b));
-            
             let validTruckIds = new Set();
             
             tIds.forEach(tId => {
@@ -722,24 +861,19 @@
                 let tData = getTruckData(tId);
                 let isOnline = isTruckOnline(tData);
                 
-                // Hide trucks without an assigned route or active stops (do not show unassigned standby trucks)
                 if (!hasAssignedRoute || realStops.length === 0) return;
                 
-                let dName = driverMap[tId] || driverMap[strId] || (tData && tData.driverName) || '';
-                if (!dName) dName = 'Unassigned';
-                
+                let dName = driverMap[tId] || driverMap[strId] || (tData && tData.driverName) || 'Unassigned';
                 validTruckIds.add(tId.toString());
-                if (typeof ensureAdminTruckMessageListener === 'function') {
-                    ensureAdminTruckMessageListener(tId);
-                }
+                if (typeof ensureAdminTruckMessageListener === 'function') ensureAdminTruckMessageListener(tId);
                 let tUnread = typeof getTruckUnreadCount === 'function' ? getTruckUnreadCount(tId) : 0;
                 
                 let tTotal = realStops.length;
                 let tComp = 0, tSkip = 0, tCanc = 0, tLeft = 0, tNotConf = 0;
-                let skipList = [], leftList = [], compList = [], cancList = [];
+                let skipList = [], leftList = [], compList = [];
                 
                 realStops.forEach(s => {
-                    if (s.confirmation === 'CANCELLED') { tCanc++; cancList.push(s); }
+                    if (s.confirmation === 'CANCELLED') tCanc++;
                     else if (s.status === 'COMPLETED') { tComp++; compList.push(s); }
                     else if (s.status === 'SKIPPED') { tSkip++; skipList.push(s); }
                     else {
@@ -755,10 +889,7 @@
                 fleetCanc += tCanc;
                 
                 truckStats[tId] = { total: tTotal, comp: tComp, skip: tSkip, left: tLeft };
-                
                 let isFinished = (hasAssignedRoute && tTotal > 0 && tLeft === 0);
-                
-                // If route is finished and truck is offline, remove from active list
                 if (isFinished && !isOnline) return;
                 
                 let pillHtml = '';
@@ -766,124 +897,56 @@
                 else if (isOnline) pillHtml = `<span class="t-pill online">Online</span>`;
                 else pillHtml = `<span class="t-pill offline">Offline</span>`;
                 
-                let statsStr = "";
-                let progStyle = "display:none;";
-                if (!hasAssignedRoute) {
-                    statsStr = "Standby / No Route Assigned";
-                } else if (tTotal === 0) {
-                    if (Object.keys(routeNode).length === 0) statsStr = "Standby / Waiting for routes...";
-                    else statsStr = "No stops";
-                } else {
-                    progStyle = "";
-                    statsStr = `${tComp} done &middot; ${tSkip} skipped &middot; ${tCanc} cancelled &middot; ${tLeft} left`;
-                    if (tNotConf > 0) statsStr += ` <span class="t-stats-muted">(${tNotConf} not confirmed)</span>`;
-                }
-                
                 let pctComp = tTotal > 0 ? (tComp / tTotal) * 100 : 0;
                 let pctSkip = tTotal > 0 ? (tSkip / tTotal) * 100 : 0;
-                
-                let skipHtml = skipList.length > 0 ? `
-                    <div class="list-title" style="color:#ef4444;">Skipped Customers (${skipList.length})</div>
-                    ${skipList.map(s => `
-                        <div class="cust-row">
-                            <div class="cust-name">${s.name || 'Customer'} ${s.phone ? `<a href="tel:${s.phone}" style="color:var(--primary);"><i class="fa-solid fa-phone"></i></a>` : ''}</div>
-                            <div class="cust-addr">${s.address || 'No address'}</div>
-                        </div>
-                    `).join('')}
-                    <div style="height:12px;"></div>
-                ` : '';
-                
-                let leftHtml = leftList.length > 0 ? `
-                    <div class="list-title">Next Left (${tLeft})</div>
-                    ${leftList.map(s => `
-                        <div class="cust-row">
-                            <div class="cust-name">${s.name || 'Customer'} ${s.sequence ? `<span style="font-size:11px; font-weight:700; color:var(--text-muted);">#${s.sequence}</span>` : ''}</div>
-                            <div class="cust-addr">${s.address || 'No address'}</div>
-                        </div>
-                    `).join('')}
-                ` : '';
                 
                 let isRouteActive = visibleRouteTrucks.has(String(tId));
                 let isCardExpanded = window.expandedTruckCards && window.expandedTruckCards.has(String(tId));
                 let tColor = getTruckColor(tId);
-                let isOnlyThisRoute = (visibleRouteTrucks.size === 1 && visibleRouteTrucks.has(String(tId)));
-                let cardBorder = isRouteActive ? `border-left: 6px solid ${tColor}; box-shadow: 0 4px 16px rgba(0,0,0,0.12);` : '';
 
                 cardsHtml += `
-                    <div class="t-card ${isRouteActive ? 'route-active' : ''} ${isCardExpanded ? 'expanded' : ''}" style="${cardBorder}" onclick="handleCardClick('${tId}', event)">
-                        <div class="t-card-header" style="display:flex; flex-direction:column; gap:10px; margin-bottom:10px;">
-                            <div style="display:flex; justify-content:space-between; align-items:center; width:100%; gap:8px;">
-                                <div style="display:flex; align-items:center; gap:8px; min-width:0; flex:1;">
-                                    <span style="width:10px; height:10px; border-radius:50%; background:${tColor}; flex-shrink:0;"></span>
-                                    <div class="t-title" style="font-weight:800; font-size:15px; white-space:nowrap; display:inline-flex; align-items:center; gap:6px; flex-shrink:0;">
-                                        Truck ${tId}
-                                        ${isOnlyThisRoute ? `<span style="font-size:9px; font-weight:800; color:white; background:${tColor}; padding:2px 6px; border-radius:10px; letter-spacing:0.4px;">SOLO</span>` : ''}
-                                    </div>
-                                    <div class="t-driver" style="color:var(--text-muted); font-size:13px; font-weight:500; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; min-width:0;">&bull; ${dName}</div>
-                                </div>
-                                <div style="flex-shrink:0;">
-                                    ${pillHtml}
-                                </div>
+                    <div class="t-card ${isRouteActive ? 'route-active' : ''} ${isCardExpanded ? 'expanded' : ''}" style="${isRouteActive ? `border-left: 4px solid ${tColor};` : ''}" onclick="handleCardClick('${tId}', event)">
+                        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
+                            <div style="display: flex; align-items: center; gap: 8px;">
+                                <span style="width: 10px; height: 10px; border-radius: 50%; background: ${tColor};"></span>
+                                <span style="font-weight: 700; font-size: 15px;">Truck ${tId}</span>
+                                <span style="font-size: 12px; color: var(--text-muted);">• ${dName}</span>
                             </div>
-                            <div style="display:flex; gap:8px; align-items:center; width:100%;" onclick="event.stopPropagation();">
-                                ${hasAssignedRoute ? `
-                                <button onclick="toggleTruckRoute('${tId}');" class="btn-route-toggle ${isRouteActive ? 'active' : ''}" style="flex:1;" title="${isRouteActive ? 'Click to hide this route path' : 'Click to show ONLY this truck route'}">
-                                    <i class="fa-solid fa-route"></i> ${isRouteActive ? 'Hide Path' : 'Show Route'}
-                                </button>
-                                ` : ''}
-                                <button onclick="openAdminChat('${tId}', '${typeof escapeAdminString === 'function' ? escapeAdminString(dName) : dName}');" class="btn-chat-toggle" style="flex:1;" title="Chat with driver">
-                                    <i class="fa-solid fa-comment-dots"></i> Chat
-                                    <span class="truck-unread-badge" id="truck-unread-badge-${tId}" style="${tUnread > 0 ? 'display:inline-flex;' : 'display:none;'} background:#ef4444; color:white; font-size:10px; font-weight:800; border-radius:10px; min-width:16px; height:16px; padding:0 4px; align-items:center; justify-content:center;">${tUnread}</span>
-                                </button>
-                            </div>
+                            <div>${pillHtml}</div>
                         </div>
-                        <div class="prog-bar-wrap" style="${progStyle} margin-top:8px;">
+
+                        <div style="display: flex; gap: 8px; margin-bottom: 10px;" onclick="event.stopPropagation();">
+                            <button onclick="toggleTruckRoute('${tId}');" class="btn-route-toggle ${isRouteActive ? 'active' : ''}" style="flex: 1;">
+                                <i data-lucide="route" style="width: 14px; height: 14px;"></i> ${isRouteActive ? 'Hide Path' : 'Show Route'}
+                            </button>
+                            <button onclick="openAdminChat('${tId}', '${escapeAdminString(dName)}');" class="btn-chat-toggle" style="flex: 1;">
+                                <i data-lucide="message-square" style="width: 14px; height: 14px;"></i> Chat
+                                ${tUnread > 0 ? `<span class="badge-status danger" style="padding: 1px 6px; font-size: 10px;">${tUnread}</span>` : ''}
+                            </button>
+                        </div>
+
+                        <div class="prog-bar-wrap">
                             <div class="prog-bar-comp" style="width: ${pctComp}%"></div>
                             <div class="prog-bar-skip" style="width: ${pctSkip}%"></div>
-                            <div class="prog-bar-canc" style="width: ${tTotal>0?(tCanc/tTotal)*100:0}%; background:#fca5a5;"></div>
                         </div>
-                        <div class="t-stats">${statsStr}</div>
-                        ${(() => {
-                            let lastStop = compList.length > 0 ? compList[compList.length - 1] : null;
-                            let nextStop = leftList.length > 0 ? leftList[0] : null;
-                            if (tTotal === 0 || (!lastStop && !nextStop)) return '';
-                            let html = '<div style="background:#f8fafc; border-radius:8px; padding:10px; margin-top:12px; border:1px solid #e2e8f0;">';
-                            if (lastStop) {
-                                html += '<div style="font-size:11px; font-weight:700; color:#10b981; text-transform:uppercase; margin-bottom:2px;">Last Completed</div>';
-                                html += '<div style="font-size:13px; font-weight:600; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; margin-bottom:' + (nextStop?'8px':'0') + ';">' + (lastStop.name || 'Stop') + '</div>';
-                            }
-                            if (nextStop) {
-                                let seqText = (nextStop.sequence || nextStop.stop_number) ? (' <span style="font-size:11px; color:var(--text-muted);">#' + (nextStop.sequence || nextStop.stop_number) + '</span>') : '';
-                                html += '<div style="font-size:11px; font-weight:700; color:var(--primary); text-transform:uppercase; margin-bottom:2px;">Upcoming</div>';
-                                html += '<div style="font-size:13px; font-weight:600; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">' + (nextStop.name || 'Upcoming Stop') + seqText + '</div>';
-                            }
-                            html += '</div>';
-                            return html;
-                        })()}
-                        
-                        <div class="t-expanded">
-                            ${skipHtml}
-                            ${leftHtml}
-                            ${!skipHtml && !leftHtml && tTotal > 0 ? '<div class="t-stats-muted">Route complete</div>' : ''}
-                        </div>
+                        <div class="t-stats">${tComp} done • ${tLeft} left</div>
                     </div>
                 `;
             });
             
             if (!cardsHtml) {
-                cardsHtml = `<div style="text-align:center; padding: 30px 20px; color:var(--text-muted); font-size:14px;"><i class="fa-solid fa-truck" style="font-size:24px; opacity:0.4; margin-bottom:10px; display:block;"></i>All trucks are currently offline.<br><span style="font-size:12px;">Waiting for active fleet...</span></div>`;
+                cardsHtml = `<div style="text-align: center; padding: 40px 20px; color: var(--text-muted); font-size: 14px;">No active trucks currently online.</div>`;
             }
             
             document.getElementById('truck-list').innerHTML = cardsHtml;
             
-            // Build Truck Filter Pills
             let filterBar = document.getElementById('truck-filter-bar');
             if (filterBar) {
                 let allIds = getAllTrackableTruckIds();
                 let allVisible = allIds.length > 0 && allIds.every(id => visibleRouteTrucks.has(String(id)));
                 let filterHtml = `
                     <button onclick="toggleAllRoutes(true)" class="truck-filter-pill ${allVisible ? 'active' : ''}">
-                        <i class="fa-solid fa-layer-group" style="margin-right:4px;"></i> All Trucks
+                        All Trucks
                     </button>
                 `;
                 allIds.forEach(id => {
@@ -891,7 +954,7 @@
                     let c = getTruckColor(id);
                     filterHtml += `
                         <button onclick="focusTruckRoute('${id}')" class="truck-filter-pill ${isSolo ? 'active' : ''}">
-                            <span style="width:8px; height:8px; border-radius:50%; background:${c}; display:inline-block; margin-right:5px;"></span>
+                            <span style="width: 6px; height: 6px; border-radius: 50%; background: ${c}; display: inline-block; margin-right: 6px;"></span>
                             Truck ${id}
                         </button>
                     `;
@@ -904,23 +967,19 @@
             
             document.getElementById('fleet-summary').innerHTML = `
                 <div class="fleet-stat">
-                    <div class="fleet-stat-val" style="color:#10b981;">${fleetComp}</div>
+                    <div class="fleet-stat-val" style="color: #10b981;">${fleetComp}</div>
                     <div class="fleet-stat-label">Done</div>
                 </div>
                 <div class="fleet-stat">
-                    <div class="fleet-stat-val" style="color:#ef4444;">${fleetSkip}</div>
+                    <div class="fleet-stat-val" style="color: #ef4444;">${fleetSkip}</div>
                     <div class="fleet-stat-label">Skip</div>
-                </div>
-                <div class="fleet-stat" title="Cancelled">
-                    <div class="fleet-stat-val" style="color:#f87171;">${fleetCanc}</div>
-                    <div class="fleet-stat-label">Canc</div>
                 </div>
                 <div class="fleet-stat">
                     <div class="fleet-stat-val">${fleetLeft}</div>
                     <div class="fleet-stat-label">Left</div>
                 </div>
                 <div class="fleet-stat">
-                    <div class="fleet-stat-val" style="color:var(--primary);">${fleetPct}%</div>
+                    <div class="fleet-stat-val" style="color: var(--accent-primary);">${fleetPct}%</div>
                     <div class="fleet-stat-label">Progress</div>
                 </div>
             `;
@@ -928,12 +987,12 @@
             document.getElementById('fleet-prog-bar').innerHTML = `
                 <div class="prog-bar-comp" style="width: ${fleetTotal > 0 ? (fleetComp/fleetTotal)*100 : 0}%"></div>
                 <div class="prog-bar-skip" style="width: ${fleetTotal > 0 ? (fleetSkip/fleetTotal)*100 : 0}%"></div>
-                <div class="prog-bar-canc" style="width: ${fleetTotal > 0 ? (fleetCanc/fleetTotal)*100 : 0}%; background:#fca5a5;"></div>
             `;
 
             updateMapPopups();
+            if (window.lucide) lucide.createIcons();
         }
-        
+
         function updateMapPopups() {
             let bounds = L.latLngBounds();
             let hasLive = false;
@@ -958,14 +1017,11 @@
                 let tData = getTruckData(tId);
                 let coords = getTruckCoords(tData);
                 let isOnline = isTruckOnline(tData);
-                
-                // If truck is offline (logged out) or has no GPS, remove marker from live map
                 let strId = String(tId);
                 let hasAssigned = Boolean(driverAssignedRoutes[tId] || driverAssignedRoutes[strId]);
                 let st = truckStats[tId];
                 let isFinished = (hasAssigned && st && st.total > 0 && st.left === 0);
 
-                // If truck is offline, has no GPS, has no assigned route, or is finished & offline: remove marker from map
                 if (!coords || !isOnline || !hasAssigned || (isFinished && !isOnline)) {
                     if (liveTruckMarkers[tId]) {
                         map.removeLayer(liveTruckMarkers[tId]);
@@ -976,30 +1032,26 @@
                 
                 let [lat, lng] = coords;
                 let dName = driverMap[tId] || driverMap[strId] || (tData && tData.driverName) || 'Unassigned';
-                
                 let tColor = getTruckColor(tId);
                 let iconColor = isOnline ? tColor : '#64748b';
                 
                 function createMarkerIcon() {
                     return L.divIcon({
                         className: 'live-truck-marker-' + tId,
-                        html: `<div style="background-color:${iconColor}; width:38px; height:38px; border-radius:50%; border:3px solid #ffffff; box-shadow:0 3px 12px rgba(0,0,0,0.35); display:flex; align-items:center; justify-content:center; color:#ffffff; font-size:16px; position:relative; cursor:pointer;" title="Truck ${tId} (${dName})">
-                            <i class="fa-solid fa-truck"></i>
-                            ${isOnline ? '<span style="position:absolute; top:-2px; right:-2px; width:10px; height:10px; background:#10b981; border:2px solid white; border-radius:50%;"></span>' : ''}
+                        html: `<div style="background-color: ${iconColor}; width: 38px; height: 38px; border-radius: 50%; border: 3px solid #ffffff; box-shadow: 0 4px 14px rgba(0,0,0,0.4); display: flex; align-items: center; justify-content: center; color: #ffffff; font-size: 14px; position: relative; cursor: pointer;">
+                            <i data-lucide="truck" style="width: 18px; height: 18px;"></i>
+                            ${isOnline ? '<span style="position: absolute; top: -2px; right: -2px; width: 10px; height: 10px; background: #10b981; border: 2px solid white; border-radius: 50%;"></span>' : ''}
                         </div>`,
                         iconSize: [38, 38],
-                        iconAnchor: [19, 19],
-                        popupAnchor: [0, -20]
+                        iconAnchor: [19, 19]
                     });
                 }
                 
                 if (liveTruckMarkers[tId]) {
                     let currentLatLng = liveTruckMarkers[tId].getLatLng();
-                    // Smoothly update position only when moving more than ~1 meter to avoid GPS micro-jitter
                     if (Math.abs(currentLatLng.lat - lat) > 0.00001 || Math.abs(currentLatLng.lng - lng) > 0.00001) {
                         liveTruckMarkers[tId].setLatLng([lat, lng]);
                     }
-                    // Only re-create icon if online/offline status actually changed
                     if (liveTruckMarkers[tId]._lastOnlineState !== isOnline) {
                         liveTruckMarkers[tId].setIcon(createMarkerIcon());
                         liveTruckMarkers[tId]._lastOnlineState = isOnline;
@@ -1008,58 +1060,16 @@
                     liveTruckMarkers[tId] = L.marker([lat, lng], { icon: createMarkerIcon() }).addTo(map);
                     liveTruckMarkers[tId]._lastOnlineState = isOnline;
                     liveTruckMarkers[tId].bindPopup(`<b>Truck ${tId}</b>`);
-                    liveTruckMarkers[tId].on('click', () => {
-                        if (!hasAssigned) return;
-                        if (!visibleRouteTrucks.has(String(tId)) || visibleRouteTrucks.size > 1) {
-                            visibleRouteTrucks.clear();
-                            visibleRouteTrucks.add(String(tId));
-                            renderRoutesOnMap();
-                            renderProgress();
-                            updateToggleAllButton();
-                        }
-                    });
                 }
                 
-                let countsStr = (st && hasAssigned) ? `<br><span style="font-size:12px; color:#64748b;">${st.comp} done &middot; ${st.left} left</span>` : `<br><span style="font-size:12px; color:#64748b;">Standby / No Route Assigned</span>`;
-                let timeStr = '<span style="color:#64748b; font-weight:600;">Offline</span>';
-                let latestTime = tData.lastUpdated || tData.timestamp;
-                if (latestTime) {
-                    let diffSeconds = Math.max(0, Math.floor((Date.now() - latestTime) / 1000));
-                    if (diffSeconds < 20) timeStr = `<span style="color:#10b981; font-weight:700;">🟢 LIVE</span>`;
-                    else if (diffSeconds < 60) timeStr = `<span style="color:#10b981; font-weight:700;">🟢 LIVE (${diffSeconds}s ago)</span>`;
-                    else if (diffSeconds < 180) timeStr = `<span style="color:#f59e0b; font-weight:700;">🟡 RECENT (${Math.floor(diffSeconds/60)}m ago)</span>`;
-                    else timeStr = `<span style="color:#ef4444; font-weight:700;">🔴 STALE (${Math.floor(diffSeconds/60)}m ago)</span>`;
-                } else if (isOnline) {
-                    timeStr = '<span style="color:#10b981; font-weight:700;">🟢 LIVE</span>';
-                }
-                
-                let isRouteActive = visibleRouteTrucks.has(String(tId));
-                let isOnlyThis = (visibleRouteTrucks.size === 1 && visibleRouteTrucks.has(String(tId)));
-
                 let popupHtml = `
-                    <div style="font-family:inherit; min-width:170px; padding:2px;">
-                        <div style="font-weight:700; font-size:14px; color:#0f172a; display:flex; align-items:center; gap:6px;">
-                            <span style="width:10px; height:10px; border-radius:50%; background:${tColor}; display:inline-block;"></span>
-                            Truck ${tId}
-                            ${isRouteActive && hasAssigned ? `<span style="font-size:10px; background:${tColor}; color:white; padding:1px 5px; border-radius:8px; margin-left:auto;">Active</span>` : ''}
+                    <div style="font-family: inherit; padding: 4px;">
+                        <div style="font-weight: 700; font-size: 14px; color: var(--text-primary); display: flex; align-items: center; gap: 6px;">
+                            <span style="width: 8px; height: 8px; border-radius: 50%; background: ${tColor};"></span>
+                            Truck ${tId} (${dName})
                         </div>
-                        <div style="font-size:12px; color:#475569; margin-bottom:4px;">${dName}</div>
-                        <div style="font-size:12px;">${timeStr}</div>
-                        ${countsStr}
-                        <div style="display:flex; gap:6px; margin-top:8px;">
-                            <button onclick="openAdminChat('${tId}', '${typeof escapeAdminString === 'function' ? escapeAdminString(dName) : dName}')" style="flex:1; padding:6px 8px; background:#2563eb; color:white; border:none; border-radius:6px; font-weight:700; font-size:11px; cursor:pointer; display:flex; align-items:center; justify-content:center; gap:4px;">
-                                <i class="fa-solid fa-comment-dots"></i> Message
-                            </button>
-                            ${hasAssigned ? `
-                            <button onclick="focusTruckRoute('${tId}')" style="flex:1; padding:6px 8px; background:${tColor}; color:white; border:none; border-radius:6px; font-weight:700; font-size:11px; cursor:pointer; display:flex; align-items:center; justify-content:center; gap:4px;">
-                                <i class="fa-solid fa-route"></i> ${isOnlyThis ? 'Only This' : 'Focus'}
-                            </button>
-                            ` : ''}
-                            ${(hasAssigned && isRouteActive) ? `
-                            <button onclick="toggleTruckRoute('${tId}')" style="padding:6px 8px; background:#f1f5f9; color:#475569; border:1px solid #cbd5e1; border-radius:6px; font-weight:700; font-size:11px; cursor:pointer;" title="Hide path">
-                                <i class="fa-solid fa-eye-slash"></i>
-                            </button>
-                            ` : ''}
+                        <div style="font-size: 12px; color: var(--text-secondary); margin-top: 4px;">
+                            ${isOnline ? '🟢 Online • Live' : '⚪ Offline'}
                         </div>
                     </div>
                 `;
@@ -1072,7 +1082,6 @@
                 bounds.extend([lat, lng]);
             });
             
-            // Remove markers for trucks that are no longer in active fleet
             for (let tId in liveTruckMarkers) {
                 if (!allTrackableTruckIds.has(String(tId))) {
                     map.removeLayer(liveTruckMarkers[tId]);
@@ -1086,9 +1095,9 @@
             }
 
             renderRoutesOnMap();
+            if (window.lucide) lucide.createIcons();
         }
-        
-        // Refresh popup time counters every second so the display never stays frozen
+
         setInterval(updateMapPopups, 1000);
 
         function getAllTrackableTruckIds() {
@@ -1107,58 +1116,28 @@
             if (!hasAssigned) return;
             let allIds = getAllTrackableTruckIds();
             
-            // If already the only active route, clicking again restores all routes
             if (visibleRouteTrucks.size === 1 && visibleRouteTrucks.has(strId)) {
                 allIds.forEach(id => visibleRouteTrucks.add(String(id)));
             } else {
-                // Isolate ONLY this truck's route!
                 visibleRouteTrucks.clear();
                 visibleRouteTrucks.add(strId);
             }
             
             renderRoutesOnMap();
             renderProgress();
-            updateToggleAllButton();
-            
-            // Frame this truck and its route stops
             fitRouteBounds(strId);
-            
-            if (liveTruckMarkers[strId]) {
-                liveTruckMarkers[strId].openPopup();
-            }
         }
 
-        function toggleTruckRoute(tId, forceState) {
-            let strId = String(tId);
-            let hasAssigned = Boolean(driverAssignedRoutes[tId] || driverAssignedRoutes[strId]);
-            if (!hasAssigned) return;
-            if (forceState !== undefined) {
-                if (forceState) visibleRouteTrucks.add(strId);
-                else visibleRouteTrucks.delete(strId);
-            } else {
-                if (!visibleRouteTrucks.has(strId)) {
-                    // Turn on this truck: focus exclusively on it!
-                    focusTruckRoute(strId);
-                    return;
-                } else {
-                    visibleRouteTrucks.delete(strId);
-                }
-            }
-            renderRoutesOnMap();
-            renderProgress();
-            updateToggleAllButton();
-            
-            if (visibleRouteTrucks.has(strId)) {
-                fitRouteBounds(strId);
-            }
+        function toggleTruckRoute(tId) {
+            focusTruckRoute(tId);
         }
 
-        function toggleAllRoutes(forceShow) {
+        function toggleAllRoutes() {
             let allIds = getAllTrackableTruckIds();
             if (allIds.length === 0) return;
             
             let allVisible = allIds.every(id => visibleRouteTrucks.has(String(id)));
-            if (forceShow === true || !allVisible) {
+            if (!allVisible) {
                 visibleRouteTrucks.clear();
                 allIds.forEach(id => visibleRouteTrucks.add(String(id)));
             } else {
@@ -1166,956 +1145,55 @@
             }
             renderRoutesOnMap();
             renderProgress();
-            updateToggleAllButton();
-            
-            if (visibleRouteTrucks.size > 0) {
-                let pts = [];
-                visibleRouteTrucks.forEach(tId => {
-                    let tData = getTruckData(tId);
-                    let coords = getTruckCoords(tData);
-                    if (coords) pts.push(coords);
-                    let rNode = routesData['route_' + tId] || {};
-                    let stops = parseStops(rNode.stops || rNode);
-                    stops.forEach(s => {
-                        if (s.id > -1000 && s.status !== 'COMPLETED' && s.status !== 'SKIPPED' && s.confirmation !== 'CANCELLED' && s.lat && s.lng && !isNaN(parseFloat(s.lat)) && !isNaN(parseFloat(s.lng))) {
-                            pts.push([parseFloat(s.lat), parseFloat(s.lng)]);
-                        }
-                    });
-                });
-                if (pts.length > 1) {
-                    map.flyToBounds(L.latLngBounds(pts), { padding: [60, 60], maxZoom: 16 });
-                } else if (pts.length === 1) {
-                    map.flyTo(pts[0], 16);
-                }
-            }
-        }
-
-        function updateToggleAllButton() {
-            let btn = document.getElementById('btn-toggle-all-routes');
-            if (!btn) return;
-            let allIds = getAllTrackableTruckIds();
-            let allVisible = allIds.length > 0 && allIds.every(id => visibleRouteTrucks.has(String(id)));
-            if (allVisible) {
-                btn.innerHTML = '<i class="fa-solid fa-eye-slash"></i> Hide All Routes';
-                btn.classList.remove('btn-outline');
-                btn.classList.add('btn-primary');
-            } else {
-                btn.innerHTML = '<i class="fa-solid fa-route"></i> Show All Routes';
-                btn.classList.remove('btn-primary');
-                btn.classList.add('btn-outline');
-            }
         }
 
         function handleCardClick(tId, event) {
             if (event.target.closest('button') || event.target.closest('a')) return;
-            
             let strId = String(tId);
-            let hasAssigned = Boolean(driverAssignedRoutes[tId] || driverAssignedRoutes[strId]);
-            if (!hasAssigned) {
-                let tData = getTruckData(strId);
-                let coords = getTruckCoords(tData);
-                if (coords) {
-                    map.flyTo(coords, 16);
-                    if (liveTruckMarkers[strId]) liveTruckMarkers[strId].openPopup();
-                }
-                return;
-            }
-            if (!window.expandedTruckCards) window.expandedTruckCards = new Set();
-            if (window.expandedTruckCards.has(strId)) {
-                window.expandedTruckCards.delete(strId);
-            } else {
-                window.expandedTruckCards.add(strId);
-            }
-            
             focusTruckRoute(strId);
         }
 
-        const stopsGeoCache = {};
-        const approachGeoCache = {};
-        const everHadRoadGeoByTruck = {};
-        const STOPS_CACHE_PREFIX = 'osrm_stops_geo_v1_';
-        const APPROACH_CACHE_PREFIX = 'osrm_approach_geo_v1_';
-        const OSRM_MAX_POINTS_PER_CHUNK = 40;
-        const MAX_CONCURRENT_OSRM = 2;
-        const OSRM_TIMEOUT_MS = 8000;
-        const BACKOFF_DELAYS_MS = [2000, 4000, 8000, 16000, 30000];
-
-        let activeOsrmRequests = 0;
-        let osrmQueue = [];
-        let routeTokenCounter = 0;
-
-        function haversineMeters(c1, c2) {
-            if (!c1 || !c2 || c1.length < 2 || c2.length < 2) return Infinity;
-            const R = 6371000;
-            const toRad = d => (d * Math.PI) / 180;
-            const dLat = toRad(c2[0] - c1[0]);
-            const dLng = toRad(c2[1] - c1[1]);
-            const a = Math.sin(dLat / 2) * Math.sin(dLat / 2) +
-                      Math.cos(toRad(c1[0])) * Math.cos(toRad(c2[0])) *
-                      Math.sin(dLng / 2) * Math.sin(dLng / 2);
-            return 2 * R * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
-        }
-
-        function getCachedStopsGeo(sig) {
-            if (!sig) return null;
-            if (stopsGeoCache[sig]) return stopsGeoCache[sig];
-            try {
-                const raw = sessionStorage.getItem(STOPS_CACHE_PREFIX + sig);
-                if (raw) {
-                    const parsed = JSON.parse(raw);
-                    if (parsed && parsed.type === 'LineString' && Array.isArray(parsed.coordinates)) {
-                        stopsGeoCache[sig] = parsed;
-                        return parsed;
-                    }
-                }
-            } catch (e) {}
-            return null;
-        }
-
-        function setCachedStopsGeo(sig, geo) {
-            if (!sig || !geo) return;
-            stopsGeoCache[sig] = geo;
-            try {
-                sessionStorage.setItem(STOPS_CACHE_PREFIX + sig, JSON.stringify(geo));
-            } catch (e) {}
-        }
-
-        function getCachedApproachGeo(sig) {
-            if (!sig) return null;
-            if (approachGeoCache[sig]) return approachGeoCache[sig];
-            try {
-                const raw = sessionStorage.getItem(APPROACH_CACHE_PREFIX + sig);
-                if (raw) {
-                    const parsed = JSON.parse(raw);
-                    if (parsed && parsed.type === 'LineString' && Array.isArray(parsed.coordinates)) {
-                        approachGeoCache[sig] = parsed;
-                        return parsed;
-                    }
-                }
-            } catch (e) {}
-            return null;
-        }
-
-        function setCachedApproachGeo(sig, geo) {
-            if (!sig || !geo) return;
-            approachGeoCache[sig] = geo;
-            try {
-                sessionStorage.setItem(APPROACH_CACHE_PREFIX + sig, JSON.stringify(geo));
-            } catch (e) {}
-        }
-
-        function enqueueOsrmFetch(url, timeoutMs = OSRM_TIMEOUT_MS) {
-            return new Promise((resolve, reject) => {
-                osrmQueue.push({ url, timeoutMs, resolve, reject });
-                processOsrmQueue();
-            });
-        }
-
-        function processOsrmQueue() {
-            while (activeOsrmRequests < MAX_CONCURRENT_OSRM && osrmQueue.length > 0) {
-                const item = osrmQueue.shift();
-                activeOsrmRequests++;
-                const controller = new AbortController();
-                const timer = setTimeout(() => controller.abort(), item.timeoutMs);
-                fetch(item.url, { signal: controller.signal })
-                    .then(res => {
-                        clearTimeout(timer);
-                        if (res.status === 429 || res.status >= 500 || !res.ok) {
-                            const err = new Error('OSRM HTTP ' + res.status);
-                            err.status = res.status;
-                            throw err;
-                        }
-                        return res.json();
-                    })
-                    .then(data => {
-                        if (!data || !data.routes || !data.routes[0] || !data.routes[0].geometry) {
-                            throw new Error('Invalid OSRM geometry response');
-                        }
-                        item.resolve(data.routes[0].geometry);
-                    })
-                    .catch(err => {
-                        clearTimeout(timer);
-                        item.reject(err);
-                    })
-                    .finally(() => {
-                        activeOsrmRequests--;
-                        processOsrmQueue();
-                    });
-            }
-        }
-
-        function chunkWaypoints(waypoints) {
-            if (!waypoints || waypoints.length < 2) return [];
-            if (waypoints.length <= OSRM_MAX_POINTS_PER_CHUNK) return [waypoints];
-            const chunks = [];
-            const step = OSRM_MAX_POINTS_PER_CHUNK - 1; // 39 -> overlap by 1 point
-            for (let i = 0; i < waypoints.length - 1; i += step) {
-                const slice = waypoints.slice(i, i + OSRM_MAX_POINTS_PER_CHUNK);
-                if (slice.length >= 2) {
-                    chunks.push(slice);
-                }
-                if (i + OSRM_MAX_POINTS_PER_CHUNK >= waypoints.length) break;
-            }
-            return chunks;
-        }
-
-        async function fetchChunkedOsrmGeometry(waypoints) {
-            const chunks = chunkWaypoints(waypoints);
-            if (chunks.length === 0) return null;
-            const geometries = await Promise.all(chunks.map(chunk => {
-                const coordsString = chunk.map(pt => `${pt[1]},${pt[0]}`).join(';');
-                const osrmUrl = `https://router.project-osrm.org/route/v1/driving/${coordsString}?overview=full&geometries=geojson`;
-                return enqueueOsrmFetch(osrmUrl, OSRM_TIMEOUT_MS);
-            }));
-            const mergedCoords = [];
-            geometries.forEach((geo, idx) => {
-                if (!geo || !Array.isArray(geo.coordinates)) return;
-                const coords = geo.coordinates;
-                if (idx === 0 || mergedCoords.length === 0) {
-                    mergedCoords.push(...coords);
-                } else {
-                    const last = mergedCoords[mergedCoords.length - 1];
-                    const first = coords[0];
-                    if (last && first && Math.abs(last[0] - first[0]) < 1e-6 && Math.abs(last[1] - first[1]) < 1e-6) {
-                        mergedCoords.push(...coords.slice(1));
-                    } else {
-                        mergedCoords.push(...coords);
-                    }
-                }
-            });
-            return {
-                type: 'LineString',
-                coordinates: mergedCoords
-            };
-        }
-
-        function createRoadGeoLayer(geometry, color) {
-            return L.geoJSON(geometry, {
-                interactive: false,
-                style: {
-                    color: color,
-                    weight: 5,
-                    opacity: 0.85,
-                    lineCap: 'round',
-                    lineJoin: 'round'
-                }
-            });
-        }
-
-        function syncTruckLayerArrays(state) {
-            if (!state) return;
-            state.lines = [state.stopsLine, state.approachLine, state.prelimLine].filter(Boolean);
-            state.markers = [
-                ...Object.values(state.stopMarkers || {}).map(m => m.marker),
-                ...(state.depotMarker ? [state.depotMarker.marker] : [])
-            ];
-        }
-
-        function ensureTruckRouteState(strId) {
-            if (!activeRouteLayers[strId]) {
-                activeRouteLayers[strId] = {
-                    lines: [],
-                    markers: [],
-                    stopsLine: null,
-                    approachLine: null,
-                    prelimLine: null,
-                    hasEverHadRoadGeo: !!everHadRoadGeoByTruck[strId],
-                    stopMarkers: {},
-                    depotMarker: null,
-                    stopsSig: null,
-                    renderedStopsSig: null,
-                    inFlightStopsSig: null,
-                    approachSig: null,
-                    renderedApproachSig: null,
-                    inFlightApproachSig: null,
-                    initialApproachChecked: false,
-                    lastRoutedTruckCoords: null,
-                    lastApproachFetchCoords: null,
-                    lastApproachFetchTime: 0,
-                    lastApproachStopId: null,
-                    retryTimer: null,
-                    retryAttempt: 0,
-                    approachRetryTimer: null,
-                    approachRetryAttempt: 0,
-                    approachCooldownTimer: null,
-                    staggerTimer: null,
-                    hasStartedInitialFetch: false
-                };
-            }
-            return activeRouteLayers[strId];
-        }
-
-        let activeSpiderClusterId = null;
-        let activeSpiderTruckId = null;
-        let activeSpiderLayers = [];
-
-        function unspiderfy() {
-            if (activeSpiderLayers.length > 0) {
-                activeSpiderLayers.forEach(l => {
-                    if (l && map.hasLayer(l)) map.removeLayer(l);
-                });
-                activeSpiderLayers = [];
-            }
-            activeSpiderClusterId = null;
-            activeSpiderTruckId = null;
-        }
-
-        map.on('zoomstart', unspiderfy);
-        map.on('click', unspiderfy);
-
-        function clusterPendingStops(pendingStops) {
-            const clusters = [];
-            pendingStops.forEach(s => {
-                if (s.lat === undefined || s.lng === undefined || isNaN(parseFloat(s.lat)) || isNaN(parseFloat(s.lng))) return;
-                const lat = parseFloat(s.lat);
-                const lng = parseFloat(s.lng);
-
-                let matched = null;
-                for (const cl of clusters) {
-                    if (haversineMeters([cl.lat, cl.lng], [lat, lng]) <= 20) {
-                        matched = cl;
-                        break;
-                    }
-                }
-
-                const subList = (s.subStops && Array.isArray(s.subStops) && s.subStops.length > 0) ? s.subStops : [s];
-
-                if (!matched) {
-                    matched = {
-                        primaryId: String(s.id),
-                        lat: lat,
-                        lng: lng,
-                        customers: []
-                    };
-                    clusters.push(matched);
-                }
-
-                subList.forEach(item => {
-                    const cid = String(item.id || s.id);
-                    if (!matched.customers.some(c => String(c.id) === cid)) {
-                        matched.customers.push({
-                            id: item.id || s.id,
-                            name: item.name || s.name || 'Customer',
-                            address: item.address || s.address || '',
-                            phone: item.phone || s.phone || '',
-                            sequence: item.sequence || s.sequence || '',
-                            confirmation: item.confirmation || s.confirmation || '',
-                            status: item.status || s.status || 'PENDING',
-                            lat: item.lat !== undefined ? parseFloat(item.lat) : lat,
-                            lng: item.lng !== undefined ? parseFloat(item.lng) : lng
-                        });
-                    }
-                });
-            });
-
-            clusters.forEach(cl => {
-                cl.customers.sort((a, b) => (parseInt(a.sequence) || 0) - (parseInt(b.sequence) || 0));
-                cl.primarySequence = cl.customers[0]?.sequence || '';
-                cl.id = 'cluster_' + cl.customers.map(c => c.id).join('_');
-            });
-            return clusters;
-        }
-
-        function spiderfyCluster(cl, strId, color) {
-            if (activeSpiderClusterId === cl.id) {
-                unspiderfy();
-                return;
-            }
-            unspiderfy();
-            activeSpiderClusterId = cl.id;
-            activeSpiderTruckId = strId;
-
-            const N = cl.customers.length;
-            const centerPt = map.latLngToLayerPoint([cl.lat, cl.lng]);
-            const radiusPx = N <= 3 ? 42 : (N <= 6 ? 52 : 62);
-
-            cl.customers.forEach((c, idx) => {
-                const angle = (2 * Math.PI / N) * idx - Math.PI / 2;
-                const dx = radiusPx * Math.cos(angle);
-                const dy = radiusPx * Math.sin(angle);
-                const childLatLng = map.layerPointToLatLng(centerPt.add([dx, dy]));
-
-                const leg = L.polyline([[cl.lat, cl.lng], childLatLng], {
-                    color: color,
-                    weight: 2,
-                    opacity: 0.8,
-                    dashArray: '3, 4',
-                    interactive: false
-                }).addTo(map);
-                activeSpiderLayers.push(leg);
-
-                const childIcon = L.divIcon({
-                    className: 'spider-child-pin-' + strId,
-                    html: `<div style="background:${color}; color:white; width:26px; height:26px; border-radius:50%; border:2px solid #ffffff; box-shadow:0 3px 8px rgba(0,0,0,0.35); display:flex; align-items:center; justify-content:center; font-weight:800; font-size:11px; cursor:pointer;" title="Stop #${c.sequence}: ${c.name}">
-                        ${c.sequence}
-                    </div>`,
-                    iconSize: [26, 26],
-                    iconAnchor: [13, 13],
-                    popupAnchor: [0, -14]
-                });
-                const childMarker = L.marker(childLatLng, { icon: childIcon }).addTo(map);
-                const phoneHtml = c.phone ? `<div style="margin-top:6px;"><a href="tel:${c.phone}" style="font-size:12px; color:var(--primary); font-weight:700; text-decoration:none;"><i class="fa-solid fa-phone"></i> ${c.phone}</a></div>` : '';
-                const childPopup = `
-                    <div style="font-family:inherit; min-width:160px; padding:2px;">
-                        <div style="font-size:11px; font-weight:700; color:${color}; text-transform:uppercase;">Truck ${strId} &middot; Stop #${c.sequence}</div>
-                        <div style="font-weight:700; font-size:14px; margin-top:2px; color:#0f172a;">${c.name}</div>
-                        <div style="font-size:12px; color:#64748b; margin-top:2px;">${c.address || 'No address'}</div>
-                        ${phoneHtml}
-                    </div>
-                `;
-                childMarker.bindPopup(childPopup, { autoPan: true, closeButton: true });
-                childMarker.on('click', function(e) {
-                    if (e && e.originalEvent) L.DomEvent.stopPropagation(e);
-                    this.openPopup();
-                });
-                activeSpiderLayers.push(childMarker);
-            });
-        }
-
-        function clearRouteForTruck(tId) {
-            let strId = String(tId);
-            let state = activeRouteLayers[strId];
-            if (state) {
-                if (state.retryTimer) clearTimeout(state.retryTimer);
-                if (state.approachRetryTimer) clearTimeout(state.approachRetryTimer);
-                if (state.approachCooldownTimer) clearTimeout(state.approachCooldownTimer);
-                if (state.staggerTimer) clearTimeout(state.staggerTimer);
-                if (state.stopsLine) map.removeLayer(state.stopsLine);
-                if (state.approachLine) map.removeLayer(state.approachLine);
-                if (state.prelimLine) map.removeLayer(state.prelimLine);
-                if (state.stopMarkers) {
-                    const removed = new Set();
-                    Object.values(state.stopMarkers).forEach(entry => {
-                        if (entry && entry.marker && !removed.has(entry.marker)) {
-                            if (entry.clickHandler) {
-                                entry.marker.off('click', entry.clickHandler);
-                            }
-                            map.removeLayer(entry.marker);
-                            removed.add(entry.marker);
-                        }
-                    });
-                }
-                if (state.depotMarker && state.depotMarker.marker) {
-                    map.removeLayer(state.depotMarker.marker);
-                }
-                if (activeSpiderClusterId && activeSpiderTruckId === strId) {
-                    unspiderfy();
-                }
-                delete activeRouteLayers[strId];
-            }
-        }
-
-        function updateTruckStopPins(strId, pendingStops, depotStop, color) {
-            const state = ensureTruckRouteState(strId);
-            const currentIds = new Set();
-            const clusters = clusterPendingStops(pendingStops);
-
-            clusters.forEach(cl => {
-                const count = cl.customers.length;
-                const seq = cl.primarySequence || '';
-                const lat = cl.lat;
-                const lng = cl.lng;
-
-                let iconHtml = '';
-                if (count > 1) {
-                    iconHtml = `<div style="background:${color}; color:white; width:28px; height:28px; border-radius:50%; border:2px solid #ffffff; box-shadow:0 3px 8px rgba(0,0,0,0.35); display:flex; align-items:center; justify-content:center; font-weight:800; font-size:11px; cursor:pointer; position:relative;" title="${count} Customers at this stop: ${cl.customers.map(c => '#' + c.sequence + ' ' + c.name).join(', ')}">
-                        ${seq}
-                        <span style="position:absolute; top:-7px; right:-7px; background:#ef4444; color:white; border-radius:10px; font-size:10px; font-weight:800; min-width:16px; height:16px; display:flex; align-items:center; justify-content:center; padding:0 3px; border:2px solid #ffffff; box-shadow:0 2px 4px rgba(0,0,0,0.3); line-height:1;">${count}</span>
-                    </div>`;
-                } else {
-                    const single = cl.customers[0];
-                    iconHtml = `<div style="background:${color}; color:white; width:26px; height:26px; border-radius:50%; border:2px solid #ffffff; box-shadow:0 3px 8px rgba(0,0,0,0.35); display:flex; align-items:center; justify-content:center; font-weight:800; font-size:11px; cursor:pointer;" title="Stop #${single.sequence}: ${single.name}">
-                        ${seq}
-                    </div>`;
-                }
-
-                let popupHtml = '';
-                if (count > 1) {
-                    popupHtml = `
-                        <div style="font-family:inherit; min-width:210px; max-width:280px; padding:2px;">
-                            <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:6px;">
-                                <span style="font-size:11px; font-weight:700; color:${color}; text-transform:uppercase;">Truck ${strId} &middot; Stop #${seq}</span>
-                                <span style="background:#ef4444; color:white; font-size:10px; font-weight:800; border-radius:10px; padding:1px 6px;">${count} Customers</span>
-                            </div>
-                            <div style="max-height:180px; overflow-y:auto; display:flex; flex-direction:column; gap:6px; margin-bottom:6px;">
-                                ${cl.customers.map(c => `
-                                    <div style="background:#f8fafc; border:1px solid #e2e8f0; border-radius:6px; padding:6px 8px;">
-                                        <div style="display:flex; justify-content:space-between; align-items:center;">
-                                            <div style="font-weight:700; font-size:13px; color:#0f172a;">${c.name}</div>
-                                            <span style="font-size:10px; font-weight:800; color:var(--primary); background:#eff6ff; border-radius:4px; padding:1px 4px;">#${c.sequence}</span>
-                                        </div>
-                                        <div style="font-size:11px; color:#64748b; margin-top:1px;">${c.address || 'No address'}</div>
-                                        ${c.phone ? `<div style="margin-top:2px;"><a href="tel:${c.phone}" style="font-size:11px; color:var(--primary); font-weight:700; text-decoration:none;"><i class="fa-solid fa-phone"></i> ${c.phone}</a></div>` : ''}
-                                    </div>
-                                `).join('')}
-                            </div>
-                            <div style="font-size:10px; color:#64748b; text-align:center; border-top:1px solid #f1f5f9; padding-top:4px;">
-                                <i class="fa-solid fa-arrows-split-up-and-left"></i> Click pin to fan out individual stops
-                            </div>
-                        </div>
-                    `;
-                } else {
-                    const single = cl.customers[0];
-                    const phoneLink = single.phone ? `<div style="margin-top:6px;"><a href="tel:${single.phone}" style="font-size:12px; color:var(--primary); font-weight:700; text-decoration:none;"><i class="fa-solid fa-phone"></i> ${single.phone}</a></div>` : '';
-                    popupHtml = `
-                        <div style="font-family:inherit; min-width:160px; padding:2px;">
-                            <div style="font-size:11px; font-weight:700; color:${color}; text-transform:uppercase;">Truck ${strId} &middot; Stop #${single.sequence}</div>
-                            <div style="font-weight:700; font-size:14px; margin-top:2px; color:#0f172a;">${single.name}</div>
-                            <div style="font-size:12px; color:#64748b; margin-top:2px;">${single.address || 'No address'}</div>
-                            ${phoneLink}
-                        </div>
-                    `;
-                }
-
-                let existing = null;
-                for (const c of cl.customers) {
-                    if (state.stopMarkers[String(c.id)]) {
-                        existing = state.stopMarkers[String(c.id)];
-                        break;
-                    }
-                }
-
-                if (!existing) {
-                    const pinIcon = L.divIcon({
-                        className: 'stop-pin-' + strId,
-                        html: iconHtml,
-                        iconSize: count > 1 ? [28, 28] : [26, 26],
-                        iconAnchor: count > 1 ? [14, 14] : [13, 13],
-                        popupAnchor: [0, -14]
-                    });
-                    const sm = L.marker([lat, lng], { icon: pinIcon }).addTo(map);
-                    sm.bindPopup(popupHtml, { autoPan: true, closeButton: true });
-                    const clickHandler = (e) => {
-                        if (e && e.originalEvent) {
-                            L.DomEvent.stopPropagation(e);
-                        }
-                        sm.openPopup();
-                        if (cl.customers.length > 1) {
-                            spiderfyCluster(cl, strId, color);
-                        }
-                    };
-                    sm.on('click', clickHandler);
-                    existing = {
-                        marker: sm,
-                        clickHandler: clickHandler,
-                        seq: seq,
-                        color: color,
-                        iconHtml: iconHtml,
-                        popupHtml: popupHtml,
-                        lat: lat,
-                        lng: lng,
-                        cluster: cl
-                    };
-                } else {
-                    existing.cluster = cl;
-                    if (Math.abs(existing.lat - lat) > 1e-6 || Math.abs(existing.lng - lng) > 1e-6) {
-                        existing.marker.setLatLng([lat, lng]);
-                        existing.lat = lat;
-                        existing.lng = lng;
-                    }
-                    if (existing.iconHtml !== iconHtml) {
-                        const pinIcon = L.divIcon({
-                            className: 'stop-pin-' + strId,
-                            html: iconHtml,
-                            iconSize: count > 1 ? [28, 28] : [26, 26],
-                            iconAnchor: count > 1 ? [14, 14] : [13, 13],
-                            popupAnchor: [0, -14]
-                        });
-                        existing.marker.setIcon(pinIcon);
-                        existing.iconHtml = iconHtml;
-                        existing.seq = seq;
-                        existing.color = color;
-                    }
-                    if (existing.popupHtml !== popupHtml) {
-                        const popup = existing.marker.getPopup();
-                        if (popup) popup.setContent(popupHtml);
-                        else existing.marker.bindPopup(popupHtml, { autoPan: true, closeButton: true });
-                        existing.popupHtml = popupHtml;
-                    }
-                    // Safely detach previous clickHandler reference without destroying Leaflet internal popup handlers
-                    if (existing.clickHandler) {
-                        existing.marker.off('click', existing.clickHandler);
-                    }
-                    existing.clickHandler = (e) => {
-                        if (e && e.originalEvent) {
-                            L.DomEvent.stopPropagation(e);
-                        }
-                        existing.marker.openPopup();
-                        if (cl.customers.length > 1) {
-                            spiderfyCluster(cl, strId, color);
-                        }
-                    };
-                    existing.marker.on('click', existing.clickHandler);
-                }
-
-                cl.customers.forEach(c => {
-                    const cid = String(c.id);
-                    currentIds.add(cid);
-                    state.stopMarkers[cid] = existing;
-                });
-            });
-
-            const removedMarkers = new Set();
-            Object.keys(state.stopMarkers).forEach(sid => {
-                if (!currentIds.has(sid)) {
-                    const entry = state.stopMarkers[sid];
-                    if (entry && entry.marker) {
-                        const isShared = Array.from(currentIds).some(cid => state.stopMarkers[cid] && state.stopMarkers[cid].marker === entry.marker);
-                        if (!isShared && !removedMarkers.has(entry.marker)) {
-                            if (entry.clickHandler) {
-                                entry.marker.off('click', entry.clickHandler);
-                            }
-                            map.removeLayer(entry.marker);
-                            removedMarkers.add(entry.marker);
-                        }
-                    }
-                    delete state.stopMarkers[sid];
-                }
-            });
-
-            if (depotStop && depotStop.lat !== undefined && depotStop.lng !== undefined && !isNaN(parseFloat(depotStop.lat)) && !isNaN(parseFloat(depotStop.lng))) {
-                const dLat = parseFloat(depotStop.lat);
-                const dLng = parseFloat(depotStop.lng);
-                const dPopup = `<b>Depot / End Location</b><br>${depotStop.address || ''}`;
-                if (!state.depotMarker) {
-                    const depotIcon = L.divIcon({
-                        className: 'depot-pin-' + strId,
-                        html: `<div style="background:#0f172a; color:white; width:26px; height:26px; border-radius:6px; border:2px solid #ffffff; box-shadow:0 3px 8px rgba(0,0,0,0.35); display:flex; align-items:center; justify-content:center; font-size:12px; cursor:pointer;" title="Depot / End"><i class="fa-solid fa-warehouse"></i></div>`,
-                        iconSize: [26, 26],
-                        iconAnchor: [13, 13],
-                        popupAnchor: [0, -14]
-                    });
-                    const dm = L.marker([dLat, dLng], { icon: depotIcon }).addTo(map);
-                    dm.bindPopup(dPopup, { autoPan: true, closeButton: true });
-                    dm.on('click', function(e) {
-                        if (e && e.originalEvent) L.DomEvent.stopPropagation(e);
-                        this.openPopup();
-                    });
-                    state.depotMarker = { marker: dm, lat: dLat, lng: dLng, popupHtml: dPopup };
-                } else {
-                    if (Math.abs(state.depotMarker.lat - dLat) > 1e-6 || Math.abs(state.depotMarker.lng - dLng) > 1e-6) {
-                        state.depotMarker.marker.setLatLng([dLat, dLng]);
-                        state.depotMarker.lat = dLat;
-                        state.depotMarker.lng = dLng;
-                    }
-                    if (state.depotMarker.popupHtml !== dPopup) {
-                        const p = state.depotMarker.marker.getPopup();
-                        if (p) p.setContent(dPopup);
-                        else state.depotMarker.marker.bindPopup(dPopup, { autoPan: true, closeButton: true });
-                        state.depotMarker.popupHtml = dPopup;
-                    }
-                }
-            } else if (state.depotMarker) {
-                map.removeLayer(state.depotMarker.marker);
-                state.depotMarker = null;
-            }
-
-            syncTruckLayerArrays(state);
-        }
-
-        function applyStopsRoadGeometry(strId, sig, geometry, color, currentFirstStopId) {
-            const state = activeRouteLayers[strId];
-            if (!state || !visibleRouteTrucks.has(strId)) return;
-            const newLayer = createRoadGeoLayer(geometry, color).addTo(map);
-            if (state.stopsLine) {
-                map.removeLayer(state.stopsLine);
-            }
-            state.stopsLine = newLayer;
-            state.renderedStopsSig = sig;
-            state.inFlightStopsSig = null;
-            state.hasEverHadRoadGeo = true;
-            everHadRoadGeoByTruck[strId] = true;
-            if (state.prelimLine) {
-                map.removeLayer(state.prelimLine);
-                state.prelimLine = null;
-            }
-            if (state.approachLine && currentFirstStopId !== null && state.lastApproachStopId !== null && String(state.lastApproachStopId) !== String(currentFirstStopId)) {
-                map.removeLayer(state.approachLine);
-                state.approachLine = null;
-            }
-            syncTruckLayerArrays(state);
-        }
-
-        function applyApproachRoadGeometry(strId, sig, geometry, color) {
-            const state = activeRouteLayers[strId];
-            if (!state || !visibleRouteTrucks.has(strId)) return;
-            const newLayer = createRoadGeoLayer(geometry, color).addTo(map);
-            if (state.approachLine) {
-                map.removeLayer(state.approachLine);
-            }
-            state.approachLine = newLayer;
-            state.renderedApproachSig = sig;
-            state.inFlightApproachSig = null;
-            state.hasEverHadRoadGeo = true;
-            everHadRoadGeoByTruck[strId] = true;
-            if (state.prelimLine) {
-                map.removeLayer(state.prelimLine);
-                state.prelimLine = null;
-            }
-            syncTruckLayerArrays(state);
-        }
-
-        function ensurePrelimFallbackIfNeeded(strId, fallbackWaypoints, color) {
-            const state = activeRouteLayers[strId];
-            if (!state || !visibleRouteTrucks.has(strId)) return;
-            if (state.hasEverHadRoadGeo || everHadRoadGeoByTruck[strId] || state.stopsLine || state.approachLine) return;
-            if (!state.prelimLine && fallbackWaypoints && fallbackWaypoints.length >= 2) {
-                state.prelimLine = L.polyline(fallbackWaypoints, {
-                    color: color,
-                    weight: 4,
-                    opacity: 0.75,
-                    dashArray: '6, 8',
-                    lineJoin: 'round',
-                    interactive: false
-                }).addTo(map);
-                syncTruckLayerArrays(state);
-            }
-        }
-
-        function fetchStopsPathForTruck(strId, stopsSig, stopsWaypoints, fallbackWaypoints, color, currentFirstStopId) {
-            const state = activeRouteLayers[strId];
-            if (!state || !visibleRouteTrucks.has(strId)) return;
-            if (state.retryTimer) {
-                clearTimeout(state.retryTimer);
-                state.retryTimer = null;
-            }
-            const token = ++routeTokenCounter;
-            routeRenderTokens[strId] = token;
-            state.inFlightStopsSig = stopsSig;
-
-            ensurePrelimFallbackIfNeeded(strId, fallbackWaypoints, color);
-
-            fetchChunkedOsrmGeometry(stopsWaypoints)
-                .then(geometry => {
-                    if (!geometry || !geometry.coordinates || geometry.coordinates.length === 0) {
-                        throw new Error('Empty OSRM geometry');
-                    }
-                    setCachedStopsGeo(stopsSig, geometry);
-                    const curState = activeRouteLayers[strId];
-                    if (!curState || !visibleRouteTrucks.has(strId)) return;
-                    if (routeRenderTokens[strId] !== token || curState.stopsSig !== stopsSig) return;
-                    curState.retryAttempt = 0;
-                    applyStopsRoadGeometry(strId, stopsSig, geometry, color, currentFirstStopId);
-                })
-                .catch(err => {
-                    const curState = activeRouteLayers[strId];
-                    if (!curState || !visibleRouteTrucks.has(strId)) return;
-                    if (routeRenderTokens[strId] !== token || curState.stopsSig !== stopsSig) return;
-                    curState.inFlightStopsSig = null;
-                    ensurePrelimFallbackIfNeeded(strId, fallbackWaypoints, color);
-                    const delay = BACKOFF_DELAYS_MS[Math.min(curState.retryAttempt, BACKOFF_DELAYS_MS.length - 1)];
-                    curState.retryAttempt++;
-                    curState.retryTimer = setTimeout(() => {
-                        curState.retryTimer = null;
-                        if (visibleRouteTrucks.has(strId) && activeRouteLayers[strId] && activeRouteLayers[strId].stopsSig === stopsSig) {
-                            fetchStopsPathForTruck(strId, stopsSig, stopsWaypoints, fallbackWaypoints, color, currentFirstStopId);
-                        }
-                    }, delay);
-                });
-        }
-
-        function fetchApproachLegForTruck(strId, approachSig, truckCoords, firstStop, fallbackWaypoints, color) {
-            const state = activeRouteLayers[strId];
-            if (!state || !visibleRouteTrucks.has(strId) || !truckCoords || !firstStop) return;
-            if (state.approachRetryTimer) {
-                clearTimeout(state.approachRetryTimer);
-                state.approachRetryTimer = null;
-            }
-            const firstStopCoords = [parseFloat(firstStop.lat), parseFloat(firstStop.lng)];
-            const distToFirst = haversineMeters(truckCoords, firstStopCoords);
-            state.lastApproachFetchCoords = [truckCoords[0], truckCoords[1]];
-            state.lastApproachFetchTime = Date.now();
-            state.lastApproachStopId = firstStop.id;
-
-            if (distToFirst <= 30 && state.stopsLine) {
-                return;
-            }
-
-            const cached = getCachedApproachGeo(approachSig);
-            if (cached) {
-                applyApproachRoadGeometry(strId, approachSig, cached, color);
-                return;
-            }
-
-            const approachToken = ++routeTokenCounter;
-            state.approachRequestToken = approachToken;
-            state.inFlightApproachSig = approachSig;
-
-            fetchChunkedOsrmGeometry([truckCoords, firstStopCoords])
-                .then(geometry => {
-                    if (!geometry || !geometry.coordinates || geometry.coordinates.length === 0) {
-                        throw new Error('Empty approach geometry');
-                    }
-                    setCachedApproachGeo(approachSig, geometry);
-                    const curState = activeRouteLayers[strId];
-                    if (!curState || !visibleRouteTrucks.has(strId)) return;
-                    if (curState.approachRequestToken !== approachToken || curState.approachSig !== approachSig) return;
-                    curState.approachRetryAttempt = 0;
-                    applyApproachRoadGeometry(strId, approachSig, geometry, color);
-                })
-                .catch(err => {
-                    const curState = activeRouteLayers[strId];
-                    if (!curState || !visibleRouteTrucks.has(strId)) return;
-                    if (curState.approachRequestToken !== approachToken || curState.approachSig !== approachSig) return;
-                    curState.inFlightApproachSig = null;
-                    if (!curState.stopsSig) {
-                        ensurePrelimFallbackIfNeeded(strId, fallbackWaypoints, color);
-                        const delay = BACKOFF_DELAYS_MS[Math.min(curState.approachRetryAttempt, BACKOFF_DELAYS_MS.length - 1)];
-                        curState.approachRetryAttempt++;
-                        curState.approachRetryTimer = setTimeout(() => {
-                            curState.approachRetryTimer = null;
-                            if (visibleRouteTrucks.has(strId) && activeRouteLayers[strId] && activeRouteLayers[strId].approachSig === approachSig) {
-                                fetchApproachLegForTruck(strId, approachSig, truckCoords, firstStop, fallbackWaypoints, color);
-                            }
-                        }, delay);
-                    }
-                });
-        }
-
         function renderRoutesOnMap() {
-            // Remove layers for trucks that are no longer visible or no longer have an assigned route
             for (let tId in activeRouteLayers) {
-                const strId = String(tId);
-                const hasAssigned = Boolean(driverAssignedRoutes[tId] || driverAssignedRoutes[strId]);
-                if (!visibleRouteTrucks.has(strId) || !hasAssigned) {
-                    clearRouteForTruck(tId);
+                if (!visibleRouteTrucks.has(String(tId))) {
+                    const state = activeRouteLayers[tId];
+                    if (state) {
+                        if (state.stopsLine) { map.removeLayer(state.stopsLine); state.stopsLine = null; }
+                        if (state.approachLine) { map.removeLayer(state.approachLine); state.approachLine = null; }
+                        if (state.prelimLine) { map.removeLayer(state.prelimLine); state.prelimLine = null; }
+                        if (state.markers) { state.markers.forEach(m => map.removeLayer(m)); state.markers = []; }
+                    }
+                    delete activeRouteLayers[tId];
                 }
             }
 
-            let initialFetchCountInPass = 0;
-
-            visibleRouteTrucks.forEach(tId => {
-                const strId = String(tId);
-                const hasAssigned = Boolean(driverAssignedRoutes[tId] || driverAssignedRoutes[strId]);
-                if (!hasAssigned) {
-                    clearRouteForTruck(strId);
-                    return;
-                }
-                const color = getTruckColor(tId);
+            visibleRouteTrucks.forEach(strId => {
+                const color = getTruckColor(strId);
                 const routeNode = routesData['route_' + strId] || {};
                 const stopsObj = routeNode.stops || routeNode;
                 const stops = parseStops(stopsObj);
+                const pendingStops = stops.filter(s => s.id > -1000 && s.name !== 'End Location / Depot' && s.status !== 'COMPLETED' && s.status !== 'SKIPPED' && s.confirmation !== 'CANCELLED');
+                
+                if (!activeRouteLayers[strId]) activeRouteLayers[strId] = { markers: [] };
+                const state = activeRouteLayers[strId];
+                state.markers.forEach(m => map.removeLayer(m));
+                state.markers = [];
 
-                const pendingStops = stops.filter(s => s.id > -1000 && s.name !== 'End Location / Depot' && s.status !== 'COMPLETED' && s.status !== 'SKIPPED' && s.confirmation !== 'CANCELLED' && s.lat !== undefined && s.lng !== undefined && !isNaN(parseFloat(s.lat)) && !isNaN(parseFloat(s.lng)));
-                const depotStop = extractDepotStop(stopsObj);
-
-                const tData = getTruckData(strId);
-                const truckCoords = getTruckCoords(tData);
-
-                const state = ensureTruckRouteState(strId);
-
-                // 1. Update stop & depot pins in place without rebuilding unchanged markers
-                updateTruckStopPins(strId, pendingStops, depotStop, color);
-
-                // 2. Construct stops-path waypoints (pending stops -> depot)
-                const stopsWaypoints = pendingStops.map(s => [parseFloat(s.lat), parseFloat(s.lng)]);
-                if (depotStop && depotStop.lat !== undefined && depotStop.lng !== undefined && !isNaN(parseFloat(depotStop.lat)) && !isNaN(parseFloat(depotStop.lng))) {
-                    stopsWaypoints.push([parseFloat(depotStop.lat), parseFloat(depotStop.lng)]);
-                }
-
-                const allWaypoints = [];
-                if (truckCoords) allWaypoints.push(truckCoords);
-                stopsWaypoints.forEach(pt => allWaypoints.push(pt));
-
-                if (pendingStops.length === 0 && stopsWaypoints.length < 2) {
-                    if (state.stopsLine) { map.removeLayer(state.stopsLine); state.stopsLine = null; }
-                    if (state.approachLine) { map.removeLayer(state.approachLine); state.approachLine = null; }
-                    if (state.prelimLine) { map.removeLayer(state.prelimLine); state.prelimLine = null; }
-                    state.stopsSig = null;
-                    state.renderedStopsSig = null;
-                    syncTruckLayerArrays(state);
-                    return;
-                }
-
-                const currentFirstStop = pendingStops.length > 0 ? pendingStops[0] : null;
-                const currentFirstStopId = currentFirstStop ? currentFirstStop.id : null;
-
-                // Layer A: Stops path (pendingStops -> depot)
-                if (stopsWaypoints.length >= 2) {
-                    const stopsSig = pendingStops.map(s => `${s.id}:${Number(s.lat).toFixed(5)},${Number(s.lng).toFixed(5)}`).join('|') +
-                        (depotStop && depotStop.lat !== undefined && depotStop.lng !== undefined ? `|depot:${Number(depotStop.lat).toFixed(5)},${Number(depotStop.lng).toFixed(5)}` : '');
-                    if (state.stopsSig !== stopsSig) {
-                        if (state.retryTimer) {
-                            clearTimeout(state.retryTimer);
-                            state.retryTimer = null;
-                        }
-                        state.retryAttempt = 0;
-                        state.stopsSig = stopsSig;
+                pendingStops.forEach(s => {
+                    if (s.lat && s.lng) {
+                        let icon = L.divIcon({
+                            className: 'custom-stop-marker',
+                            html: `<div style="background: ${color}; color: white; border-radius: 6px; padding: 2px 6px; font-weight: 700; font-size: 11px; border: 2px solid white;">${s.sequence || s.stop_number || '•'}</div>`
+                        });
+                        let m = L.marker([parseFloat(s.lat), parseFloat(s.lng)], { icon: icon }).bindPopup(`<b>${s.name}</b>`).addTo(map);
+                        state.markers.push(m);
                     }
+                });
 
-                    if (state.renderedStopsSig !== stopsSig) {
-                        const cachedGeo = getCachedStopsGeo(stopsSig);
-                        if (cachedGeo) {
-                            if (state.retryTimer) { clearTimeout(state.retryTimer); state.retryTimer = null; }
-                            state.retryAttempt = 0;
-                            applyStopsRoadGeometry(strId, stopsSig, cachedGeo, color, currentFirstStopId);
-                            state.hasStartedInitialFetch = true;
-                        } else if (state.inFlightStopsSig !== stopsSig && !state.retryTimer) {
-                            ensurePrelimFallbackIfNeeded(strId, allWaypoints, color);
-                            state.inFlightStopsSig = stopsSig;
-                            const isFirstFetchForTruck = !state.hasStartedInitialFetch;
-                            state.hasStartedInitialFetch = true;
-                            const staggerDelay = isFirstFetchForTruck ? (initialFetchCountInPass++ * 80) : 0;
-                            if (staggerDelay > 0) {
-                                if (state.staggerTimer) clearTimeout(state.staggerTimer);
-                                state.staggerTimer = setTimeout(() => {
-                                    state.staggerTimer = null;
-                                    if (visibleRouteTrucks.has(strId) && activeRouteLayers[strId] && activeRouteLayers[strId].stopsSig === stopsSig) {
-                                        fetchStopsPathForTruck(strId, stopsSig, stopsWaypoints, allWaypoints, color, currentFirstStopId);
-                                    }
-                                }, staggerDelay);
-                            } else {
-                                fetchStopsPathForTruck(strId, stopsSig, stopsWaypoints, allWaypoints, color, currentFirstStopId);
-                            }
-                        }
-                    }
-                } else {
-                    state.stopsSig = null;
-                }
-
-                // Layer B: Approach leg (truck's live position -> first pending stop)
-                if (truckCoords && currentFirstStop) {
-                    const firstStopCoords = [parseFloat(currentFirstStop.lat), parseFloat(currentFirstStop.lng)];
-                    const approachSig = `${truckCoords[0].toFixed(4)},${truckCoords[1].toFixed(4)}->${currentFirstStop.id}:${firstStopCoords[0].toFixed(5)},${firstStopCoords[1].toFixed(5)}`;
-
-                    if (!state.initialApproachChecked) {
-                        state.initialApproachChecked = true;
-                        state.lastRoutedTruckCoords = [truckCoords[0], truckCoords[1]];
-                        state.lastApproachFetchCoords = [truckCoords[0], truckCoords[1]];
-                        state.lastApproachFetchTime = Date.now();
-                        state.lastApproachStopId = currentFirstStop.id;
-                        state.approachSig = approachSig;
-
-                        const cachedApproach = getCachedApproachGeo(approachSig);
-                        if (cachedApproach) {
-                            applyApproachRoadGeometry(strId, approachSig, cachedApproach, color);
-                        } else if (haversineMeters(truckCoords, firstStopCoords) > 30 || stopsWaypoints.length < 2) {
-                            fetchApproachLegForTruck(strId, approachSig, truckCoords, currentFirstStop, allWaypoints, color);
-                        }
-                    } else {
-                        // Ignore GPS jitter <= 25 m for routing
-                        const movedFromRouted = state.lastRoutedTruckCoords ? haversineMeters(truckCoords, state.lastRoutedTruckCoords) : Infinity;
-                        if (movedFromRouted > 25) {
-                            state.lastRoutedTruckCoords = [truckCoords[0], truckCoords[1]];
-                            const movedFromLastFetch = state.lastApproachFetchCoords ? haversineMeters(truckCoords, state.lastApproachFetchCoords) : Infinity;
-                            if (movedFromLastFetch > 30) {
-                                const elapsed = Date.now() - state.lastApproachFetchTime;
-                                if (elapsed >= 10000) {
-                                    if (state.approachCooldownTimer) {
-                                        clearTimeout(state.approachCooldownTimer);
-                                        state.approachCooldownTimer = null;
-                                    }
-                                    state.approachSig = approachSig;
-                                    fetchApproachLegForTruck(strId, approachSig, truckCoords, currentFirstStop, allWaypoints, color);
-                                } else if (!state.approachCooldownTimer) {
-                                    state.approachCooldownTimer = setTimeout(() => {
-                                        state.approachCooldownTimer = null;
-                                        renderRoutesOnMap();
-                                    }, 10000 - elapsed + 25);
-                                }
-                            }
-                        }
-                    }
+                let waypoints = pendingStops.map(s => [parseFloat(s.lat), parseFloat(s.lng)]);
+                if (waypoints.length > 1) {
+                    if (state.stopsLine) map.removeLayer(state.stopsLine);
+                    state.stopsLine = L.polyline(waypoints, { color: color, weight: 4, opacity: 0.8, dashArray: '6, 6' }).addTo(map);
                 }
             });
         }
@@ -2129,10 +1207,8 @@
             
             let pts = [];
             if (truckCoords) pts.push(truckCoords);
-            pendingStops.forEach(s => { 
-                if (s.lat !== undefined && s.lng !== undefined && !isNaN(parseFloat(s.lat)) && !isNaN(parseFloat(s.lng))) {
-                    pts.push([parseFloat(s.lat), parseFloat(s.lng)]);
-                }
+            pendingStops.forEach(s => {
+                if (s.lat && s.lng) pts.push([parseFloat(s.lat), parseFloat(s.lng)]);
             });
             if (pts.length > 1) {
                 map.flyToBounds(L.latLngBounds(pts), { padding: [60, 60], maxZoom: 16 });
@@ -2141,169 +1217,50 @@
             }
         }
 
-        function panToTruck(tId) {
-            focusTruckRoute(tId);
-        }
-    </script>
-<script>
+        // AI Re-balance Action
         window.aiRebalance = function() {
-            if(!confirm("Are you sure? This will pause all drivers and completely recalculate their remaining routes based on their CURRENT live GPS locations.")) return;
-            
-            const btn = document.getElementById('btn-rebalance');
-            btn.innerHTML = '<i class="fa-solid fa-circle-notch fa-spin"></i> Re-balancing...';
-            btn.disabled = true;
-            
-            fetch('/api/ai_rebalance', { method: 'POST' })
-                .then(r => r.json())
-                .then(res => {
-                    if(res.success) {
-                        alert("Routes successfully re-balanced! The drivers' apps have been updated.");
-                    } else {
-                        alert("Error: " + res.error);
-                    }
-                })
-                .catch(e => {
-                    alert("Network error.");
-                })
-                .finally(() => {
-                    btn.innerHTML = '<i class="fa-solid fa-wand-magic-sparkles"></i> AI Re-balance';
-                    btn.disabled = false;
-                });
-        }
-</script>
+            showConfirm(
+                "AI Route Re-balance",
+                "This will pause all active drivers and completely recalculate their remaining routes based on their current live GPS telemetry. Proceed?",
+                () => {
+                    const btn = document.getElementById('btn-rebalance');
+                    btn.disabled = true;
+                    btn.innerHTML = 'Re-balancing...';
+                    
+                    fetch('/api/ai_rebalance', { method: 'POST' })
+                        .then(r => r.json())
+                        .then(res => {
+                            if (res.success) {
+                                showToast("Routes successfully re-balanced & synced to driver fleet!", "success");
+                            } else {
+                                showToast("Error: " + res.error, "error");
+                            }
+                        })
+                        .catch(e => showToast("Network error during rebalance", "error"))
+                        .finally(() => {
+                            btn.disabled = false;
+                            btn.innerHTML = `<i data-lucide="sparkles" style="width:16px;height:16px;color:var(--accent-primary);"></i><span>AI Re-balance</span>`;
+                            if (window.lucide) lucide.createIcons();
+                        });
+                }
+            );
+        };
 
-    <!-- Admin Floating Message Toast Banner -->
-    <div id="admin-message-toast" style="display:none; position:fixed; top:80px; right:24px; max-width:360px; background:#0f172a; color:white; border-radius:12px; padding:12px 16px; box-shadow:0 10px 30px rgba(0,0,0,0.25); z-index:10000; font-family:'Inter', sans-serif; border-left:5px solid #2563eb; animation:toastSlideIn 0.3s cubic-bezier(0.16, 1, 0.3, 1);">
-        <div style="display:flex; align-items:flex-start; justify-content:space-between; gap:10px;">
-            <div style="display:flex; align-items:center; gap:8px;">
-                <span style="width:8px; height:8px; border-radius:50%; background:#10b981; display:inline-block;"></span>
-                <span id="admin-toast-sender" style="font-size:13px; font-weight:700; color:#f8fafc;">Driver</span>
-            </div>
-            <button onclick="dismissAdminToast()" style="background:transparent; border:none; color:#94a3b8; font-size:16px; cursor:pointer; padding:0 4px; line-height:1;" title="Dismiss">&times;</button>
-        </div>
-        <div id="admin-toast-text" style="font-size:13px; color:#cbd5e1; margin-top:6px; line-height:1.4; word-break:break-word;"></div>
-        <div style="margin-top:10px; display:flex; justify-content:flex-end; gap:8px;">
-            <button id="admin-toast-btn" style="background:#2563eb; color:white; border:none; padding:5px 12px; border-radius:6px; font-size:12px; font-weight:700; cursor:pointer; display:inline-flex; align-items:center; gap:5px;">
-                <i class="fa-solid fa-reply"></i> Open Chat
-            </button>
-        </div>
-    </div>
-
-    <!-- Admin Chat Widget (Docked Floating Window) -->
-    <div id="admin-chat-widget" style="display:none; position:fixed; bottom:20px; right:20px; width:380px; max-width:calc(100vw - 32px); height:530px; max-height:85vh; background:white; border-radius:16px; box-shadow:0 12px 40px rgba(15,23,42,0.22); border:1px solid #e2e8f0; z-index:9999; flex-direction:column; overflow:hidden; font-family:'Inter', sans-serif;">
-        <!-- Header -->
-        <div style="background:#0f172a; color:white; padding:12px 16px; display:flex; align-items:center; justify-content:space-between; gap:10px;">
-            <div style="display:flex; align-items:center; gap:10px; min-width:0; flex:1;">
-                <div style="width:36px; height:36px; border-radius:10px; background:#2563eb; display:flex; align-items:center; justify-content:center; flex-shrink:0;">
-                    <i class="fa-solid fa-truck" style="font-size:16px; color:white;"></i>
-                </div>
-                <div style="min-width:0; flex:1;">
-                    <div id="admin-chat-header-title" style="font-size:15px; font-weight:800; color:#ffffff; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">
-                        Truck &bull; Driver
-                    </div>
-                    <div id="admin-chat-header-status" style="font-size:11px; color:#94a3b8; font-weight:600; display:flex; align-items:center; gap:5px; margin-top:2px;">
-                        <span style="width:7px; height:7px; border-radius:50%; background:#10b981; display:inline-block;"></span> Active Driver
-                    </div>
-                </div>
-            </div>
-            <div style="display:flex; align-items:center; gap:4px;">
-                <button onclick="closeAdminChatWidget()" style="background:transparent; border:none; color:#94a3b8; font-size:16px; cursor:pointer; width:30px; height:30px; display:flex; align-items:center; justify-content:center; border-radius:6px;" onmouseover="this.style.color='white'" onmouseout="this.style.color='#94a3b8'" title="Close">
-                    <i class="fa-solid fa-xmark"></i>
-                </button>
-            </div>
-        </div>
-        
-        <!-- Messages Scrollable Thread -->
-        <div id="admin-chat-messages" style="flex:1; overflow-y:auto; padding:16px; display:flex; flex-direction:column; gap:10px; background:#f8fafc;">
-            <!-- Chat bubbles injected dynamically -->
-        </div>
-        
-        <!-- Quick Dispatch Chips -->
-        <div style="background:white; border-top:1px solid #e2e8f0; padding:8px 12px; display:flex; gap:6px; overflow-x:auto; white-space:nowrap; scrollbar-width:none;">
-            <button onclick="sendAdminCanned('📞 Please call dispatch when safe.')" class="admin-quick-chip">📞 Call Dispatch</button>
-            <button onclick="sendAdminCanned('📍 What is your current status/ETA?')" class="admin-quick-chip">📍 Status / ETA?</button>
-            <button onclick="sendAdminCanned('⚠️ Road delay reported. Proceed carefully.')" class="admin-quick-chip">⚠️ Road Delay</button>
-            <button onclick="sendAdminCanned('✅ Route updated. Please refresh stop list.')" class="admin-quick-chip">✅ Route Updated</button>
-            <button onclick="sendAdminCanned('🥪 Feel free to take your lunch break.')" class="admin-quick-chip">🥪 Lunch Break</button>
-            <button onclick="sendAdminCanned('👍 Message received, acknowledged.')" class="admin-quick-chip">👍 Acknowledged</button>
-        </div>
-        
-        <!-- Input Form -->
-        <form onsubmit="event.preventDefault(); sendAdminChat();" style="display:flex; gap:8px; padding:12px 14px; background:white; border-top:1px solid #e2e8f0; align-items:center;">
-            <input type="text" id="admin-chat-input" placeholder="Type message to driver..." autocomplete="off" style="flex:1; padding:10px 14px; border:1px solid #cbd5e1; border-radius:24px; font-size:13px; font-family:inherit; outline:none; transition:border-color 0.2s;" onfocus="this.style.borderColor='#2563eb'" onblur="this.style.borderColor='#cbd5e1'">
-            <button type="submit" style="width:38px; height:38px; border-radius:50%; background:#2563eb; color:white; border:none; cursor:pointer; display:flex; align-items:center; justify-content:center; box-shadow:0 3px 10px rgba(37,99,235,0.3); flex-shrink:0;">
-                <i class="fa-solid fa-paper-plane" style="font-size:13px; margin-left:2px;"></i>
-            </button>
-        </form>
-    </div>
-
-    <!-- Admin Messaging Script Logic -->
-    <script>
-        let adminTruckMessages = {}; // tId -> { msgId: msgObj }
+        // Dispatch Messenger Preserved
+        let adminTruckMessages = {};
         let adminActiveTruckId = null;
         let adminChatWidgetOpen = false;
-        let adminInitialLoadDone = {}; // tId -> bool
-        let adminMessageListeners = {}; // tId -> bool
-        let adminToastTimeout = null;
-        let adminAudioCtx = null;
-
-        function getAdminAudioContext() {
-            if (!adminAudioCtx) {
-                const AudioContext = window.AudioContext || window.webkitAudioContext;
-                if (AudioContext) {
-                    adminAudioCtx = new AudioContext();
-                }
-            }
-            if (adminAudioCtx && adminAudioCtx.state === 'suspended') {
-                adminAudioCtx.resume();
-            }
-            return adminAudioCtx;
-        }
-        document.addEventListener('click', () => getAdminAudioContext(), { once: false });
-        document.addEventListener('keydown', () => getAdminAudioContext(), { once: false });
-        document.addEventListener('touchstart', () => getAdminAudioContext(), { once: false });
-
-        function playAdminNotificationSound() {
-            try {
-                const ctx = getAdminAudioContext();
-                if (!ctx) return;
-                const now = ctx.currentTime;
-                
-                // Crisp 2-tone chime for dispatch (E5: 659.25Hz -> B5: 987.77Hz)
-                const notes = [
-                    { f: 659.25, start: now, dur: 0.14, gain: 0.35 },
-                    { f: 987.77, start: now + 0.11, dur: 0.28, gain: 0.45 }
-                ];
-                
-                notes.forEach(n => {
-                    const osc = ctx.createOscillator();
-                    const gain = ctx.createGain();
-                    osc.type = 'sine';
-                    osc.frequency.setValueAtTime(n.f, n.start);
-                    
-                    gain.gain.setValueAtTime(0.001, n.start);
-                    gain.gain.linearRampToValueAtTime(n.gain, n.start + 0.02);
-                    gain.gain.exponentialRampToValueAtTime(0.0001, n.start + n.dur);
-                    
-                    osc.connect(gain);
-                    gain.connect(ctx.destination);
-                    
-                    osc.start(n.start);
-                    osc.stop(n.start + n.dur);
-                });
-            } catch(e) {
-                console.warn("Sound play error:", e);
-            }
-        }
+        let adminInitialLoadDone = {};
+        let adminMessageListeners = {};
 
         function escapeAdminHtml(str) {
             if (!str) return '';
-            return String(str).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+            return String(str).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
         }
 
         function escapeAdminString(str) {
             if (!str) return '';
-            return String(str).replace(/\\/g, '\\\\').replace(/'/g, "\\'").replace(/"/g, '&quot;');
+            return String(str).replace(/'/g, "\\'");
         }
 
         function getAllTruckIdsForChat() {
@@ -2311,21 +1268,8 @@
             if (typeof getAllTrackableTruckIds === 'function') {
                 getAllTrackableTruckIds().forEach(id => ids.add(String(id)));
             }
-            if (driverMap) {
-                Object.keys(driverMap).forEach(id => ids.add(String(id)));
-            }
-            if (routesData) {
-                Object.keys(routesData).forEach(k => {
-                    if (k.startsWith('route_')) ids.add(k.replace('route_', ''));
-                });
-            }
-            if (window.liveTrucks) {
-                for (let k in window.liveTrucks) {
-                    let t = window.liveTrucks[k];
-                    if (t && (t.truckId || t.truck_id)) ids.add(String(t.truckId || t.truck_id));
-                }
-            }
-            return Array.from(ids).filter(id => id && !isNaN(parseInt(id))).sort((a,b) => parseInt(a)-parseInt(b));
+            if (driverMap) Object.keys(driverMap).forEach(id => ids.add(String(id)));
+            return Array.from(ids).sort((a,b) => parseInt(a) - parseInt(b));
         }
 
         function getTruckUnreadCount(tId) {
@@ -2333,9 +1277,7 @@
             const msgs = adminTruckMessages[tId];
             if (msgs) {
                 for (let k in msgs) {
-                    if (msgs[k] && msgs[k].sender === 'driver' && !msgs[k].read) {
-                        count++;
-                    }
+                    if (msgs[k] && msgs[k].sender === 'driver' && !msgs[k].read) count++;
                 }
             }
             return count;
@@ -2349,7 +1291,6 @@
             if (!adminTruckMessages[tId]) adminTruckMessages[tId] = {};
             
             const msgRef = db.ref(`trucks/${tId}/messages`);
-            
             msgRef.on('child_added', snapshot => {
                 const msg = snapshot.val();
                 if (!msg) return;
@@ -2357,15 +1298,13 @@
                 adminTruckMessages[tId][snapshot.key] = msg;
                 
                 if (adminInitialLoadDone[tId] && msg.sender === 'driver' && !msg.read) {
-                    playAdminNotificationSound();
-                    let dName = (driverMap && driverMap[tId]) || msg.senderName || ('Driver (Truck ' + tId + ')');
+                    let dName = (driverMap && driverMap[tId]) || ('Driver ' + tId);
                     if (!adminChatWidgetOpen || String(adminActiveTruckId) !== String(tId)) {
                         showAdminMessageToast(tId, dName, msg.text || '');
                     }
                 }
                 
                 updateAdminBadges();
-                
                 if (adminChatWidgetOpen && String(adminActiveTruckId) === String(tId)) {
                     renderAdminChatMessages();
                     markDriverMessagesRead(tId);
@@ -2381,9 +1320,7 @@
             });
 
             msgRef.once('value').then(() => {
-                setTimeout(() => {
-                    adminInitialLoadDone[tId] = true;
-                }, 1200);
+                setTimeout(() => { adminInitialLoadDone[tId] = true; }, 1200);
             });
         }
 
@@ -2391,51 +1328,15 @@
             let totalUnread = 0;
             const allIds = getAllTruckIdsForChat();
             allIds.forEach(id => {
-                const unread = getTruckUnreadCount(id);
-                totalUnread += unread;
-                const truckBadge = document.getElementById(`truck-unread-badge-${id}`);
-                if (truckBadge) {
-                    if (unread > 0) {
-                        truckBadge.innerText = unread > 9 ? '9+' : unread;
-                        truckBadge.style.display = 'inline-flex';
-                    } else {
-                        truckBadge.style.display = 'none';
-                    }
-                }
+                totalUnread += getTruckUnreadCount(id);
             });
-
             const globalBadge = document.getElementById('global-unread-badge');
             if (globalBadge) {
                 if (totalUnread > 0) {
-                    globalBadge.innerText = totalUnread > 99 ? '99+' : totalUnread;
+                    globalBadge.innerText = totalUnread;
                     globalBadge.style.display = 'flex';
                 } else {
                     globalBadge.style.display = 'none';
-                }
-            }
-            
-            if (adminChatWidgetOpen && adminActiveTruckId) {
-                updateAdminChatHeader(adminActiveTruckId);
-            }
-        }
-
-        function updateAdminChatHeader(tId, dName) {
-            const titleEl = document.getElementById('admin-chat-header-title');
-            const statusEl = document.getElementById('admin-chat-header-status');
-            if (!titleEl) return;
-            
-            if (!tId) tId = adminActiveTruckId;
-            if (!dName) dName = (driverMap && driverMap[tId]) || (window.liveTrucks && window.liveTrucks[tId] && window.liveTrucks[tId].driverName) || 'Driver';
-            
-            titleEl.innerHTML = `Truck ${tId} &bull; ${escapeAdminHtml(dName)}`;
-            
-            if (statusEl) {
-                let tData = (typeof getTruckData === 'function') ? getTruckData(tId) : null;
-                let isOnline = (typeof isTruckOnline === 'function') ? isTruckOnline(tData) : false;
-                if (isOnline) {
-                    statusEl.innerHTML = `<span style="width:7px; height:7px; border-radius:50%; background:#10b981; display:inline-block;"></span> Online &bull; Active Route`;
-                } else {
-                    statusEl.innerHTML = `<span style="width:7px; height:7px; border-radius:50%; background:#94a3b8; display:inline-block;"></span> Offline`;
                 }
             }
         }
@@ -2445,61 +1346,44 @@
             const senderEl = document.getElementById('admin-toast-sender');
             const textEl = document.getElementById('admin-toast-text');
             const btnEl = document.getElementById('admin-toast-btn');
-            if (!toast || !senderEl || !textEl || !btnEl) return;
+            if (!toast) return;
             
-            senderEl.innerHTML = `Truck ${tId} &bull; ${escapeAdminHtml(dName)}`;
+            senderEl.innerText = `Truck ${tId} • ${dName}`;
             textEl.innerText = text;
             btnEl.onclick = () => {
                 openAdminChat(tId, dName);
                 dismissAdminToast();
             };
-            
             toast.style.display = 'block';
-            
-            if (adminToastTimeout) clearTimeout(adminToastTimeout);
-            adminToastTimeout = setTimeout(() => {
-                dismissAdminToast();
-            }, 8000);
+            setTimeout(dismissAdminToast, 8000);
         }
 
         function dismissAdminToast() {
             const toast = document.getElementById('admin-message-toast');
             if (toast) toast.style.display = 'none';
-            if (adminToastTimeout) clearTimeout(adminToastTimeout);
         }
 
         function openAdminChat(tId, driverName) {
-            if (tId) {
-                adminActiveTruckId = String(tId);
-            } else if (!adminActiveTruckId) {
+            if (tId) adminActiveTruckId = String(tId);
+            else if (!adminActiveTruckId) {
                 const allIds = getAllTruckIdsForChat();
                 if (allIds.length > 0) adminActiveTruckId = String(allIds[0]);
             }
-            
             if (!adminActiveTruckId) {
-                alert("No active trucks found to chat with.");
+                showToast("No active trucks found to message", "info");
                 return;
             }
-            
             ensureAdminTruckMessageListener(adminActiveTruckId);
-            
             const widget = document.getElementById('admin-chat-widget');
             if (widget) {
                 widget.style.display = 'flex';
                 adminChatWidgetOpen = true;
             }
-            
             dismissAdminToast();
-            updateAdminChatHeader(adminActiveTruckId, driverName);
+            document.getElementById('admin-chat-header-title').innerText = `Truck ${adminActiveTruckId} • ${driverName || 'Driver'}`;
             renderAdminChatMessages();
             markDriverMessagesRead(adminActiveTruckId);
-            
-            setTimeout(() => {
-                const box = document.getElementById('admin-chat-messages');
-                if (box) box.scrollTop = box.scrollHeight;
-                const input = document.getElementById('admin-chat-input');
-                if (input) input.focus();
-            }, 100);
+            if (window.lucide) lucide.createIcons();
         }
 
         function closeAdminChatWidget() {
@@ -2509,74 +1393,31 @@
         }
 
         function toggleAdminChatWidget() {
-            if (adminChatWidgetOpen) {
-                closeAdminChatWidget();
-            } else {
-                openAdminChat();
-            }
-        }
-
-        function switchAdminChatTruck(tId, driverName) {
-            if (!tId) return;
-            adminActiveTruckId = String(tId);
-            ensureAdminTruckMessageListener(adminActiveTruckId);
-            updateAdminChatHeader(adminActiveTruckId, driverName);
-            renderAdminChatMessages();
-            markDriverMessagesRead(adminActiveTruckId);
-            setTimeout(() => {
-                const input = document.getElementById('admin-chat-input');
-                if (input) input.focus();
-            }, 50);
+            if (adminChatWidgetOpen) closeAdminChatWidget();
+            else openAdminChat();
         }
 
         function renderAdminChatMessages() {
             const container = document.getElementById('admin-chat-messages');
             if (!container) return;
-            
-            if (!adminActiveTruckId || !adminTruckMessages[adminActiveTruckId]) {
-                container.innerHTML = `
-                    <div style="text-align:center; color:#94a3b8; padding:50px 20px; font-size:13px;">
-                        <i class="fa-solid fa-comments" style="font-size:36px; margin-bottom:12px; color:#cbd5e1; display:block;"></i>
-                        No messages yet.<br>Start typing below or use the quick dispatch buttons!
-                    </div>
-                `;
-                return;
-            }
-            
-            const msgs = adminTruckMessages[adminActiveTruckId];
-            const keys = Object.keys(msgs).sort((a, b) => {
-                return (msgs[a].timestamp || 0) - (msgs[b].timestamp || 0);
-            });
+            const msgs = adminTruckMessages[adminActiveTruckId] || {};
+            const keys = Object.keys(msgs).sort((a, b) => (msgs[a].timestamp || 0) - (msgs[b].timestamp || 0));
             
             if (keys.length === 0) {
-                container.innerHTML = `
-                    <div style="text-align:center; color:#94a3b8; padding:50px 20px; font-size:13px;">
-                        <i class="fa-solid fa-comments" style="font-size:36px; margin-bottom:12px; color:#cbd5e1; display:block;"></i>
-                        No messages yet with Truck ${adminActiveTruckId}.<br>Start typing below or use the quick dispatch buttons!
-                    </div>
-                `;
+                container.innerHTML = `<div style="text-align: center; color: var(--text-muted); padding: 50px 20px; font-size: 13px;">No messages exchanged yet with Truck ${adminActiveTruckId}.</div>`;
                 return;
             }
             
             let html = '';
-            const dName = (driverMap && driverMap[adminActiveTruckId]) || 'Driver';
-            
             keys.forEach(k => {
                 const m = msgs[k];
                 if (!m) return;
                 const isAdmin = m.sender === 'admin';
                 const timeStr = m.timestamp ? new Date(m.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : '';
-                
                 html += `
                     <div class="admin-chat-bubble ${isAdmin ? 'admin' : 'driver'}">
-                        <div style="font-size:11px; font-weight:700; margin-bottom:2px; ${isAdmin ? 'color:#bfdbfe;' : 'color:#2563eb;'}">
-                            ${isAdmin ? '<i class="fa-solid fa-headset"></i> Dispatch' : '<i class="fa-solid fa-truck"></i> ' + escapeAdminHtml(m.senderName || dName)}
-                        </div>
                         <div>${escapeAdminHtml(m.text || '')}</div>
-                        <div class="admin-chat-meta">
-                            <span>${timeStr}</span>
-                            ${isAdmin ? `<i class="fa-solid ${m.read ? 'fa-check-double' : 'fa-check'}" style="font-size:10px; margin-left:3px;" title="${m.read ? 'Read by driver' : 'Sent to driver'}"></i>` : ''}
-                        </div>
+                        <div style="font-size: 10px; opacity: 0.7; margin-top: 4px; text-align: right;">${timeStr}</div>
                     </div>
                 `;
             });
@@ -2588,13 +1429,7 @@
             const input = document.getElementById('admin-chat-input');
             if (!input) return;
             const text = input.value.trim();
-            if (!text) return;
-            
-            if (!adminActiveTruckId) {
-                alert("Please select a truck to send a message to.");
-                return;
-            }
-            
+            if (!text || !adminActiveTruckId) return;
             input.value = '';
             
             const newMsg = {
@@ -2616,16 +1451,7 @@
                 timestamp: Date.now(),
                 read: false
             };
-
-            db.ref().update(updates).catch(err => {
-                console.error("Failed to send admin message:", err);
-                alert("Error sending message to driver. Please check connection.");
-            });
-            
-            setTimeout(() => {
-                const box = document.getElementById('admin-chat-messages');
-                if (box) box.scrollTop = box.scrollHeight;
-            }, 60);
+            db.ref().update(updates);
         }
 
         function sendAdminCanned(text) {
@@ -2638,23 +1464,14 @@
             if (!tId || !adminTruckMessages[tId]) return;
             const updates = {};
             for (let k in adminTruckMessages[tId]) {
-                if (adminTruckMessages[tId][k] && adminTruckMessages[tId][k].sender === 'driver' && !adminTruckMessages[tId][k].read) {
+                if (adminTruckMessages[tId][k]?.sender === 'driver' && !adminTruckMessages[tId][k]?.read) {
                     updates[`trucks/${tId}/messages/${k}/read`] = true;
                     adminTruckMessages[tId][k].read = true;
                 }
             }
-            if (Object.keys(updates).length > 0) {
-                db.ref().update(updates).catch(e => console.warn("Failed marking driver messages read:", e));
-            }
+            if (Object.keys(updates).length > 0) db.ref().update(updates);
             updateAdminBadges();
         }
-
-        // Initialize listeners as trucks become known
-        setInterval(() => {
-            getAllTruckIdsForChat().forEach(id => ensureAdminTruckMessageListener(id));
-        }, 15000);
     </script>
 </body>
 </html>
-
-

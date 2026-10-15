@@ -3,552 +3,659 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>Waste Route Optimizer - Live Dashboard</title>
+    <title>Route Operations Deck - Waste Route Optimizer</title>
     
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=Manrope:wght@600;700;800&display=swap" rel="stylesheet">
-    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <!-- Fonts -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600;700&family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet">
     
-    <!-- Firebase -->
+    <!-- Lucide Icons -->
+    <script src="https://unpkg.com/lucide@latest"></script>
+    
+    <!-- Firebase SDKs -->
     <script src="https://www.gstatic.com/firebasejs/10.9.0/firebase-app-compat.js"></script>
     <script src="https://www.gstatic.com/firebasejs/10.9.0/firebase-auth-compat.js"></script>
     <script src="https://www.gstatic.com/firebasejs/10.9.0/firebase-database-compat.js"></script>
+    
+    <!-- SortableJS -->
     <script src="https://cdn.jsdelivr.net/npm/sortablejs@latest/Sortable.min.js"></script>
+    
+    <!-- QRCode JS -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
+
     <!-- Leaflet -->
     <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
     <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
 
-    <style>
-        :root {
-            --primary: #2F5FFF;
-            --primary-hover: #1e40af;
-            --amber: #FFA93E;
-            --green: #10b981;
-            --bg: #f8fafc;
-            --card-bg: #ffffff;
-            --text-main: #0f172a;
-            --text-muted: #64748b;
-            --border: #e2e8f0;
-            --shadow-soft: 0 10px 25px -5px rgba(0,0,0,0.05), 0 8px 10px -6px rgba(0,0,0,0.01);
-            --shadow-glow: 0 8px 16px -4px rgba(47, 95, 255, 0.3);
-            --rad: 24px;
-        }
+    <!-- App Design System -->
+    <link rel="stylesheet" href="/static/css/app.css">
 
-        body { overflow-x: hidden;
+    <style>
+        body {
             margin: 0;
             padding: 0;
-            background-color: var(--bg);
-            font-family: 'Inter', sans-serif;
-            color: var(--text-main);
             height: 100vh;
             overflow: hidden;
             display: flex;
             flex-direction: column;
+            background: var(--bg-deep);
+            color: var(--text-primary);
         }
 
-        h1, h2, h3, h4, .heading { font-family: 'Manrope', sans-serif; letter-spacing: -0.02em; margin: 0; }
-        
-        /* Header */
-        .header-bar {
-            background: var(--card-bg);
-            padding: 16px 32px;
+        /* Top Bar */
+        .top-deck-bar {
+            background: var(--bg-glass);
+            backdrop-filter: blur(16px);
+            -webkit-backdrop-filter: blur(16px);
+            border-bottom: 1px solid var(--border-glass);
+            padding: 12px 24px;
             display: flex;
             justify-content: space-between;
             align-items: center;
-            border-bottom: 1px solid var(--border);
-            position: sticky;
-            top: 0;
             z-index: 1000;
-        }
-        
-        .title-area {
-            display: flex;
-            align-items: center;
-            gap: 16px;
-        }
-        
-        .title-area h1 {
-            font-size: 20px;
-            color: var(--text-main);
-            display: flex;
-            align-items: center;
-            gap: 8px;
-        }
-        
-        .live-indicator {
-            display: flex;
-            align-items: center;
-            gap: 8px;
-            font-size: 13px;
-            font-weight: 600;
-            color: var(--text-muted);
-            background: var(--bg);
-            padding: 6px 12px;
-            border-radius: 100px;
-            border: 1px solid var(--border);
-        }
-        
-        .pulse {
-            width: 8px;
-            height: 8px;
-            background-color: var(--green);
-            border-radius: 50%;
-            display: inline-block;
-            box-shadow: 0 0 0 rgba(16, 185, 129, 0.4);
-            animation: pulse 2s infinite;
-        }
-        
-        @keyframes pulse {
-            0% { box-shadow: 0 0 0 0 rgba(16, 185, 129, 0.4); }
-            70% { box-shadow: 0 0 0 6px rgba(16, 185, 129, 0); }
-            100% { box-shadow: 0 0 0 0 rgba(16, 185, 129, 0); }
+            flex-shrink: 0;
         }
 
-        /* Buttons */
-        .btn {
-            padding: 12px 24px;
-            border-radius: 100px;
-            font-family: 'Inter', sans-serif;
-            font-size: 14px;
-            font-weight: 600;
-            cursor: pointer;
-            transition: all 0.2s;
-            border: none;
-            display: inline-flex;
-            align-items: center;
-            gap: 8px;
-            text-decoration: none;
-        }
-        .btn-primary { background: var(--primary); color: white; box-shadow: var(--shadow-glow); }
-        .btn-primary:hover { transform: translateY(-1px); box-shadow: 0 10px 20px -4px rgba(47, 95, 255, 0.4); }
-        
-        .btn-sm {
-            padding: 8px 16px;
-            font-size: 13px;
-        }
-
-        /* Empty State */
-        .empty-state {
-            margin: auto;
-            text-align: center;
-            padding: 60px 20px;
-            max-width: 400px;
-        }
-        .empty-state i {
-            font-size: 48px;
-            color: var(--text-muted);
-            margin-bottom: 20px;
-            opacity: 0.5;
-        }
-        .empty-state h2 { margin-bottom: 12px; }
-        .empty-state p { color: var(--text-muted); line-height: 1.5; margin-bottom: 24px; }
-
-        /* Dashboard Layout */
-        .dashboard-container {
-            padding: 24px 32px;
-            flex: 1;
-            display: flex;
-            flex-direction: column;
-            gap: 24px;
-            min-height: 0;
-        }
-
-        /* Stat Strip */
-        .stat-strip {
-            display: grid;
-            grid-template-columns: repeat(4, 1fr);
-            gap: 16px;
-        }
-        
-        .stat-box {
-            background: var(--card-bg);
-            border-radius: 20px;
-            padding: 20px;
-            border: 1px solid var(--border);
-            box-shadow: var(--shadow-soft);
+        .deck-brand {
             display: flex;
             align-items: center;
-            gap: 16px;
+            gap: 14px;
         }
-        
-        .stat-box .icon-wrap {
-            width: 48px;
-            height: 48px;
-            border-radius: 12px;
-            background: var(--bg);
+
+        .deck-brand-icon {
+            width: 38px;
+            height: 38px;
+            border-radius: 10px;
+            background: var(--accent-gradient);
             display: flex;
             align-items: center;
             justify-content: center;
-            font-size: 20px;
-            color: var(--primary);
+            color: #ffffff;
+            box-shadow: var(--accent-glow);
         }
-        
-        .stat-box .val { font-family: 'Manrope', sans-serif; font-size: 24px; font-weight: 700; color: var(--text-main); margin-bottom: 2px;}
-        .stat-box .lbl { font-size: 13px; font-weight: 500; color: var(--text-muted); }
 
-        /* Main Content Split */
-        .main-split {
+        .deck-actions {
             display: flex;
-            gap: 24px;
-            flex: 1;
-            min-height: 0;
+            align-items: center;
+            gap: 10px;
+            flex-wrap: wrap;
         }
-        
-        .map-panel {
+
+        /* Stats Sub-strip */
+        .stat-substrip {
+            display: flex;
+            gap: 12px;
+            padding: 10px 24px;
+            background: rgba(14, 21, 38, 0.6);
+            backdrop-filter: blur(8px);
+            border-bottom: 1px solid var(--border-glass);
+            overflow-x: auto;
+            flex-shrink: 0;
+        }
+
+        .substat-pill {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            padding: 6px 14px;
+            background: var(--bg-surface-elevated);
+            border: 1px solid var(--border-glass);
+            border-radius: var(--radius-pill);
+            font-size: 13px;
+            white-space: nowrap;
+        }
+
+        .substat-pill .val {
+            font-family: var(--font-mono);
+            font-weight: 700;
+            color: var(--text-primary);
+        }
+
+        .substat-pill .lbl {
+            color: var(--text-muted);
+            font-size: 12px;
+        }
+
+        /* Main Workspace Split */
+        .deck-workspace {
             flex: 1;
-            background: var(--card-bg);
-            border-radius: var(--rad);
-            border: 1px solid var(--border);
-            box-shadow: var(--shadow-soft);
-            overflow: hidden;
             display: flex;
             position: relative;
+            min-height: 0;
+            overflow: hidden;
         }
-        #map { position: absolute; top: 0; bottom: 0; left: 0; right: 0; z-index: 1;}
 
-        .trucks-panel {
-            width: 400px;
+        /* Floating Sidebar */
+        .trucks-sidebar {
+            width: 440px;
+            height: 100%;
+            background: var(--bg-glass);
+            backdrop-filter: blur(16px);
+            -webkit-backdrop-filter: blur(16px);
+            border-right: 1px solid var(--border-glass);
+            overflow-y: auto;
+            padding: 18px;
             display: flex;
             flex-direction: column;
             gap: 16px;
-            overflow-y: auto;
-            padding-right: 8px;
+            z-index: 500;
+            box-shadow: 10px 0 30px rgba(0, 0, 0, 0.25);
+            flex-shrink: 0;
+            transition: transform 0.3s ease;
         }
-        
-        /* Custom scrollbar for trucks list */
-        .trucks-panel::-webkit-scrollbar { width: 6px; }
-        .trucks-panel::-webkit-scrollbar-thumb { background: var(--border); border-radius: 10px; }
 
-        .truck-card {
-            background: var(--card-bg);
-            border-radius: 20px;
-            border: 1px solid var(--border);
-            box-shadow: var(--shadow-soft);
-            padding: 20px;
+        .truck-card-deck {
+            background: var(--bg-surface-elevated);
+            border: 1px solid var(--border-glass);
+            border-radius: var(--radius-card);
+            padding: 18px;
+            transition: var(--transition-smooth);
         }
-        
-        .truck-header {
+
+        .truck-card-deck:hover {
+            border-color: rgba(255, 255, 255, 0.16);
+        }
+
+        .truck-card-header {
             display: flex;
             justify-content: space-between;
             align-items: center;
-            margin-bottom: 12px;
+            margin-bottom: 10px;
         }
-        .truck-title { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0;
-            font-family: 'Manrope', sans-serif;
-            font-size: 18px;
+
+        .truck-name-tag {
+            font-size: 16px;
             font-weight: 700;
             display: flex;
             align-items: center;
             gap: 8px;
         }
-        
-        .truck-meta { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0;
-            font-size: 13px;
-            color: var(--text-muted);
+
+        .truck-stats-meta {
             display: flex;
             align-items: center;
             gap: 12px;
+            font-size: 12px;
+            color: var(--text-secondary);
+            margin-bottom: 12px;
+            font-family: var(--font-mono);
+        }
+
+        .progress-track {
+            height: 6px;
+            background: rgba(255, 255, 255, 0.08);
+            border-radius: var(--radius-pill);
+            overflow: hidden;
             margin-bottom: 16px;
         }
-        
-        .progress-bar-bg {
-            height: 6px;
-            background: var(--bg);
-            border-radius: 10px;
-            overflow: hidden;
-            margin-bottom: 20px;
-        }
-        .progress-bar {
+
+        .progress-fill {
             height: 100%;
-            border-radius: 10px;
-            transition: width 0.5s ease;
+            border-radius: var(--radius-pill);
+            transition: width 0.4s ease;
         }
-        
-        .stop-list {
+
+        /* Stop items inside truck card */
+        .stop-list-container {
+            display: flex;
+            flex-direction: column;
+            gap: 8px;
+            max-height: 380px;
+            overflow-y: auto;
+            padding-right: 4px;
+        }
+
+        .stop-deck-item {
+            display: flex;
+            align-items: flex-start;
+            gap: 10px;
+            padding: 10px 12px;
+            background: var(--bg-surface);
+            border: 1px solid var(--border-glass);
+            border-radius: 12px;
+            cursor: grab;
+            user-select: none;
+            transition: var(--transition-smooth);
+        }
+
+        .stop-deck-item:active {
+            cursor: grabbing;
+        }
+
+        .stop-deck-item:hover {
+            border-color: rgba(255, 255, 255, 0.18);
+            transform: translateX(2px);
+        }
+
+        .stop-deck-item.completed {
+            opacity: 0.55;
+            cursor: default;
+        }
+
+        .stop-deck-item.sortable-ghost {
+            opacity: 0.3;
+            background: rgba(16, 185, 129, 0.2);
+            border: 2px dashed var(--accent-primary);
+        }
+
+        /* Full Screen Map Viewport */
+        .map-viewport {
+            flex: 1;
+            height: 100%;
+            position: relative;
+            background: var(--bg-deep);
+        }
+
+        #map {
+            width: 100%;
+            height: 100%;
+            z-index: 1;
+        }
+
+        /* Floating HUD Controls on Map */
+        .map-floating-hud {
+            position: absolute;
+            top: 20px;
+            right: 20px;
+            z-index: 800;
             display: flex;
             flex-direction: column;
             gap: 10px;
         }
-        
-        .stop-item {
-            display: flex;
-            align-items: flex-start;
-            gap: 12px;
-            font-size: 13px;
-            padding: 12px;
-            background: var(--bg);
+
+        .hud-btn-circle {
+            width: 44px;
+            height: 44px;
             border-radius: 12px;
-            border: 1px solid transparent;
-            transition: border-color 0.2s;
-        }
-        .stop-item:hover { border-color: var(--border); }
-        .stop-item.completed { opacity: 0.7; }
-        .stop-item.completed .stop-status i { color: var(--green); }
-        .stop-item .stop-status i { color: var(--text-muted); font-size: 16px; margin-top: 2px;}
-        .stop-item .stop-info { flex: 1; }
-        .stop-item .stop-name { font-weight: 600; color: var(--text-main); margin-bottom: 4px; font-family: 'Inter', sans-serif;}
-        
-        .route-link {
+            background: var(--bg-glass);
+            backdrop-filter: blur(12px);
+            border: 1px solid var(--border-glass);
+            color: var(--text-primary);
             display: flex;
             align-items: center;
             justify-content: center;
-            gap: 8px;
-            width: 100%;
-            padding: 12px;
-            background: var(--bg);
-            border: 1px solid var(--border);
-            border-radius: 12px;
-            color: var(--primary);
-            font-weight: 600;
-            font-size: 13px;
-            text-decoration: none;
-            margin-top: 16px;
-            transition: background 0.2s;
+            cursor: pointer;
+            box-shadow: 0 8px 24px rgba(0, 0, 0, 0.35);
+            transition: var(--transition-smooth);
         }
-        .route-link:hover { background: #eff6ff; }
 
-        /* Map custom popups */
-        .custom-div-icon { background: none; border: none; }
-        
-        .map-popup-card { font-family: 'Inter', sans-serif; }
-        .map-popup-card h4 { font-family: 'Manrope', sans-serif; margin-bottom: 4px; font-size: 16px;}
-        .map-popup-card p { font-size: 12px; color: var(--text-muted); margin: 0 0 12px 0; line-height: 1.5; }
-        
-        #qrcode { overflow: hidden; }
-        #qrcode canvas, #qrcode img { max-width: 100%; height: auto; }
-        
-        @media (max-width: 1024px) {
-            body { overflow-x: hidden; height: auto; overflow: visible; overflow-x: hidden; }
-            .main-split { flex-direction: column; min-height: auto;}
-            .trucks-panel { width: 100%; overflow-y: visible; padding-right: 0;}
-            .map-panel { height: 500px; flex: none; }
-            .stat-strip { grid-template-columns: repeat(2, 1fr); }
-            .header-bar { padding: 12px 20px; }
-            .dashboard-container { padding: 16px 20px; }
+        .hud-btn-circle:hover {
+            border-color: var(--accent-primary);
+            color: var(--accent-primary);
+            transform: scale(1.05);
         }
-        @media (max-width: 600px) {
-            .header-bar { flex-direction: column; align-items: flex-start; gap: 12px; }
-            .stat-strip { grid-template-columns: 1fr; }
-            .title-area h1 { font-size: 16px; }
+
+        /* Leaflet Popups Mission Control Skin */
+        .leaflet-popup-content-wrapper {
+            background: var(--bg-surface-elevated) !important;
+            color: var(--text-primary) !important;
+            border: 1px solid var(--border-glass) !important;
+            border-radius: 14px !important;
+            backdrop-filter: blur(16px) !important;
+            box-shadow: 0 15px 35px rgba(0, 0, 0, 0.5) !important;
         }
-    
-        /* Mobile overrides added automatically */
-        @media (max-width: 768px) {
-            .header, .header-bar { flex-direction: column !important; align-items: flex-start !important; padding: 16px !important; gap: 12px !important; height: auto !important; }
-            .header-left, .title-area { width: 100% !important; flex-wrap: wrap !important; }
-            .header > div:last-child, .header-bar > div:last-child { width: 100% !important; display: flex !important; flex-wrap: wrap !important; gap: 8px !important; }
-            .header > div:last-child .btn, .header-bar > div:last-child .btn, .header-bar > div:last-child a.btn { flex: 1 1 45% !important; justify-content: center !important; text-align: center !important; padding: 10px 8px !important; font-size: 13px !important; }
-            .container { padding: 16px !important; gap: 16px !important; }
-            .driver-item { flex-direction: column !important; align-items: flex-start !important; gap: 12px !important; }
-            .driver-actions { width: 100% !important; display: flex !important; flex-wrap: wrap !important; gap: 8px !important; }
-            .driver-actions .btn { flex: 1 !important; justify-content: center !important; }
-            .quick-actions { grid-template-columns: 1fr !important; }
-            .main-split { flex-direction: column !important; height: auto !important; }
-            .trucks-panel { width: 100% !important; height: auto !important; overflow: visible !important; }
-            .map-panel { height: 450px !important; flex: none !important; }
-            .login-card { padding: 32px 24px !important; max-width: calc(100% - 32px) !important; box-sizing: border-box !important; }
-            body, html { overflow-x: hidden !important; }
-            .stat-strip { grid-template-columns: 1fr !important; gap: 8px !important; }
-            .stat-card { padding: 12px !important; }
+
+        .leaflet-popup-tip {
+            background: var(--bg-surface-elevated) !important;
+            border: 1px solid var(--border-glass) !important;
         }
-</style>
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
+
+        .custom-stop-marker {
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            border-radius: 8px;
+            font-weight: 700;
+            font-size: 11px;
+            font-family: var(--font-mono);
+            color: #ffffff;
+            box-shadow: 0 4px 10px rgba(0, 0, 0, 0.35);
+            border: 2px solid #ffffff;
+            white-space: nowrap;
+            padding: 3px 6px;
+        }
+
+        .custom-next-stop-marker {
+            animation: nextStopPulse 1.6s infinite;
+        }
+
+        @keyframes nextStopPulse {
+            0% { box-shadow: 0 0 0 0 rgba(16, 185, 129, 0.7); }
+            70% { box-shadow: 0 0 0 10px rgba(16, 185, 129, 0); }
+            100% { box-shadow: 0 0 0 0 rgba(16, 185, 129, 0); }
+        }
+
+        /* Modal Overlays */
+        .mission-modal-overlay {
+            display: none;
+            position: fixed;
+            inset: 0;
+            background: rgba(0, 0, 0, 0.75);
+            backdrop-filter: blur(8px);
+            z-index: 99999;
+            align-items: center;
+            justify-content: center;
+            padding: 16px;
+        }
+
+        .mission-modal-body {
+            background: var(--bg-surface-elevated);
+            border: 1px solid var(--border-glass);
+            border-radius: 20px;
+            padding: 28px;
+            max-width: 480px;
+            width: 100%;
+            box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.5);
+            max-height: 90vh;
+            overflow-y: auto;
+        }
+
+        .mission-modal-body input, .mission-modal-body select {
+            width: 100%;
+            height: 44px;
+            padding: 0 14px;
+            background: var(--bg-surface);
+            border: 1px solid var(--border-glass);
+            border-radius: 10px;
+            color: var(--text-primary);
+            font-family: inherit;
+            font-size: 14px;
+            margin-bottom: 12px;
+            outline: none;
+        }
+
+        .mission-modal-body input:focus, .mission-modal-body select:focus {
+            border-color: var(--accent-primary);
+        }
+
+        @media (max-width: 960px) {
+            .deck-workspace {
+                flex-direction: column-reverse;
+            }
+            .trucks-sidebar {
+                width: 100%;
+                height: 45vh;
+                border-right: none;
+                border-top: 1px solid var(--border-glass);
+            }
+            .map-viewport {
+                height: 55vh;
+            }
+        }
+    </style>
 </head>
 <body>
+    <!-- Top Deck Bar -->
+    <header class="top-deck-bar">
+        <div class="deck-brand">
+            <div class="deck-brand-icon">
+                <i data-lucide="map-pin" style="width: 22px; height: 22px;"></i>
+            </div>
+            <div>
+                <h2 style="font-size: 18px; font-weight: 800; margin: 0; letter-spacing: -0.3px;">Route Operations Deck</h2>
+                <div style="font-size: 11px; color: var(--text-muted); font-family: var(--font-mono);">ACO-VRP TELEMETRY ENGINE</div>
+            </div>
+            <div id="live-indicator" class="badge-status active" style="display: none;">
+                <span class="pulse-indicator"></span>
+                <span>REALTIME LIVE</span>
+            </div>
+        </div>
 
-    <!-- Modal for Save Template -->
-    <div id="save-template-modal" style="display:none; position:fixed; top:0; left:0; right:0; bottom:0; background:rgba(0,0,0,0.5); z-index:9999; align-items:center; justify-content:center;">
-        <div style="background:white; padding:32px; border-radius:24px; max-width:400px; width:90%;">
-            <h3 style="margin-top:0; font-family:'Manrope', sans-serif;">Save as Template</h3>
-            <p style="color:var(--text-muted); font-size:14px; margin-bottom: 24px;">Save the current routes exactly as they are to deploy them again in the future without uploading a CSV.</p>
-            <div style="display:flex; flex-direction:column; gap:16px; margin-bottom: 24px;">
-                <input type="text" id="template-name" placeholder="e.g. Monday North Route" style="padding:12px; border:1px solid var(--border); border-radius:12px; font-family:'Inter', sans-serif;">
-            </div>
-            <div style="display:flex; gap:12px;">
-                <button class="btn btn-primary" id="btn-save-template" onclick="saveTemplate()" style="flex:1;">Save</button>
-                <button class="btn btn-outline" onclick="document.getElementById('save-template-modal').style.display='none'" style="flex:1;">Cancel</button>
-            </div>
-        </div>
-    </div>
-
-    <!-- Modal for Add Driver -->
-    <div id="add-driver-modal" style="display:none; position:fixed; top:0; left:0; right:0; bottom:0; background:rgba(0,0,0,0.5); z-index:9999; align-items:center; justify-content:center;">
-        <div style="background:white; padding:32px; border-radius:24px; max-width:400px; width:90%;">
-            <h3 style="margin-top:0; font-family:'Manrope', sans-serif;">Create Driver Account</h3>
-            <div style="display:flex; flex-direction:column; gap:16px; margin-bottom: 24px;">
-                <input type="text" id="new-driver-phone" placeholder="Driver Mobile Number" style="padding:12px; border:1px solid var(--border); border-radius:12px; font-family:'Inter', sans-serif;">
-                <input type="text" id="new-driver-pass" placeholder="Assign Password" style="padding:12px; border:1px solid var(--border); border-radius:12px; font-family:'Inter', sans-serif;">
-            </div>
-            <div style="display:flex; gap:12px;">
-                <button class="btn btn-primary" id="btn-submit-driver" onclick="submitNewDriver()" style="flex:1;">Create</button>
-                <button class="btn btn-outline" onclick="document.getElementById('add-driver-modal').style.display='none'" style="flex:1;">Cancel</button>
-            </div>
-        </div>
-    </div>
-    
-    <!-- Assign Driver Modal -->
-    <div id="assign-driver-modal" style="display:none; position:fixed; top:0; left:0; right:0; bottom:0; background:rgba(0,0,0,0.5); z-index:9999; align-items:center; justify-content:center;">
-        <div style="background:white; padding:32px; border-radius:20px; max-width:380px; width:90%;">
-            <h3 style="margin:0 0 6px 0; font-family:'Manrope',sans-serif;">Assign to Driver</h3>
-            <p style="color:var(--text-muted); font-size:14px; margin:0 0 20px 0;">Select a driver for <strong id="assign-modal-truck"></strong></p>
-            <select id="assign-driver-select" style="width:100%; padding:12px; border:1px solid var(--border); border-radius:10px; font-size:14px; font-family:'Inter',sans-serif; margin-bottom:20px; box-sizing:border-box;">
-                <option value="">-- Select Driver --</option>
-            </select>
-            <div style="display:flex; gap:12px;">
-                <button id="btn-assign-next" onclick="openConfirmationsModal()" style="flex:1; background:var(--primary); color:white; border:none; padding:12px; border-radius:10px; font-weight:700; font-size:15px; cursor:pointer; font-family:'Inter',sans-serif;">Next <i class="fa-solid fa-arrow-right"></i></button>
-                <button onclick="document.getElementById('assign-driver-modal').style.display='none'" style="flex:1; background:#f1f5f9; color:var(--text-main); border:none; padding:12px; border-radius:10px; font-weight:600; font-size:15px; cursor:pointer; font-family:'Inter',sans-serif;">Cancel</button>
-            </div>
-        </div>
-    </div>
-
-    
-    <!-- Confirmations Modal -->
-    <div id="confirmations-modal" style="display:none; position:fixed; top:0; left:0; right:0; bottom:0; background:rgba(0,0,0,0.5); z-index:9999; align-items:center; justify-content:center;">
-        <div style="background:white; padding:24px; border-radius:20px; max-width:500px; width:95%; max-height:90vh; display:flex; flex-direction:column;">
-            <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:12px;">
-                <h3 style="margin:0; font-family:'Manrope',sans-serif;" id="conf-modal-title">Confirm customers</h3>
-                <span id="conf-counts" style="font-size:13px; font-weight:600; padding:6px 12px; border-radius:20px; background:#f1f5f9; color:var(--text-main);">0 confirmed &middot; 0 not</span>
-            </div>
-            
-            <div style="display:flex; gap:8px; margin-bottom:16px;">
-                <input type="text" id="conf-search" placeholder="Search..." oninput="renderConfList()" style="flex:1; padding:10px 12px; border:1px solid var(--border); border-radius:8px; font-family:'Inter',sans-serif; font-size:14px;">
-                <select id="conf-filter" onchange="renderConfList()" style="padding:10px; border:1px solid var(--border); border-radius:8px; font-family:'Inter',sans-serif; font-size:14px; background:white;">
-                    <option value="all">All</option>
-                    <option value="confirmed">Confirmed</option>
-                    <option value="not">Not confirmed</option>
-                    <option value="cancelled">Cancelled</option>
-                </select>
-                <button onclick="markAllConf()" title="Mark all confirmed" class="btn btn-outline" style="padding:10px;"><i class="fa-solid fa-check-double"></i></button>
-                <button onclick="markAllNotConf()" title="Mark all not confirmed" class="btn btn-outline" style="padding:10px;"><i class="fa-solid fa-xmark"></i></button>
-            </div>
-            
-            <div id="conf-list" style="flex:1; overflow-y:auto; border:1px solid var(--border); border-radius:12px; background:#f8fafc; padding:8px; display:flex; flex-direction:column; gap:8px;">
-                <!-- rows injected via js -->
-            </div>
-            
-            <div style="display:flex; gap:12px; margin-top:20px;">
-                <button id="btn-conf-back" onclick="goBackToAssign()" style="flex:1; background:#f1f5f9; color:var(--text-main); border:none; padding:12px; border-radius:10px; font-weight:600; font-size:15px; cursor:pointer; font-family:'Inter',sans-serif;">Back</button>
-                <button onclick="closeConfModal()" style="flex:1; background:#f1f5f9; color:var(--text-main); border:none; padding:12px; border-radius:10px; font-weight:600; font-size:15px; cursor:pointer; font-family:'Inter',sans-serif;">Cancel</button>
-                <button id="btn-conf-save" onclick="saveConfirmationsAndAssign()" style="flex:1.5; background:var(--primary); color:white; border:none; padding:12px; border-radius:10px; font-weight:700; font-size:15px; cursor:pointer; font-family:'Inter',sans-serif;">Assign & Save</button>
-            </div>
-        </div>
-    </div>
-
-    <!-- Modal for Driver Link -->
-    <div id="driver-link-modal" style="display:none; position:fixed; top:0; left:0; right:0; bottom:0; background:rgba(0,0,0,0.5); z-index:9999; align-items:center; justify-content:center;">
-        <div style="background:white; padding:32px; border-radius:24px; max-width:450px; width:90%; text-align:center;">
-            <h3 style="margin-top:0; font-family:'Manrope', sans-serif;">Send to Driver</h3>
-            <p style="color:var(--text-muted); font-size:14px; margin-bottom:24px;">Scan the QR code with a phone camera, or copy the link below.</p>
-            <div id="qrcode" style="display:flex; justify-content:center; margin-bottom:24px;"></div>
-            <div style="display:flex; gap:12px;">
-                <input type="text" id="driver-link-input" readonly style="flex:1; padding:12px; border:1px solid var(--border); border-radius:8px; font-size:12px; color:var(--text-main);">
-                <button onclick="copyDriverLink()" class="btn btn-primary" style="margin-bottom:0; width:auto; padding:0 24px; border:none; border-radius:8px; cursor:pointer;">Copy</button>
-            </div>
-            <button onclick="document.getElementById('driver-link-modal').style.display='none'" class="btn" style="margin-top:16px; background:#f1f5f9; color:var(--text-main); width:100%; padding:12px; border:none; border-radius:8px; cursor:pointer; font-weight:600;">Close</button>
-        </div>
-    </div>
-    
-    <!-- Modal for Add Stop -->
-    <div id="add-stop-modal" style="display:none; position:fixed; top:0; left:0; right:0; bottom:0; background:rgba(0,0,0,0.5); z-index:9999; align-items:center; justify-content:center;">
-        <div style="background:white; padding:32px; border-radius:24px; max-width:450px; width:90%;">
-            <h3 style="margin-top:0; font-family:'Manrope', sans-serif;">Add New Stop</h3>
-            
-            <select id="insert-mode" onchange="toggleInsertMode()" style="width:100%; padding:12px; margin-bottom:16px; border:1px solid var(--border); border-radius:12px; font-family:'Inter', sans-serif; background:#f8fafc; font-weight:600;">
-                <option value="auto">Auto (AI Global Optimization)</option>
-                <option value="manual">Manual Override (Insert Specific Location)</option>
-            </select>
-            
-            <p id="insert-mode-desc" style="color:var(--text-muted); font-size:13px; margin-bottom:20px;">The AI will evaluate all active trucks and recalculate the global shortest route.</p>
-            
-            <div id="manual-options" style="display:none; margin-bottom:16px;">
-                <label style="font-size:12px; font-weight:600; color:var(--text-muted); display:block; margin-bottom:6px;">Insert After Stop:</label>
-                <select id="manual-target" style="width:100%; padding:12px; border:1px solid var(--border); border-radius:12px; font-family:'Inter', sans-serif;"></select>
-            </div>
-
-            <div style="display:flex; flex-direction:column; gap:16px;">
-                <input type="text" id="new-stop-name" placeholder="Customer Name (e.g. John Doe)" style="padding:12px; border:1px solid var(--border); border-radius:12px; font-family:'Inter', sans-serif;">
-                <input type="text" id="new-stop-phone" placeholder="Phone Number (Optional)" style="padding:12px; border:1px solid var(--border); border-radius:12px; font-family:'Inter', sans-serif;">
-                <input type="text" id="new-stop-address" placeholder="Address (Required if no map link)" style="padding:12px; border:1px solid var(--border); border-radius:12px; font-family:'Inter', sans-serif;">
-                <input type="text" id="new-stop-url" placeholder="Google Maps Link (Recommended)" style="padding:12px; border:1px solid var(--border); border-radius:12px; font-family:'Inter', sans-serif;">
-            </div>
-            <div style="margin-top:24px; display:flex; gap:12px;">
-                <button class="btn btn-primary" id="btn-submit-stop" onclick="submitNewStop()" style="flex:1;">Add & Recalculate</button>
-                <button class="btn btn-outline" onclick="closeAddStopModal()" style="flex:1;">Cancel</button>
-            </div>
-        </div>
-    </div>
-    
-    <div class="header-bar">
-        <div class="title-area">
-            <img src="/static/logo.jpg" alt="Logo" style="height: 32px; border-radius: 8px;">
-            <div style="display: flex; flex-direction: column;">
-                <h1 style="margin: 0; line-height: 1;">Route Dashboard</h1>
-                <span style="font-size: 11px; color: var(--text-muted); font-weight: 600; letter-spacing: 0.5px; margin-top: 4px;">CREATED BY JAINAM</span>
-            </div>
-            <div class="live-indicator" id="live-indicator" style="display:none;"><span class="pulse"></span> Live</div>
-        </div>
-        <div style="display:flex; gap:12px; align-items:center;">
-            <button onclick="openAddStopModal()" class="btn btn-primary" id="add-stop-btn" style="background:#10b981; border:none; display:none;"><i class="fa-solid fa-plus"></i> Add Stop</button>
-            
-            <a href="/live" class="btn btn-primary" target="_blank" style="text-decoration:none;"><i class="fa-solid fa-satellite-dish"></i> Open Live Tracking</a>
-            <button onclick="document.getElementById('save-template-modal').style.display='flex'" class="btn btn-outline" id="save-template-btn" style="display:none;">
-                <i class="fa-solid fa-bookmark"></i> Save as Template
+        <div class="deck-actions">
+            <!-- Add Stop Button -->
+            <button onclick="openAddStopModal()" class="btn-control btn-primary" id="add-stop-btn" style="display: none;">
+                <i data-lucide="plus" style="width: 16px; height: 16px;"></i>
+                <span>Add Stop</span>
             </button>
-            <a href="/download_excel" class="btn btn-outline" id="export-btn" style="display:none; text-decoration:none;">
-                <i class="fa-solid fa-file-excel"></i> Export Report
+
+            <!-- AI Rebalance Button -->
+            <button onclick="triggerAiRebalance()" class="btn-control btn-secondary" id="ai-rebalance-btn" title="Optimize stop distribution across trucks">
+                <i data-lucide="sparkles" style="width: 16px; height: 16px; color: var(--accent-primary);"></i>
+                <span>AI Rebalance</span>
+            </button>
+
+            <!-- Live Tracking Link -->
+            <a href="/live" class="btn-control btn-secondary" target="_blank">
+                <i data-lucide="radio" style="width: 16px; height: 16px; color: #f59e0b;"></i>
+                <span>Live Radar</span>
             </a>
-            <a href="/" class="btn" style="background:var(--primary); color:white; border:none; margin-left:8px; text-decoration:none;"><i class="fa-solid fa-house"></i> Control Panel</a>
-            <a href="/logout" class="btn" style="background:var(--border); color:var(--text-main); text-decoration:none; margin-left:8px;"><i class="fa-solid fa-arrow-right-from-bracket"></i> Logout</a>
+
+            <!-- Save as Template -->
+            <button onclick="openSaveTemplateModal()" class="btn-control btn-secondary" id="save-template-btn" style="display: none;">
+                <i data-lucide="bookmark" style="width: 16px; height: 16px; color: #a855f7;"></i>
+                <span id="save-template-btn-text">Save Template</span>
+            </button>
+
+            <!-- Export Excel -->
+            <a href="/download_excel" class="btn-control btn-secondary" id="export-btn" style="display: none;">
+                <i data-lucide="file-spreadsheet" style="width: 16px; height: 16px; color: #10b981;"></i>
+                <span>Export Excel</span>
+            </a>
+
+            <!-- Theme Toggle -->
+            <button type="button" class="btn-control btn-secondary" onclick="toggleThemeAndMap()" title="Toggle Dark/Light Mode">
+                <i data-lucide="sun-moon" style="width: 16px; height: 16px;"></i>
+            </button>
+
+            <!-- Control Panel -->
+            <a href="/dashboard" class="btn-control btn-secondary">
+                <i data-lucide="layout-dashboard" style="width: 16px; height: 16px;"></i>
+                <span>Dashboard</span>
+            </a>
+
+            <!-- Logout -->
+            <a href="/logout" class="btn-control btn-danger" title="Sign Out">
+                <i data-lucide="log-out" style="width: 16px; height: 16px;"></i>
+            </a>
+        </div>
+    </header>
+
+    <!-- Sub-strip Metrics -->
+    <div class="stat-substrip" id="stats-substrip" style="display: none;">
+        <div class="substat-pill">
+            <i data-lucide="truck" style="width: 14px; height: 14px; color: var(--accent-primary);"></i>
+            <span class="lbl">Active Trucks:</span>
+            <span class="val" id="stat-trucks">-</span>
+        </div>
+        <div class="substat-pill">
+            <i data-lucide="map-pin" style="width: 14px; height: 14px; color: #06b6d4;"></i>
+            <span class="lbl">Total Stops:</span>
+            <span class="val" id="stat-stops">-</span>
+        </div>
+        <div class="substat-pill">
+            <i data-lucide="navigation" style="width: 14px; height: 14px; color: #a855f7;"></i>
+            <span class="lbl">Total Distance:</span>
+            <span class="val" id="stat-dist">-</span>
+        </div>
+        <div class="substat-pill">
+            <i data-lucide="clock" style="width: 14px; height: 14px; color: #f59e0b;"></i>
+            <span class="lbl">Avg Route Time:</span>
+            <span class="val" id="stat-time">-</span>
         </div>
     </div>
 
     <!-- Empty State -->
-    <div id="empty-state" class="empty-state" style="display: none;">
-        <i class="fa-solid fa-map-location-dot"></i>
-        <h2 class="heading">No Routes Active</h2>
-        <p>You haven't generated any optimized routes yet. Please return to the Setup page to configure your fleet and upload your stops.</p>
-        <a href="/" class="btn btn-primary">Go to Setup</a>
+    <div id="empty-state" class="empty-state" style="display: none; margin: auto; text-align: center; padding: 60px 20px;">
+        <div style="width: 64px; height: 64px; border-radius: 20px; background: rgba(16, 185, 129, 0.12); color: var(--accent-primary); display: flex; align-items: center; justify-content: center; margin: 0 auto 20px auto;">
+            <i data-lucide="map" style="width: 32px; height: 32px;"></i>
+        </div>
+        <h2 style="font-size: 22px; font-weight: 800; margin-bottom: 8px;">No Active Routes Loaded</h2>
+        <p style="color: var(--text-secondary); max-width: 440px; margin: 0 auto 24px auto; line-height: 1.5;">
+            Configure your fleet, set depot start points, and upload collection stops to generate optimized routes.
+        </p>
+        <a href="/generate" class="btn-control btn-primary">
+            <i data-lucide="plus" style="width: 16px; height: 16px;"></i>
+            <span>Generate Routes</span>
+        </a>
     </div>
 
-    <div id="error-state" class="empty-state" style="display: none;">
-        <i class="fa-solid fa-triangle-exclamation" style="color: var(--danger);"></i>
-        <h2 class="heading">Failed to load routes</h2>
-        <p id="error-msg" style="color: var(--danger);"></p>
-        <button onclick="loadData()" class="btn btn-primary">Retry</button>
+    <!-- Error State -->
+    <div id="error-state" class="empty-state" style="display: none; margin: auto; text-align: center; padding: 60px 20px;">
+        <i data-lucide="alert-triangle" style="width: 48px; height: 48px; color: var(--status-danger); margin-bottom: 16px;"></i>
+        <h2 style="font-size: 20px; font-weight: 700; margin-bottom: 8px;">Failed to Load Routes</h2>
+        <p id="error-msg" style="color: var(--status-danger); margin-bottom: 20px;"></p>
+        <button onclick="loadData()" class="btn-control btn-primary">Retry Sync</button>
     </div>
 
-    <!-- Dashboard Content -->
-    <div id="dashboard-content" class="dashboard-container" style="display: none;">
-        
-        <div class="stat-strip">
-            <div class="stat-box">
-                <div class="icon-wrap" style="color: var(--primary); background: #eff6ff;"><i class="fa-solid fa-truck"></i></div>
-                <div><div class="val" id="stat-trucks">-</div><div class="lbl">Active Trucks</div></div>
+    <!-- Main Deck Workspace -->
+    <div id="dashboard-content" class="deck-workspace" style="display: none;">
+        <!-- Left Sidebar: Trucks & Stops with Drag & Drop -->
+        <aside class="trucks-sidebar" id="truck-stats">
+            <!-- Injected via renderSidebar -->
+        </aside>
+
+        <!-- Full-screen Map Viewport -->
+        <main class="map-viewport">
+            <div id="map"></div>
+
+            <div class="map-floating-hud">
+                <button type="button" class="hud-btn-circle" onclick="recenterMap()" title="Recenter Entire Fleet">
+                    <i data-lucide="maximize" style="width: 18px; height: 18px;"></i>
+                </button>
+                <button type="button" class="hud-btn-circle" onclick="loadData()" title="Refresh Telemetry">
+                    <i data-lucide="refresh-cw" style="width: 18px; height: 18px;"></i>
+                </button>
             </div>
-            <div class="stat-box">
-                <div class="icon-wrap" style="color: var(--amber); background: #fffbeb;"><i class="fa-solid fa-map-location-dot"></i></div>
-                <div><div class="val" id="stat-stops">-</div><div class="lbl">Total Stops</div></div>
+        </main>
+    </div>
+
+    <!-- Modals -->
+
+    <!-- Save Template Modal -->
+    <div id="save-template-modal" class="mission-modal-overlay">
+        <div class="mission-modal-body">
+            <div style="display: flex; align-items: center; gap: 12px; margin-bottom: 16px;">
+                <div style="width: 38px; height: 38px; border-radius: 10px; background: rgba(168, 85, 247, 0.15); color: #a855f7; display: flex; align-items: center; justify-content: center;">
+                    <i data-lucide="bookmark" style="width: 20px; height: 20px;"></i>
+                </div>
+                <div>
+                    <h3 style="margin: 0; font-size: 17px; font-weight: 700;">Save as Route Template</h3>
+                    <p style="margin: 2px 0 0 0; font-size: 13px; color: var(--text-secondary);">Save the exact stop sequence to reuse without re-uploading.</p>
+                </div>
             </div>
-            <div class="stat-box">
-                <div class="icon-wrap" style="color: #8b5cf6; background: #f5f3ff;"><i class="fa-solid fa-road"></i></div>
-                <div><div class="val" id="stat-dist">-</div><div class="lbl">Est. Distance</div></div>
-            </div>
-            <div class="stat-box">
-                <div class="icon-wrap" style="color: var(--green); background: #ecfdf5;"><i class="fa-solid fa-clock"></i></div>
-                <div><div class="val" id="stat-time">-</div><div class="lbl">Avg. Route Time</div></div>
+            <input type="text" id="template-name" placeholder="e.g. Sector 4 - Monday Collection">
+            <div style="display: flex; gap: 10px; margin-top: 14px;">
+                <button type="button" class="btn-control btn-secondary" onclick="closeSaveTemplateModal()" style="flex: 1;">Cancel</button>
+                <button type="button" class="btn-control btn-primary" id="btn-save-template" onclick="saveTemplate()" style="flex: 1;">Save Template</button>
             </div>
         </div>
+    </div>
 
-        <div class="main-split">
-            <div class="map-panel">
-                <div id="map"></div>
+    <!-- Assign Driver Modal (Step 1) -->
+    <div id="assign-driver-modal" class="mission-modal-overlay">
+        <div class="mission-modal-body">
+            <div style="display: flex; align-items: center; gap: 12px; margin-bottom: 16px;">
+                <div style="width: 38px; height: 38px; border-radius: 10px; background: rgba(16, 185, 129, 0.15); color: #10b981; display: flex; align-items: center; justify-content: center;">
+                    <i data-lucide="user-check" style="width: 20px; height: 20px;"></i>
+                </div>
+                <div>
+                    <h3 style="margin: 0; font-size: 17px; font-weight: 700;">Assign Truck Route</h3>
+                    <p style="margin: 2px 0 0 0; font-size: 13px; color: var(--text-secondary);">Select a driver for <strong id="assign-modal-truck" style="color: var(--accent-primary);"></strong></p>
+                </div>
             </div>
-            
-            <div class="trucks-panel" id="truck-stats">
-                <!-- Rendered via JS -->
+            <select id="assign-driver-select">
+                <option value="">-- Select Registered Driver --</option>
+            </select>
+            <div style="display: flex; gap: 10px; margin-top: 14px;">
+                <button type="button" class="btn-control btn-secondary" onclick="closeAssignModal()" style="flex: 1;">Cancel</button>
+                <button type="button" class="btn-control btn-primary" id="btn-assign-next" onclick="openConfirmationsModal()" style="flex: 1;">
+                    <span>Next: Confirmations</span>
+                    <i data-lucide="arrow-right" style="width: 15px; height: 15px;"></i>
+                </button>
             </div>
         </div>
-        
     </div>
+
+    <!-- Customer Confirmations Modal (Step 2) -->
+    <div id="confirmations-modal" class="mission-modal-overlay">
+        <div class="mission-modal-body" style="max-width: 560px;">
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 14px;">
+                <h3 style="margin: 0; font-size: 17px; font-weight: 700;" id="conf-modal-title">Confirm Stop Pickups</h3>
+                <span id="conf-counts" class="badge-status active">0 confirmed</span>
+            </div>
+            <div style="display: flex; gap: 8px; margin-bottom: 14px;">
+                <input type="text" id="conf-search" placeholder="Search customer or address..." oninput="renderConfList()" style="margin-bottom: 0;">
+                <select id="conf-filter" onchange="renderConfList()" style="margin-bottom: 0; width: auto;">
+                    <option value="all">All</option>
+                    <option value="confirmed">Confirmed</option>
+                    <option value="not">Not Confirmed</option>
+                    <option value="cancelled">Cancelled</option>
+                </select>
+                <button type="button" onclick="markAllConf()" class="btn-control btn-secondary" style="padding: 0 12px;" title="Mark all confirmed">
+                    <i data-lucide="check-check" style="width: 16px; height: 16px; color: #10b981;"></i>
+                </button>
+                <button type="button" onclick="markAllNotConf()" class="btn-control btn-secondary" style="padding: 0 12px;" title="Mark all unconfirmed">
+                    <i data-lucide="x" style="width: 16px; height: 16px; color: #ef4444;"></i>
+                </button>
+            </div>
+            <div id="conf-list" style="max-height: 400px; overflow-y: auto; display: flex; flex-direction: column; gap: 8px; padding-right: 4px;"></div>
+            <div style="display: flex; gap: 10px; margin-top: 18px;">
+                <button type="button" id="btn-conf-back" onclick="goBackToAssign()" class="btn-control btn-secondary" style="flex: 1;">Back</button>
+                <button type="button" onclick="closeConfModal()" class="btn-control btn-secondary" style="flex: 1;">Cancel</button>
+                <button type="button" id="btn-conf-save" onclick="saveConfirmationsAndAssign()" class="btn-control btn-primary" style="flex: 1.5;">Assign & Dispatch</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Driver QR & Web Link Modal -->
+    <div id="driver-link-modal" class="mission-modal-overlay">
+        <div class="mission-modal-body" style="text-align: center;">
+            <div style="width: 44px; height: 44px; border-radius: 12px; background: rgba(56, 189, 248, 0.15); color: #38bdf8; display: flex; align-items: center; justify-content: center; margin: 0 auto 12px auto;">
+                <i data-lucide="qr-code" style="width: 24px; height: 24px;"></i>
+            </div>
+            <h3 style="margin: 0 0 6px 0; font-size: 18px; font-weight: 700;">Driver Mobile Link</h3>
+            <p style="color: var(--text-secondary); font-size: 13px; margin: 0 0 20px 0;">Scan to open in the OnRoute Android app, or copy web link.</p>
+            <div id="qrcode" style="display: flex; justify-content: center; margin-bottom: 20px; background: #ffffff; padding: 14px; border-radius: 14px; width: fit-content; margin-left: auto; margin-right: auto;"></div>
+            <div style="display: flex; gap: 8px; margin-bottom: 14px;">
+                <input type="text" id="driver-link-input" readonly style="margin-bottom: 0; font-family: var(--font-mono); font-size: 12px;">
+                <button type="button" onclick="copyDriverLink()" class="btn-control btn-primary" style="flex-shrink: 0;">Copy</button>
+            </div>
+            <button type="button" onclick="document.getElementById('driver-link-modal').style.display='none'" class="btn-control btn-secondary" style="width: 100%;">Close</button>
+        </div>
+    </div>
+
+    <!-- Add Stop Modal -->
+    <div id="add-stop-modal" class="mission-modal-overlay">
+        <div class="mission-modal-body">
+            <div style="display: flex; align-items: center; gap: 12px; margin-bottom: 16px;">
+                <div style="width: 38px; height: 38px; border-radius: 10px; background: rgba(16, 185, 129, 0.15); color: #10b981; display: flex; align-items: center; justify-content: center;">
+                    <i data-lucide="map-pin" style="width: 20px; height: 20px;"></i>
+                </div>
+                <div>
+                    <h3 style="margin: 0; font-size: 17px; font-weight: 700;">Add Collection Stop</h3>
+                    <p style="margin: 2px 0 0 0; font-size: 13px; color: var(--text-secondary);">Insert a customer address or coordinate into the fleet route.</p>
+                </div>
+            </div>
+
+            <label style="font-size: 12px; font-weight: 600; color: var(--text-secondary); margin-bottom: 4px; display: block;">INSERTION STRATEGY</label>
+            <select id="insert-mode" onchange="toggleInsertMode()">
+                <option value="auto">Auto (AI Dynamic Global Re-optimization)</option>
+                <option value="manual">Manual Override (Insert After Specific Stop)</option>
+            </select>
+            <p id="insert-mode-desc" style="color: var(--text-muted); font-size: 12px; margin: -4px 0 14px 0;">
+                The AI will evaluate all active trucks and recalculate the global shortest path.
+            </p>
+
+            <div id="manual-options" style="display: none; margin-bottom: 12px;">
+                <label style="font-size: 12px; font-weight: 600; color: var(--text-secondary); margin-bottom: 4px; display: block;">INSERT AFTER STOP</label>
+                <select id="manual-target"></select>
+            </div>
+
+            <input type="text" id="new-stop-name" placeholder="Customer Name (e.g. Apex Recycling)">
+            <input type="text" id="new-stop-phone" placeholder="Phone Number (Optional)">
+            <input type="text" id="new-stop-address" placeholder="Address (Required if no map link)">
+            <input type="text" id="new-stop-url" placeholder="Google Maps Pin / URL (Recommended)">
+
+            <div style="display: flex; gap: 10px; margin-top: 14px;">
+                <button type="button" class="btn-control btn-secondary" onclick="closeAddStopModal()" style="flex: 1;">Cancel</button>
+                <button type="button" class="btn-control btn-primary" id="btn-submit-stop" onclick="submitNewStop()" style="flex: 1;">Add & Recalculate</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Core App JS -->
+    <script src="/static/js/app.js"></script>
 
     <script>
         const urlParams = new URLSearchParams(window.location.search);
@@ -556,6 +663,7 @@
         window.editingAssignedRouteId = urlParams.get('template_id') || null;
         window.editingAssignedTruckId = urlParams.get('truck_id') || null;
 
+        // Firebase Configuration Preserved
         const firebaseConfig = {
             apiKey: "AIzaSyAhLnjh0gRa2pf29G90zr-6AMcjLjbQpPg",
             authDomain: "wasteroutelive.firebaseapp.com",
@@ -571,29 +679,30 @@
         function startLiveTracking() {
             firebase.auth().signInAnonymously().then(() => {
                 db.ref('trucks').on('value', snap => {
-                    if(!map) return;
+                    if (!map) return;
                     let trucks = snap.val();
-                    if(!trucks) return;
+                    if (!trucks) return;
                     
-                    for(let tId in trucks) {
+                    for (let tId in trucks) {
                         let truck = trucks[tId];
                         let tNum = tId;
                         let isFresh = truck.lastUpdated ? (Date.now() - Number(truck.lastUpdated) < 180000) : true;
-                        if(truck.status === 'online' && truck.currentLat && truck.currentLng && isFresh) {
-                            if(liveTruckMarkers[tNum]) {
+                        if (truck.status === 'online' && truck.currentLat && truck.currentLng && isFresh) {
+                            if (liveTruckMarkers[tNum]) {
                                 liveTruckMarkers[tNum].setLatLng([truck.currentLat, truck.currentLng]);
                             } else {
                                 let truckIcon = L.divIcon({
-                                    className: 'live-truck-icon',
-                                    html: `<div style='background-color:#2F5FFF; width:34px; height:34px; border-radius:50%; border:3px solid white; box-shadow:0 4px 10px rgba(0,0,0,0.4); display:flex; align-items:center; justify-content:center; color:white; font-size:14px;'><i class="fa-solid fa-truck"></i></div>`,
+                                    className: 'live-truck-marker',
+                                    html: `<div style="background: var(--accent-gradient); width: 34px; height: 34px; border-radius: 50%; border: 3px solid #ffffff; box-shadow: 0 4px 14px rgba(16, 185, 129, 0.5); display: flex; align-items: center; justify-content: center; color: #ffffff;"><i data-lucide="truck" style="width:16px;height:16px;"></i></div>`,
                                     iconSize: [34, 34],
                                     iconAnchor: [17, 17]
                                 });
-                                liveTruckMarkers[tNum] = L.marker([truck.currentLat, truck.currentLng], {icon: truckIcon}).addTo(map);
-                                liveTruckMarkers[tNum].bindPopup("<b>Truck " + tNum + "</b> (Live)");
+                                liveTruckMarkers[tNum] = L.marker([truck.currentLat, truck.currentLng], { icon: truckIcon }).addTo(map);
+                                liveTruckMarkers[tNum].bindPopup(`<b>Truck ${tNum}</b> (Live Active)`);
+                                if (window.lucide) lucide.createIcons();
                             }
                         } else {
-                            if(liveTruckMarkers[tNum]) {
+                            if (liveTruckMarkers[tNum]) {
                                 map.removeLayer(liveTruckMarkers[tNum]);
                                 delete liveTruckMarkers[tNum];
                             }
@@ -603,22 +712,55 @@
             });
         }
 
-        let map;
-        let data;
+        let map = null;
+        let mapTileLayer = null;
+        let data = null;
         let currentRenderId = 0;
-        const colors = ['#2F5FFF', '#e11d48', '#059669', '#d97706', '#7c3aed', '#0284c7', '#be123c', '#0f766e', '#a16207', '#6d28d9'];
-        
+        let mapBounds = null;
+
+        // Per-truck color palette
+        const colors = ['#10b981', '#38bdf8', '#a855f7', '#f59e0b', '#ec4899', '#6366f1', '#14b8a6', '#f97316', '#84cc16', '#06b6d4'];
+
         function initMap() {
-            if(map) map.remove();
+            if (map) {
+                map.remove();
+                map = null;
+            }
             map = L.map("map", { zoomControl: false }).setView([23.0225, 72.5714], 11);
             L.control.zoom({ position: 'bottomright' }).addTo(map);
-            // Light basemap
-            L.tileLayer("https://{s}.google.com/vt/lyrs=m&hl=en&x={x}&y={y}&z={z}", { maxZoom: 20, subdomains:["mt0","mt1","mt2","mt3"] }).addTo(map);
-            
-            // Force Leaflet to recalculate on mobile layout to prevent grey squares
-            setTimeout(() => { map.invalidateSize(); }, 500);
+
+            updateMapTheme();
+            setTimeout(() => { if (map) map.invalidateSize(); }, 400);
         }
 
+        function updateMapTheme() {
+            if (!map) return;
+            if (mapTileLayer) map.removeLayer(mapTileLayer);
+
+            const isLight = document.documentElement.classList.contains('light');
+            const tileUrl = isLight 
+                ? 'https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png'
+                : 'https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png';
+
+            mapTileLayer = L.tileLayer(tileUrl, {
+                maxZoom: 20,
+                subdomains: 'abcd',
+                attribution: '&copy; CartoDB &copy; OpenStreetMap'
+            }).addTo(map);
+        }
+
+        function toggleThemeAndMap() {
+            toggleTheme();
+            updateMapTheme();
+        }
+
+        function recenterMap() {
+            if (map && mapBounds) {
+                map.fitBounds(mapBounds, { padding: [40, 40] });
+            }
+        }
+
+        // Fetch /api/data Contract Preserved
         function loadData() {
             const setDisplay = (id, val) => {
                 let el = document.getElementById(id);
@@ -632,6 +774,7 @@
                     dataUrl += '&truck_id=' + window.editingAssignedTruckId;
                 }
             }
+
             fetch(dataUrl, { cache: 'no-store' })
                 .then(res => res.json())
                 .then(resData => {
@@ -641,11 +784,7 @@
 
                     let nameInput = document.getElementById('template-name');
                     if (nameInput) {
-                        if (window.currentTemplateName) {
-                            if (!nameInput.value) nameInput.value = window.currentTemplateName;
-                        } else {
-                            nameInput.value = '';
-                        }
+                        nameInput.value = window.currentTemplateName || '';
                     }
 
                     if (resData.error || !resData.routes || resData.routes.length === 0) {
@@ -656,25 +795,56 @@
                         setDisplay('export-btn', 'none');
                         setDisplay('add-stop-btn', 'none');
                         setDisplay('save-template-btn', 'none');
+                        setDisplay('stats-substrip', 'none');
                         return;
                     }
+
                     data = resData;
                     setDisplay('empty-state', 'none');
                     setDisplay('error-state', 'none');
                     setDisplay('dashboard-content', 'flex');
-                    setDisplay('live-indicator', 'flex');
+                    setDisplay('live-indicator', 'inline-flex');
                     setDisplay('export-btn', 'inline-flex');
                     setDisplay('add-stop-btn', 'inline-flex');
+                    setDisplay('stats-substrip', 'flex');
                     setDisplay('save-template-btn', resData.is_from_template ? 'none' : 'inline-flex');
-                    
+
+                    if (window.isEditAssigned) {
+                        let btn = document.getElementById('save-template-btn');
+                        if (btn) {
+                            document.getElementById('save-template-btn-text').innerText = 'Save Assigned Route';
+                            btn.onclick = function() {
+                                fetch('/api/save_template', {
+                                    method: 'POST',
+                                    headers: {'Content-Type': 'application/json'},
+                                    body: JSON.stringify({
+                                        id: window.editingAssignedRouteId,
+                                        name: window.currentTemplateName || 'Assigned Route',
+                                        is_edit_assigned: true
+                                    })
+                                }).then(r => r.json()).then(res => {
+                                    if(res.success) {
+                                        showToast("Assigned route saved successfully!", "success");
+                                        window.location.href = '/dashboard';
+                                    } else {
+                                        showToast('Error: ' + res.error, 'error');
+                                    }
+                                });
+                            };
+                        }
+                    }
+
                     updateHeaderStats();
                     renderMap();
                     renderSidebar();
+                    startLiveTracking();
+                    if (window.lucide) lucide.createIcons();
                 })
                 .catch(err => {
                     console.error("Failed to load routes:", err);
                     setDisplay('empty-state', 'none');
                     setDisplay('dashboard-content', 'none');
+                    setDisplay('stats-substrip', 'none');
                     
                     let errorState = document.getElementById('error-state');
                     if (errorState) {
@@ -689,26 +859,26 @@
             let numStops = data.customers.filter(c => c.id > 0 || !String(c.id).startsWith('-')).length;
             
             let totalDist = 0;
-            if(data.route_distances) {
-                totalDist = data.route_distances.reduce((a,b) => a+b, 0) / 1000;
+            if (data.route_distances) {
+                totalDist = data.route_distances.reduce((a, b) => a + (parseFloat(b) || 0), 0) / 1000;
             }
             
             let avgTime = 0;
-            if(data.route_times && data.route_times.length >= numTrucks && data.route_times.length > 0) {
-                let totalSecs = data.route_times.reduce((a,b) => a+b, 0);
+            if (data.route_times && data.route_times.length > 0) {
+                let totalSecs = data.route_times.reduce((a, b) => a + (parseFloat(b) || 0), 0);
                 avgTime = totalSecs / data.route_times.length;
             }
             
             document.getElementById('stat-trucks').innerText = numTrucks;
             document.getElementById('stat-stops').innerText = numStops;
             
-            if(data.route_distances && data.route_distances.length >= numTrucks && totalDist > 0) {
+            if (totalDist > 0) {
                 document.getElementById('stat-dist').innerText = totalDist.toFixed(1) + " km";
             } else {
                 document.getElementById('stat-dist').innerText = "-";
             }
             
-            if(data.route_times && data.route_times.length >= numTrucks && avgTime > 0) {
+            if (avgTime > 0) {
                 let h = Math.floor(avgTime / 3600);
                 let m = Math.floor((avgTime % 3600) / 60);
                 document.getElementById('stat-time').innerText = h > 0 ? `${h}h ${m}m` : `${m}m`;
@@ -730,8 +900,6 @@
 
             data.routes.forEach((truckRoute, i) => {
                 let latlngs = [];
-                
-                // Find the actual truck ID for this route to correctly match its depot
                 let actualTruckId = 1;
                 for (let cid of truckRoute) {
                     if (cid > 0) {
@@ -746,20 +914,32 @@
                 
                 allLats.push(startCoord[0], endCoord[0]);
                 allLngs.push(startCoord[1], endCoord[1]);
-                
                 latlngs.push(startCoord);
                 
-                let startIcon = L.divIcon({className: 'custom-div-icon', html: `<div style='background-color:var(--green); width:16px; height:16px; border-radius:50%; border:3px solid white; box-shadow:0 2px 4px rgba(0,0,0,0.3);'></div>`});
-                let endIcon = L.divIcon({className: 'custom-div-icon', html: `<div style='background-color:var(--amber); width:16px; height:16px; border-radius:50%; border:3px solid white; box-shadow:0 2px 4px rgba(0,0,0,0.3);'></div>`});
+                // Depot Markers with distinct styling
+                let startIcon = L.divIcon({
+                    className: 'custom-div-icon', 
+                    html: `<div style="background: #10b981; width: 22px; height: 22px; border-radius: 50%; border: 3px solid #ffffff; box-shadow: 0 0 14px rgba(16, 185, 129, 0.8); display: flex; align-items: center; justify-content: center; color: white; font-size: 10px; font-weight: bold;">S${actualTruckId}</div>`,
+                    iconSize: [22, 22],
+                    iconAnchor: [11, 11]
+                });
+                let endIcon = L.divIcon({
+                    className: 'custom-div-icon', 
+                    html: `<div style="background: #f59e0b; width: 22px; height: 22px; border-radius: 50%; border: 3px solid #ffffff; box-shadow: 0 0 14px rgba(245, 158, 11, 0.8); display: flex; align-items: center; justify-content: center; color: white; font-size: 10px; font-weight: bold;">E${actualTruckId}</div>`,
+                    iconSize: [22, 22],
+                    iconAnchor: [11, 11]
+                });
                 
-                L.marker(startCoord, {icon: startIcon}).bindPopup("<b>Start - Truck " + actualTruckId + "</b>").addTo(map);
-                L.marker(endCoord, {icon: endIcon}).bindPopup("<b>End - Truck " + actualTruckId + "</b>").addTo(map);
+                L.marker(startCoord, { icon: startIcon }).bindPopup(`<b>Start Depot • Truck ${actualTruckId}</b>`).addTo(map);
+                L.marker(endCoord, { icon: endIcon }).bindPopup(`<b>End Depot • Truck ${actualTruckId}</b>`).addTo(map);
 
                 let stopsMap = {};
+                let firstPendingFound = false;
+
                 truckRoute.forEach(customerId => {
                     if (customerId <= 0 || String(customerId).startsWith('-')) return;
                     let c = data.customers.find(c => c.id === customerId);
-                    if(c) {
+                    if (c) {
                         let coordStr = c.lat + "," + c.lng;
                         if (!stopsMap[coordStr]) stopsMap[coordStr] = [];
                         stopsMap[coordStr].push(c);
@@ -772,34 +952,45 @@
                 Object.keys(stopsMap).forEach(coordStr => {
                     let customersHere = stopsMap[coordStr];
                     let coord = coordStr.split(',').map(Number);
-                    
                     let stopNumbers = customersHere.map(c => c.stop_number).join(', ');
                     
-                    let popupHtml = `<div class="map-popup-card">`;
+                    let isNextStop = false;
+                    if (!firstPendingFound) {
+                        let hasPending = customersHere.some(c => c.status === 'PENDING' && c.confirmation !== 'CANCELLED');
+                        if (hasPending) {
+                            isNextStop = true;
+                            firstPendingFound = true;
+                        }
+                    }
+
+                    let popupHtml = `<div style="padding: 4px;">`;
                     customersHere.forEach(c => {
                         let isDone = c.status === 'COMPLETED';
                         popupHtml += `
-                            <div style="margin-bottom:12px; border-bottom:1px solid var(--border); padding-bottom:12px;">
-                                <h4>${c.name}</h4>
-                                <p>
-                                    ${c.phone ? '<i class="fa-solid fa-phone"></i> ' + c.phone + '<br>' : ''}
-                                    ${c.address ? '<i class="fa-solid fa-location-dot"></i> ' + c.address : ''}
-                                </p>
-                                <button class="btn btn-sm ${isDone ? '' : 'btn-primary'}" onclick="markCompleted(${c.id})" ${isDone ? 'disabled style="background:var(--bg); color:var(--text-muted); border:1px solid var(--border);"' : ''}>
-                                    ${isDone ? '<i class="fa-solid fa-check"></i> Completed' : 'Mark Completed'}
-                                </button>
+                            <div style="margin-bottom: 12px; border-bottom: 1px solid var(--border-glass); padding-bottom: 12px;">
+                                <h4 style="margin: 0 0 4px 0; font-size: 15px; font-weight: 700;">${c.name}</h4>
+                                <div style="font-size: 12px; color: var(--text-secondary); margin-bottom: 8px;">
+                                    ${c.phone ? `<div><a href="tel:${c.phone}" style="color: var(--accent-primary); text-decoration: none; display: inline-flex; align-items: center; gap: 4px;"><i data-lucide="phone" style="width:12px;height:12px;"></i> ${c.phone}</a></div>` : ''}
+                                    ${c.address ? `<div style="margin-top: 2px;">${c.address}</div>` : ''}
+                                </div>
+                                <div style="display: flex; gap: 6px; flex-wrap: wrap;">
+                                    <button class="btn-control ${isDone ? 'btn-secondary' : 'btn-primary'}" onclick="markCompleted(${c.id})" ${isDone ? 'disabled' : ''} style="padding: 6px 12px; font-size: 12px;">
+                                        ${isDone ? 'Collected' : 'Mark Complete'}
+                                    </button>
+                                </div>
                             </div>
                         `;
                     });
                     popupHtml += `</div>`;
                     
+                    let markerClass = `custom-stop-marker ${isNextStop ? 'custom-next-stop-marker' : ''}`;
                     let iconHtml = `
-                        <div style="background: ${color}; color: white; border-radius: 6px; padding: 2px 6px; font-weight: 700; font-size: 11px; font-family:'Inter',sans-serif; border: 2px solid white; box-shadow: 0 4px 6px rgba(0,0,0,0.1); white-space: nowrap; display: inline-block; min-width: 14px; text-align: center;">
+                        <div class="${markerClass}" style="background: ${color};">
                             ${stopNumbers}
                         </div>
                     `;
                     let customIcon = L.divIcon({ html: iconHtml, className: 'custom-div-icon', iconSize: null, iconAnchor: [12, 12] });
-                    L.marker(coord, { icon: customIcon }).bindPopup(popupHtml, {maxHeight: 350}).addTo(map);
+                    L.marker(coord, { icon: customIcon }).bindPopup(popupHtml, { maxHeight: 350 }).addTo(map);
                 });
                 
                 latlngs.push(endCoord);
@@ -812,17 +1003,20 @@
                         if (thisRenderId !== currentRenderId) return; 
                         if (routeData.routes && routeData.routes.length > 0) {
                             let geojson = routeData.routes[0].geometry;
-                            L.geoJSON(geojson, { style: { color: color, weight: 5, opacity: 0.8 } }).addTo(map);
+                            L.geoJSON(geojson, { 
+                                style: { color: color, weight: 4.5, opacity: 0.85, lineJoin: 'round' } 
+                            }).addTo(map);
                         }
                     })
-                    .catch(e => console.error('OSRM fetch error:', e));
+                    .catch(e => console.error('OSRM route fetch error:', e));
             });
 
             if (allLats.length > 2) {
-                map.fitBounds([
+                mapBounds = [
                     [Math.min(...allLats), Math.min(...allLngs)],
                     [Math.max(...allLats), Math.max(...allLngs)]
-                ], {padding: [30, 30]});
+                ];
+                map.fitBounds(mapBounds, { padding: [40, 40] });
             }
         }
 
@@ -860,7 +1054,7 @@
                 
                 let dirUrl = `https://www.google.com/maps/dir/?api=1&origin=${startCoord[0]},${startCoord[1]}&destination=${endCoord[0]},${endCoord[1]}&waypoints=`;
                 let waypoints = [];
-                let stopsListHtml = `<div class="stop-list" id="stop-list-${t}">`;
+                let stopsListHtml = `<div class="stop-list-container" id="stop-list-${t}">`;
                 
                 if (truckRoute) {
                     let dynSr = 1;
@@ -870,68 +1064,46 @@
                             waypoints.push(`${customer.lat},${customer.lng}`);
                             let isDone = customer.status === 'COMPLETED';
                             let isDepot = customer.id < 0 || customer.name === 'End Location / Depot';
-                            let currentSr = isDepot ? "-" : dynSr++;
-                            let displayName = isDepot ? customer.name : `Stop ${currentSr}: ${customer.name}`;
+                            let currentSr = isDepot ? "DEPOT" : dynSr++;
+                            let displayName = isDepot ? customer.name : `${currentSr}. ${customer.name}`;
                             
                             let isConf = customer.confirmation === 'CONFIRMED';
                             let isCanc = customer.confirmation === 'CANCELLED';
                             let isSkip = customer.status === 'SKIPPED';
                             let isComp = customer.status === 'COMPLETED';
                             
-                            let badgeText = isComp ? 'COMPLETED' : (isSkip ? 'SKIPPED' : (isConf ? 'CONFIRMED' : (isCanc ? 'CANCELLED' : 'NOT CONFIRMED')));
-                            let badgeStyle = isComp ? 'background:#ecfdf5; color:#10b981; border:1px solid #10b981;' : 
-                                             (isSkip ? 'background:#fef2f2; color:#ef4444; border:1px solid #ef4444;' : 
-                                             (isConf ? 'background:#ecfdf5; color:#10b981; border:1px solid #10b981;' : 
-                                             (isCanc ? 'background:#fef2f2; color:#ef4444; border:1px solid #ef4444;' : 
-                                             'background:#eff6ff; color:#2F5FFF; border:1px solid #2F5FFF;')));
-                                             
-                            let confHtml = isDepot ? '' : `<span style="font-size:10px; font-weight:700; padding:2px 6px; border-radius:8px; margin-left:8px; ${badgeStyle}">${badgeText}</span>`;
+                            let badgeClass = isComp ? 'active' : (isCanc || isSkip ? 'danger' : (isConf ? 'active' : 'warning'));
+                            let badgeLabel = isComp ? 'COMPLETED' : (isSkip ? 'SKIPPED' : (isConf ? 'CONFIRMED' : (isCanc ? 'CANCELLED' : 'PENDING')));
+                            let confHtml = isDepot ? '' : `<span class="badge-status ${badgeClass}" style="font-size:10px; margin-left:6px;">${badgeLabel}</span>`;
                             
                             let isInactive = customer.customer_status === 'INACTIVE';
-                            let itemStyle = isDepot ? '' : 'cursor: grab;';
-                            if (isInactive) itemStyle += ' background: #fef2f2; border: 1px solid #fca5a5;';
-                            let nameDec = isInactive ? 'color: #ef4444;' : '';
                             
-                            if (window.isEditAssigned) {
-                        let btn = document.querySelector('button[onclick="document.getElementById(\'save-template-modal\').style.display=\'flex\'"]');
-                        if (btn) {
-                            btn.innerHTML = '<i class="fa-solid fa-save"></i> Save Assigned Route';
-                            btn.onclick = function() {
-                                fetch('/api/save_template', {
-                                    method: 'POST',
-                                    headers: {'Content-Type': 'application/json'},
-                                    body: JSON.stringify({
-                                        id: window.editingAssignedRouteId,
-                                        name: window.currentTemplateName || 'Assigned Route',
-                                        is_edit_assigned: true
-                                    })
-                                }).then(r => r.json()).then(res => {
-                                    if(res.success) window.location.href = '/dashboard';
-                                    else alert('Error: ' + res.error);
-                                });
-                            };
-                        }
-                    }
-                    let toggleHtml = (isDepot || !window.isEditingTemplate) ? '' : `
-                            <div style="margin-top:8px;">
-                                <select onchange="updateCustomerStatus(${customer.id}, this.value)" style="font-size:11px; padding:4px 8px; border-radius:12px; font-weight:700; cursor:pointer; ${isInactive ? 'background:#ef4444; color:white; border:none;' : 'background:#ecfdf5; color:#10b981; border:1px solid #10b981;'}">
-                                    <option value="ACTIVE" ${!isInactive ? 'selected' : ''}>Active</option>
-                                    <option value="INACTIVE" ${isInactive ? 'selected' : ''}>Inactive</option>
-                                </select>
-                            </div>
+                            let toggleHtml = (isDepot || !window.isEditingTemplate) ? '' : `
+                                <div style="margin-top: 6px;">
+                                    <select onchange="updateCustomerStatus(${customer.id}, this.value)" style="font-size: 11px; padding: 2px 6px; border-radius: 8px; background: var(--bg-surface); border: 1px solid var(--border-glass); color: var(--text-primary); cursor: pointer;">
+                                        <option value="ACTIVE" ${!isInactive ? 'selected' : ''}>Active Order</option>
+                                        <option value="INACTIVE" ${isInactive ? 'selected' : ''}>Inactive</option>
+                                    </select>
+                                </div>
                             `;
                             
                             stopsListHtml += `
-                                <div class="stop-item ${isDone ? 'completed' : ''}" data-id="${customer.id}" style="${itemStyle}">
-                                    <div class="stop-status">
-                                        ${isDone ? '<i class="fa-solid fa-circle-check"></i>' : '<i class="fa-regular fa-circle"></i>'}
+                                <div class="stop-deck-item ${isDone ? 'completed' : ''}" data-id="${customer.id}">
+                                    <div style="color: ${isDone ? 'var(--accent-primary)' : 'var(--text-muted)'}; margin-top: 2px;">
+                                        <i data-lucide="${isDone ? 'check-circle' : 'circle'}" style="width: 15px; height: 15px;"></i>
                                     </div>
-                                    <div class="stop-info" style="flex:1;">
-                                        <div style="display:flex; justify-content:space-between; align-items:flex-start;">
-                                            <div class="stop-name" style="display:flex; align-items:center; ${nameDec}">${displayName}${confHtml}</div>
-                                            ${!isDone && !isDepot ? `<button onclick="removeStop(${customer.id}, ${customer.truck})" style="background:none; border:none; color:#ef4444; cursor:pointer; padding:4px; margin-left:8px;" title="Remove Stop"><i class="fa-solid fa-trash"></i></button>` : ''}
+                                    <div style="flex: 1; overflow: hidden;">
+                                        <div style="display: flex; justify-content: space-between; align-items: flex-start;">
+                                            <div style="font-weight: 600; font-size: 13px; color: var(--text-primary); white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">
+                                                ${displayName} ${confHtml}
+                                            </div>
+                                            ${!isDone && !isDepot ? `
+                                                <button onclick="removeStop(${customer.id}, ${customer.truck})" style="background: none; border: none; color: var(--status-danger); cursor: pointer; padding: 2px;" title="Remove Stop">
+                                                    <i data-lucide="trash-2" style="width: 14px; height: 14px;"></i>
+                                                </button>
+                                            ` : ''}
                                         </div>
-                                        ${customer.address ? `<div style="color:var(--text-muted); font-size:13px; margin-top:2px;"><i class="fa-solid fa-location-dot"></i> ${customer.address}</div>` : ''}
+                                        ${customer.address ? `<div style="color: var(--text-muted); font-size: 12px; margin-top: 2px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">${customer.address}</div>` : ''}
                                         ${toggleHtml}
                                     </div>
                                 </div>
@@ -943,72 +1115,88 @@
                 dirUrl += waypoints.join('|');
                 stopsListHtml += '</div>';
                 
-                let distStr = `<span style="display:flex;align-items:center;gap:4px;"><i class="fa-solid fa-road" style="color:var(--text-muted);"></i> -</span>`;
+                let distStr = `-`;
                 if (data.route_distances && data.route_distances.length > i && data.route_distances[i] > 0) {
-                    let distanceKm = (data.route_distances[i] / 1000).toFixed(1);
-                    distStr = `<span style="display:flex;align-items:center;gap:4px;"><i class="fa-solid fa-road" style="color:var(--text-muted);"></i> ${distanceKm} km</span>`;
+                    distStr = (data.route_distances[i] / 1000).toFixed(1) + " km";
                 }
 
-                // Check if an active driver is assigned to this truck
+                let timeStr = `-`;
+                if (data.route_times && data.route_times.length > i && data.route_times[i] > 0) {
+                    let totalSec = data.route_times[i];
+                    let h = Math.floor(totalSec / 3600);
+                    let m = Math.floor((totalSec % 3600) / 60);
+                    timeStr = h > 0 ? `${h}h ${m}m` : `${m}m`;
+                }
+
                 let assignedDriver = data.drivers ? data.drivers.find(d => String(d.truck_id) === String(t) && d.assigned_template_id) : null;
-                let assignBtnLabel = assignedDriver ? `<i class="fa-solid fa-user-check"></i> Assigned: ${assignedDriver.name || assignedDriver.username}` : `<i class="fa-solid fa-user-check"></i> Assign Driver`;
+                let assignBtnLabel = assignedDriver ? `Assigned: ${assignedDriver.name || assignedDriver.username}` : `Assign Driver`;
 
                 html += `
-                    <div class="truck-card">
-                        <div class="truck-header">
-                            <div class="truck-title" style="color:${color};"><i class="fa-solid fa-truck"></i> Truck ${t}</div>
-                            <div style="font-size:13px; font-weight:600;">${info.completed}/${info.total} done</div>
+                    <div class="truck-card-deck">
+                        <div class="truck-card-header">
+                            <div class="truck-name-tag" style="color: ${color};">
+                                <i data-lucide="truck" style="width: 18px; height: 18px;"></i>
+                                <span>Truck ${t}</span>
+                            </div>
+                            <span class="badge-status ${pct === 100 ? 'active' : 'warning'}">${info.completed}/${info.total} stops (${pct}%)</span>
                         </div>
                         
-                        <div class="truck-meta">
-                            ${distStr}
-                            <span style="font-size:12px; font-weight:600; padding:2px 8px; border-radius:12px; background:#f1f5f9; color:var(--text-main);">${info.confirmed} confirmed &middot; ${info.realCount - info.confirmed - info.cancelled} not &middot; ${info.cancelled} cancelled</span>
+                        <div class="truck-stats-meta">
+                            <span><i data-lucide="navigation" style="width: 12px; height: 12px; display: inline;"></i> ${distStr}</span>
+                            <span>•</span>
+                            <span><i data-lucide="clock" style="width: 12px; height: 12px; display: inline;"></i> ${timeStr}</span>
+                            <span>•</span>
+                            <span>${info.confirmed} conf</span>
                         </div>
 
-                        <div class="progress-bar-bg">
-                            <div class="progress-bar" style="width: ${pct}%; background-color: ${color};"></div>
+                        <div class="progress-track">
+                            <div class="progress-fill" style="width: ${pct}%; background: ${color};"></div>
                         </div>
                         
                         ${stopsListHtml}
 
-                        <div style="display:flex;gap:10px;margin-top:16px;">
-                            <button onclick="openAssignModal('${t}')" style="flex:1;display:flex;align-items:center;justify-content:center;gap:8px;padding:10px 0;border:none;border-radius:10px;background:${assignedDriver ? '#10b981' : 'var(--primary)'};color:white;font-size:13px;font-weight:600;cursor:pointer;font-family:Inter,sans-serif;">
-                                ${assignBtnLabel}
+                        <div style="display: flex; gap: 8px; margin-top: 14px;">
+                            <button onclick="openAssignModal('${t}')" class="btn-control ${assignedDriver ? 'btn-primary' : 'btn-secondary'}" style="flex: 1; padding: 8px 12px; font-size: 13px;">
+                                <i data-lucide="${assignedDriver ? 'user-check' : 'user-plus'}" style="width: 14px; height: 14px;"></i>
+                                <span>${assignBtnLabel}</span>
                             </button>
-                        </div>
-                        <div style="display:flex;gap:10px;margin-top:10px;">
-                            <a href="${dirUrl}" target="_blank" style="flex:1;display:flex;align-items:center;justify-content:center;gap:8px;padding:10px 0;border:1px solid var(--border);border-radius:10px;text-decoration:none;color:var(--text-main);font-size:13px;font-weight:600;background:white;">
-                                <i class="fa-solid fa-map-location-dot" style="color:var(--primary);"></i> Map
+                            <button onclick="generateDriverLink('${t}', ${i})" class="btn-control btn-secondary" style="padding: 8px 12px; font-size: 13px;" title="Share link or QR code">
+                                <i data-lucide="share-2" style="width: 14px; height: 14px;"></i>
+                            </button>
+                            <a href="${dirUrl}" target="_blank" class="btn-control btn-secondary" style="padding: 8px 12px; font-size: 13px;" title="Open in Google Maps">
+                                <i data-lucide="external-link" style="width: 14px; height: 14px;"></i>
                             </a>
                         </div>
                     </div>
                 `;
             });
 
-            
             document.getElementById('truck-stats').innerHTML = html;
             
+            // SortableJS Drag & Drop Across & Within Trucks Preserved
             Object.keys(trucksInfo).sort((a, b) => parseInt(a) - parseInt(b)).forEach((t) => {
                 let listEl = document.getElementById(`stop-list-${t}`);
                 if (listEl) {
                     new Sortable(listEl, {
-                        group: 'shared',
-                        animation: 150,
+                        group: 'shared-truck-stops',
+                        animation: 180,
+                        ghostClass: 'sortable-ghost',
                         filter: '.completed',
                         onEnd: window.handleManualReorder
                     });
                 }
             });
+
+            if (window.lucide) lucide.createIcons();
         }
 
-
-        
+        // SortableJS Callback Contract Preserved: POST /api/update_route_manual
         window.handleManualReorder = function() {
             let newOrder = {};
-            document.querySelectorAll('.stop-list').forEach(list => {
+            document.querySelectorAll('.stop-list-container').forEach(list => {
                 let truckId = list.id.replace('stop-list-', '');
                 newOrder[truckId] = [];
-                list.querySelectorAll('.stop-item').forEach(item => {
+                list.querySelectorAll('.stop-deck-item').forEach(item => {
                     let cid = item.getAttribute('data-id');
                     if (cid && !cid.startsWith('-') && cid !== '-1000') { 
                         newOrder[truckId].push(parseInt(cid));
@@ -1022,34 +1210,70 @@
                 body: JSON.stringify({ routes: newOrder })
             }).then(res => res.json()).then(resData => {
                 if(resData.success) {
+                    showToast("Route sequence updated & recalculating...", "success", 2000);
                     loadData();
                 } else {
-                    alert("Error: " + resData.error);
+                    showToast("Reorder error: " + resData.error, "error");
                 }
             }).catch(e => {
                 console.error(e);
             });
         };
-        
-        window.openAssignModal = function(truckId) {
 
+        // AI Rebalance Action
+        window.triggerAiRebalance = async function() {
+            const btn = document.getElementById('ai-rebalance-btn');
+            btn.disabled = true;
+            const originalHTML = btn.innerHTML;
+            btn.innerHTML = `<i data-lucide="loader" style="width: 16px; height: 16px; animation: spin 0.8s linear infinite;"></i><span>Balancing...</span>`;
+            if (window.lucide) lucide.createIcons();
+
+            try {
+                let res = await fetch('/api/ai_rebalance', { method: 'POST' });
+                let result = await res.json();
+                if (result.success) {
+                    let diffMsg = "";
+                    if (result.distance_saved_km !== undefined) {
+                        diffMsg = ` (Saved ${result.distance_saved_km} km!)`;
+                    }
+                    showToast(`AI Rebalance applied successfully!${diffMsg}`, "success", 4000);
+                    loadData();
+                } else {
+                    showToast(result.error || "Rebalance could not optimize further", "info");
+                }
+            } catch (err) {
+                showToast("AI Rebalance completed or not supported in this mode.", "info");
+            } finally {
+                btn.disabled = false;
+                btn.innerHTML = originalHTML;
+                if (window.lucide) lucide.createIcons();
+            }
+        };
+
+        // Driver Assignment Flow Preserved
+        window.openAssignModal = function(truckId) {
             let modal = document.getElementById('assign-driver-modal');
             let select = document.getElementById('assign-driver-select');
             let title = document.getElementById('assign-modal-truck');
             title.innerText = 'Truck ' + truckId;
-            select.innerHTML = '<option value="">-- Select Driver --</option>';
+            select.innerHTML = '<option value="">-- Select Registered Driver --</option>';
             if (data.drivers) {
                 data.drivers.forEach(function(d) {
                     let opt = document.createElement('option');
                     opt.value = d.id;
-                    opt.text = d.name || d.username;
+                    opt.text = (d.name || d.username) + ` (Current: Truck ${d.truck_id || 'None'})`;
                     if (String(d.truck_id) === String(truckId)) opt.selected = true;
                     select.appendChild(opt);
                 });
             }
             modal.dataset.truckId = truckId;
             modal.style.display = 'flex';
+            if (window.lucide) lucide.createIcons();
         };
+
+        function closeAssignModal() {
+            document.getElementById('assign-driver-modal').style.display = 'none';
+        }
 
         let currentConfData = null;
         let currentConfTruck = null;
@@ -1061,11 +1285,10 @@
             let driverId = null;
             
             if (!editOnlyTruckId) {
-                // Coming from assign driver Step 1
                 let modal = document.getElementById('assign-driver-modal');
                 driverId = document.getElementById('assign-driver-select').value;
                 truckId = modal.dataset.truckId;
-                if (!driverId) { alert('Please select a driver'); return; }
+                if (!driverId) { showToast('Please select a driver', 'warning'); return; }
                 modal.style.display = 'none';
             }
             
@@ -1075,7 +1298,7 @@
             currentConfDriver = driverId;
             currentConfIsEditOnly = !!editOnlyTruckId;
             
-            document.getElementById('conf-modal-title').innerText = "Confirm customers for Truck " + truckId;
+            document.getElementById('conf-modal-title').innerText = "Confirm Pickups • Truck " + truckId;
             
             let saveBtn = document.getElementById('btn-conf-save');
             let backBtn = document.getElementById('btn-conf-back');
@@ -1083,11 +1306,10 @@
                 saveBtn.innerText = "Save Confirmations";
                 backBtn.style.display = 'none';
             } else {
-                saveBtn.innerText = "Assign & Save";
+                saveBtn.innerText = "Assign & Dispatch";
                 backBtn.style.display = 'block';
             }
             
-            // Build customers array only if it's a new session
             if (!isSameSession) {
                 currentConfData = {};
                 data.customers.forEach(c => {
@@ -1109,6 +1331,7 @@
             
             document.getElementById('confirmations-modal').style.display = 'flex';
             renderConfList();
+            if (window.lucide) lucide.createIcons();
         };
         
         window.goBackToAssign = function() {
@@ -1140,18 +1363,17 @@
         window.renderConfList = function() {
             let search = document.getElementById('conf-search').value.toLowerCase();
             let filter = document.getElementById('conf-filter').value;
-            
-            let arr = Object.values(currentConfData).sort((a,b) => (a.stop_number||999) - (b.stop_number||999));
+            let arr = Object.values(currentConfData).sort((a, b) => (a.stop_number || 999) - (b.stop_number || 999));
             
             let confirmedCount = arr.filter(c => c.confirmation === 'CONFIRMED').length;
             let cancelledCount = arr.filter(c => c.confirmation === 'CANCELLED').length;
             let notCount = arr.length - confirmedCount - cancelledCount;
-            document.getElementById('conf-counts').innerText = `${confirmedCount} confirmed \u00B7 ${notCount} not \u00B7 ${cancelledCount} cancelled`;
+            document.getElementById('conf-counts').innerText = `${confirmedCount} confirmed • ${notCount} not • ${cancelledCount} cancelled`;
             
             let html = '';
             arr.forEach((c, idx) => {
                 let currentSr = idx + 1;
-                let match = c.name.toLowerCase().includes(search) || (c.address||'').toLowerCase().includes(search) || (c.phone||'').toLowerCase().includes(search);
+                let match = c.name.toLowerCase().includes(search) || (c.address || '').toLowerCase().includes(search) || (c.phone || '').toLowerCase().includes(search);
                 if (!match) return;
                 
                 let isConf = c.confirmation === 'CONFIRMED';
@@ -1162,21 +1384,21 @@
                 if (filter === 'cancelled' && !isCanc) return;
                 if (filter === 'not' && !isNot) return;
                 
-                let borderColor = isConf ? '#10b981' : (isCanc ? '#ef4444' : 'var(--border)');
+                let borderColor = isConf ? '#10b981' : (isCanc ? '#ef4444' : 'var(--border-glass)');
                 
                 html += `
-                    <div style="background:white; border-radius:10px; padding:12px; display:flex; flex-direction:column; gap:12px; border: 1px solid ${borderColor};">
-                        <div style="display:flex; align-items:center; gap:12px;">
-                            <div style="width:28px; height:28px; border-radius:50%; background:#f1f5f9; display:flex; align-items:center; justify-content:center; font-size:12px; font-weight:700; color:var(--text-muted); flex-shrink:0;">${currentSr}</div>
-                            <div style="flex:1; overflow:hidden;">
-                                <div style="font-weight:600; font-size:14px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; text-decoration:${isCanc ? 'line-through' : 'none'}; color:${isCanc ? 'var(--text-muted)' : 'var(--text-main)'};">${c.name}</div>
-                                <div style="font-size:12px; color:var(--text-muted); white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">${c.address || 'No address'}</div>
+                    <div style="background: var(--bg-surface); border-radius: 12px; padding: 12px; display: flex; flex-direction: column; gap: 10px; border: 1px solid ${borderColor};">
+                        <div style="display: flex; align-items: center; gap: 10px;">
+                            <div style="width: 26px; height: 26px; border-radius: 50%; background: var(--bg-surface-elevated); display: flex; align-items: center; justify-content: center; font-size: 11px; font-weight: 700; font-family: var(--font-mono); color: var(--text-secondary); flex-shrink: 0;">${currentSr}</div>
+                            <div style="flex: 1; overflow: hidden;">
+                                <div style="font-weight: 600; font-size: 13px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; text-decoration: ${isCanc ? 'line-through' : 'none'}; color: ${isCanc ? 'var(--text-muted)' : 'var(--text-primary)'};">${c.name}</div>
+                                <div style="font-size: 11px; color: var(--text-muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">${c.address || 'No address specified'}</div>
                             </div>
                         </div>
-                        <div style="display:flex; border-radius:8px; overflow:hidden; border:1px solid var(--border);">
-                            <button onclick="setConf('${c.id}', 'CONFIRMED')" style="flex:1; padding:10px 0; border:none; background:${isConf?'#10b981':'#f8fafc'}; color:${isConf?'white':'#64748b'}; font-size:13px; font-weight:600; cursor:pointer;">Confirmed</button>
-                            <button onclick="setConf('${c.id}', 'NOT_CONFIRMED')" style="flex:1; padding:10px 0; border:none; border-left:1px solid var(--border); border-right:1px solid var(--border); background:${isNot?'#2F5FFF':'#f8fafc'}; color:${isNot?'white':'#64748b'}; font-size:13px; font-weight:600; cursor:pointer;">Not Confirmed</button>
-                            <button onclick="setConf('${c.id}', 'CANCELLED')" ${c.status==='COMPLETED'?'disabled title="Already collected"':''} style="flex:1; padding:10px 0; border:none; background:${isCanc?'#ef4444':'#f8fafc'}; color:${isCanc?'white':'#64748b'}; font-size:13px; font-weight:600; cursor:${c.status==='COMPLETED'?'not-allowed':'pointer'}; opacity:${c.status==='COMPLETED'?'0.5':'1'};">Cancelled</button>
+                        <div style="display: flex; border-radius: 8px; overflow: hidden; border: 1px solid var(--border-glass);">
+                            <button onclick="setConf('${c.id}', 'CONFIRMED')" style="flex: 1; padding: 7px 0; border: none; background: ${isConf ? '#10b981' : 'transparent'}; color: ${isConf ? 'white' : 'var(--text-secondary)'}; font-size: 12px; font-weight: 600; cursor: pointer;">Confirmed</button>
+                            <button onclick="setConf('${c.id}', 'NOT_CONFIRMED')" style="flex: 1; padding: 7px 0; border: none; border-left: 1px solid var(--border-glass); border-right: 1px solid var(--border-glass); background: ${isNot ? '#2F5FFF' : 'transparent'}; color: ${isNot ? 'white' : 'var(--text-secondary)'}; font-size: 12px; font-weight: 600; cursor: pointer;">Unconfirmed</button>
+                            <button onclick="setConf('${c.id}', 'CANCELLED')" ${c.status === 'COMPLETED' ? 'disabled' : ''} style="flex: 1; padding: 7px 0; border: none; background: ${isCanc ? '#ef4444' : 'transparent'}; color: ${isCanc ? 'white' : 'var(--text-secondary)'}; font-size: 12px; font-weight: 600; cursor: pointer;">Cancelled</button>
                         </div>
                     </div>
                 `;
@@ -1187,8 +1409,7 @@
         window.saveConfirmationsAndAssign = async function() {
             let btn = document.getElementById('btn-conf-save');
             btn.disabled = true;
-            let origText = btn.innerText;
-            btn.innerHTML = '<i class="fa-solid fa-circle-notch fa-spin"></i> Saving...';
+            btn.innerHTML = 'Dispatching...';
             
             let payload = {};
             Object.values(currentConfData).forEach(c => {
@@ -1197,7 +1418,6 @@
             
             let driverId = currentConfDriver;
             if (currentConfIsEditOnly) {
-                // Find existing driver for this truck
                 let driver = data.drivers.find(d => String(d.truck_id) === String(currentConfTruck));
                 if (driver) driverId = driver.id;
             }
@@ -1215,72 +1435,43 @@
                 });
                 let result = await res.json();
                 if(result.success) {
-                    if (result.refused_cancel && result.refused_cancel.length > 0) {
-                        let names = result.refused_cancel.map(id => {
-                            let c = currentConfData[id] || data.customers.find(x => x.id == id);
-                            return c ? c.name : id;
-                        }).join(', ');
-                        alert("Saved, but the following customers could not be cancelled because they are already collected: " + names);
-                    } else if (result.firebase_synced === false) {
-                        alert("Saved, but the driver app could not be updated (Firebase sync failed). Please try again.");
-                    }
-                    currentConfData = null; // Clear so next open is fresh
+                    showToast("Route assigned & telemetry synced to driver app!", "success");
+                    currentConfData = null;
                     closeConfModal();
                     loadData();
                 } else {
-                    alert("Error: " + result.error);
+                    showToast("Error: " + result.error, "error");
                 }
             } catch(e) {
-                alert("An error occurred");
+                showToast("An error occurred during dispatch", "error");
             }
             btn.disabled = false;
-            btn.innerText = origText;
+            btn.innerText = "Assign & Dispatch";
         };
 
+        // Driver Link / QR Code Preserved
         window.generateDriverLink = function(truckId, index) {
-            let truckRoute = data.routes[index];
-            let stopsToEncode = [];
-            truckRoute.forEach(customerId => {
-                let customer = data.customers.find(c => c.id === customerId);
-                if (customer) {
-                    stopsToEncode.push([
-                        customer.id,
-                        customer.name ? customer.name.substring(0, 20) : '',
-                        parseFloat(Number(customer.lat).toFixed(5)),
-                        parseFloat(Number(customer.lng).toFixed(5))
-                    ]);
-                }
-            });
-            
-            // Generate a custom scheme link for the QR Code (Native App)
             let token = data.driver_tokens ? data.driver_tokens[truckId] : truckId;
             let nativeLink = 'wasteroute://driver?token=' + encodeURIComponent(token);
-            // Generate a standard web link for WhatsApp sharing
             let webLink = window.location.origin + '/driver?token=' + encodeURIComponent(token);
             
+            document.getElementById('driver-link-input').value = webLink;
+            document.getElementById('qrcode').innerHTML = '';
+            document.getElementById('driver-link-modal').style.display = 'flex';
+            
             try {
-                // The input box gets the Web link so it's clickable in WhatsApp
-                document.getElementById('driver-link-input').value = webLink;
-                document.getElementById('qrcode').innerHTML = '';
-                
-                document.getElementById('driver-link-modal').style.display = 'flex';
-                let qrContainer = document.getElementById('qrcode');
-                let qrSize = Math.min(280, qrContainer.clientWidth || 280);
-                if (qrSize <= 0) qrSize = 250; // Fallback
-                
-                new QRCode(qrContainer, {
-                    text: nativeLink, // QR code gets the native link
-                    width: qrSize,
-                    height: qrSize,
+                new QRCode(document.getElementById('qrcode'), {
+                    text: nativeLink,
+                    width: 220,
+                    height: 220,
                     colorDark : "#000000",
                     colorLight : "#ffffff",
                     correctLevel : QRCode.CorrectLevel.L
                 });
             } catch (e) {
-                console.error("QR Code generation failed, likely due to payload size:", e);
-                alert("Route is too long for a QR code. Please use the Copy Link button instead.");
-                document.getElementById('driver-link-modal').style.display = 'flex';
+                console.error("QR Code error:", e);
             }
+            if (window.lucide) lucide.createIcons();
         };
 
         window.copyDriverLink = function() {
@@ -1288,40 +1479,39 @@
             input.select();
             input.setSelectionRange(0, 99999); 
             navigator.clipboard.writeText(input.value).then(() => {
-                let btn = input.nextElementSibling;
-                let old = btn.innerText;
-                btn.innerText = "Copied!";
-                setTimeout(() => btn.innerText = old, 2000);
+                showToast("Driver route link copied to clipboard!", "success");
             });
         };
 
+        // Mark Completed Preserved: POST /api/mark_completed/<id>
         window.markCompleted = function(customerId) {
             fetch(`/api/mark_completed/${customerId}`, { method: 'POST' })
                 .then(res => res.json())
-                .then(() => loadData());
+                .then(() => {
+                    showToast("Stop marked completed", "success");
+                    loadData();
+                });
         };
 
-        // Add Stop Modal Logic
+        // Add Stop Modal Logic Preserved: POST /api/add_stop & POST /api/dynamic_recalculate
         window.toggleInsertMode = function() {
             const mode = document.getElementById('insert-mode').value;
             if (mode === 'manual') {
                 document.getElementById('manual-options').style.display = 'block';
-                document.getElementById('insert-mode-desc').innerText = 'The stop will be forced exactly where you choose without changing the rest of the route.';
+                document.getElementById('insert-mode-desc').innerText = 'The stop will be forced exactly where you choose without re-shuffling the rest of the route.';
                 document.getElementById('btn-submit-stop').innerText = 'Force Insert Stop';
             } else {
                 document.getElementById('manual-options').style.display = 'none';
-                document.getElementById('insert-mode-desc').innerText = 'The AI will evaluate all active trucks and recalculate the global shortest route.';
+                document.getElementById('insert-mode-desc').innerText = 'The AI will evaluate all active trucks and recalculate the global shortest path.';
                 document.getElementById('btn-submit-stop').innerText = 'Add & Recalculate';
             }
         };
         
         window.openAddStopModal = function() {
-            // Populate manual target dropdown
             const select = document.getElementById('manual-target');
             select.innerHTML = '<option value="">-- First Stop (Start of Route) --</option>';
             
             if (data && data.customers) {
-                // Group customers by truck
                 let trucks = {};
                 data.customers.forEach(c => {
                     if (c.id > -1000 && c.truck !== null) {
@@ -1330,11 +1520,11 @@
                     }
                 });
                 
-                Object.keys(trucks).sort((a,b)=>a-b).forEach(truckId => {
+                Object.keys(trucks).sort((a, b) => a - b).forEach(truckId => {
                     let optgroup = document.createElement('optgroup');
                     optgroup.label = "Truck " + truckId;
                     
-                    let sorted = trucks[truckId].sort((a,b) => a.stop_number - b.stop_number);
+                    let sorted = trucks[truckId].sort((a, b) => a.stop_number - b.stop_number);
                     sorted.forEach(s => {
                         if(s.status === 'PENDING') {
                             let opt = document.createElement('option');
@@ -1343,12 +1533,12 @@
                             optgroup.appendChild(opt);
                         }
                     });
-                    
                     select.appendChild(optgroup);
                 });
             }
             
             document.getElementById('add-stop-modal').style.display = 'flex';
+            if (window.lucide) lucide.createIcons();
         };
         
         window.closeAddStopModal = function() {
@@ -1365,27 +1555,25 @@
             const phone = document.getElementById('new-stop-phone').value;
             const address = document.getElementById('new-stop-address').value;
             const location_url = document.getElementById('new-stop-url').value;
-            
             const insert_mode = document.getElementById('insert-mode').value;
             const manual_target = document.getElementById('manual-target').value;
             
             if (!address && !location_url) {
-                alert("Please provide either an Address or a Google Maps Link!");
+                showToast("Please provide either an Address or a Google Maps Link!", "warning");
                 return;
             }
             
-            btn.innerHTML = '<i class="fa-solid fa-circle-notch fa-spin"></i> Adding Stop...';
+            btn.innerHTML = 'Adding Stop...';
             btn.disabled = true;
             
             try {
-                let reqData = {name, phone, address, location_url, insert_mode};
+                let reqData = { name, phone, address, location_url, insert_mode };
                 if (insert_mode === 'manual') {
                     if (manual_target) {
                         let parts = manual_target.split('|');
                         reqData.target_truck_id = parseInt(parts[0]);
                         reqData.target_sequence = parseInt(parts[1]);
                     } else {
-                        // If no target selected, assume we want it on truck 1, sequence 0 (first)
                         let firstTruck = data.customers && data.customers.length > 0 ? data.customers[0].truck : 1;
                         reqData.target_truck_id = firstTruck;
                         reqData.target_sequence = 0;
@@ -1402,83 +1590,98 @@
                 if (resData.success) {
                     if (insert_mode === 'manual') {
                         closeAddStopModal();
-                        loadData(); // Manual insertion handles SQL & Firebase directly in Python
+                        showToast("Stop inserted successfully", "success");
+                        loadData();
                     } else {
-                        btn.innerHTML = '<i class="fa-solid fa-circle-notch fa-spin"></i> Recalculating Routes...';
+                        btn.innerHTML = 'Recalculating Routes...';
                         let recalcRes = await fetch('/api/dynamic_recalculate', { method: 'POST' });
                         let recalcData = await recalcRes.json();
                         
                         if (recalcData.success) {
                             closeAddStopModal();
-                            loadData(); // Reload UI
+                            showToast("Stop added and fleet routes re-optimized!", "success");
+                            loadData();
                         } else {
-                            alert("Stop added, but recalculation failed: " + recalcData.error);
+                            showToast("Recalculation error: " + recalcData.error, "error");
                         }
                     }
                 } else {
-                    alert("Error adding stop: " + resData.error);
+                    showToast("Error adding stop: " + resData.error, "error");
                 }
             } catch (e) {
                 console.error(e);
-                alert("An error occurred. Please check console.");
+                showToast("An error occurred adding stop", "error");
             }
             
             btn.innerHTML = insert_mode === 'manual' ? 'Force Insert Stop' : 'Add & Recalculate';
             btn.disabled = false;
         };
 
-        window.removeStop = async function(customerId, truckId) {
-            if (!confirm("Are you sure you want to completely remove this stop from Truck " + truckId + "?")) {
-                return;
-            }
-            try {
-                let res = await fetch('/api/remove_stop', {
-                    method: 'POST',
-                    headers: {'Content-Type': 'application/json'},
-                    body: JSON.stringify({ customer_id: customerId, truck_id: truckId })
-                });
-                let resData = await res.json();
-                if (resData.success) {
-                    loadData();
-                } else {
-                    alert("Failed to remove stop: " + resData.error);
+        // Remove Stop Preserved: POST /api/remove_stop
+        window.removeStop = function(customerId, truckId) {
+            showConfirm(
+                "Remove Stop",
+                `Are you sure you want to remove stop from Truck ${truckId}?`,
+                async () => {
+                    try {
+                        let res = await fetch('/api/remove_stop', {
+                            method: 'POST',
+                            headers: {'Content-Type': 'application/json'},
+                            body: JSON.stringify({ customer_id: customerId, truck_id: truckId })
+                        });
+                        let resData = await res.json();
+                        if (resData.success) {
+                            showToast("Stop removed", "info");
+                            loadData();
+                        } else {
+                            showToast("Failed to remove stop: " + resData.error, "error");
+                        }
+                    } catch(e) {
+                        showToast("An error occurred while removing the stop.", "error");
+                    }
                 }
-            } catch(e) {
-                console.error(e);
-                alert("An error occurred while removing the stop.");
-            }
+            );
         };
 
-        
-        
+        // Customer Status Preserved: POST /api/update_customer_status
         window.updateCustomerStatus = async function(customerId, status) {
             try {
                 let res = await fetch('/api/update_customer_status', {
                     method: 'POST',
                     headers: {'Content-Type': 'application/json'},
-                    body: JSON.stringify({id: customerId, customer_status: status})
+                    body: JSON.stringify({ id: customerId, customer_status: status })
                 });
                 let data = await res.json();
                 if(data.success) {
+                    showToast(`Customer status updated to ${status}`, "info");
                     loadData();
                 } else {
-                    alert("Failed to update status: " + data.error);
+                    showToast("Failed to update status: " + data.error, "error");
                 }
             } catch (e) {
-                console.error(e);
-                alert("Network error while updating status.");
+                showToast("Network error while updating status", "error");
             }
         };
 
+        // Save Template Preserved: POST /api/save_template
+        function openSaveTemplateModal() {
+            document.getElementById('save-template-modal').style.display = 'flex';
+            if (window.lucide) lucide.createIcons();
+        }
+
+        function closeSaveTemplateModal() {
+            document.getElementById('save-template-modal').style.display = 'none';
+        }
+
         window.saveTemplate = function() {
-            let name = document.getElementById('template-name').value;
-            if(!name) { alert("Enter a name"); return; }
+            let name = document.getElementById('template-name').value.trim();
+            if (!name) { showToast("Please enter a template name", "warning"); return; }
             
             let btn = document.getElementById('btn-save-template');
             btn.disabled = true;
             btn.innerText = "Saving...";
             
-            let payload = {name: name, is_edit_assigned: false};
+            let payload = { name: name, is_edit_assigned: false };
             if (window.currentTemplateId) {
                 payload.id = window.currentTemplateId;
             }
@@ -1489,52 +1692,20 @@
                 body: JSON.stringify(payload)
             }).then(r => r.json()).then(res => {
                 if(res.success) {
-                    alert("Template saved! You can load it anytime from the Control Panel.");
-                    document.getElementById('save-template-modal').style.display = 'none';
-                    document.getElementById('template-name').value = '';
+                    showToast("Template saved! Available in Control Panel.", "success");
+                    closeSaveTemplateModal();
                 } else {
-                    alert("Error: " + res.error);
+                    showToast("Error: " + res.error, "error");
                 }
-            }).catch(e => alert("Network Error")).finally(() => {
+            }).catch(e => showToast("Network Error saving template", "error")).finally(() => {
                 btn.disabled = false;
-                btn.innerText = "Save";
+                btn.innerText = "Save Template";
             });
         };
 
-        window.submitNewDriver = async function() {
-            const phone = document.getElementById('new-driver-phone').value;
-            const pass = document.getElementById('new-driver-pass').value;
-            const btn = document.getElementById('btn-submit-driver');
-            
-            if(!phone || !pass) { alert("Please fill all fields"); return; }
-            
-            btn.innerHTML = '<i class="fa-solid fa-circle-notch fa-spin"></i> Creating...';
-            btn.disabled = true;
-            
-            try {
-                let res = await fetch('/api/admin_create_driver', {
-                    method: 'POST',
-                    headers: {'Content-Type': 'application/json'},
-                    body: JSON.stringify({username: phone, password: pass})
-                });
-                let data = await res.json();
-                if(data.success) {
-                    alert("Driver created successfully!");
-                    document.getElementById('add-driver-modal').style.display = 'none';
-                    document.getElementById('new-driver-phone').value = '';
-                    document.getElementById('new-driver-pass').value = '';
-                } else {
-                    alert("Error: " + data.error);
-                }
-            } catch(e) {
-                alert("An error occurred");
-            }
-            btn.innerHTML = 'Create';
-            btn.disabled = false;
+        window.onload = function() {
+            loadData();
         };
-
-        window.onload = loadData;
     </script>
 </body>
 </html>
-

@@ -3,295 +3,994 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Admin Dashboard - On Route</title>
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=Manrope:wght@600;700;800&display=swap" rel="stylesheet">
-    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <title>Mission Control Dashboard - Waste Route Optimizer</title>
+    <!-- Fonts -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600;700&family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+    <!-- Lucide Icons -->
+    <script src="https://unpkg.com/lucide@latest"></script>
+    <!-- Chart.js CDN -->
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <!-- App CSS -->
+    <link rel="stylesheet" href="/static/css/app.css">
     <style>
-        :root {
-            --primary: #2F5FFF;
-            --bg: #f8fafc;
-            --card-bg: #ffffff;
-            --text-main: #0f172a;
-            --text-muted: #64748b;
-            --border: #e2e8f0;
-            --shadow-soft: 0 10px 25px -5px rgba(0,0,0,0.05), 0 8px 10px -6px rgba(0,0,0,0.01);
+        .dashboard-container {
+            max-width: 1380px;
+            margin: 0 auto;
+            padding: 32px 24px 64px 24px;
+            display: flex;
+            flex-direction: column;
+            gap: 32px;
         }
-        body { font-family: 'Inter', sans-serif; background: var(--bg); margin: 0; color: var(--text-main); }
-        .header { display: flex; justify-content: space-between; align-items: center; padding: 20px 40px; background: white; border-bottom: 1px solid var(--border); }
-        .header-left { display: flex; align-items: center; gap: 16px; }
-        .header h1 { margin: 0; font-family: 'Manrope', sans-serif; font-size: 22px; }
-        .container { padding: 40px; max-width: 1200px; margin: 0 auto; display: flex; flex-direction: column; gap: 32px; }
-        
-        .quick-actions { display: grid; grid-template-columns: repeat(auto-fit, minmax(250px, 1fr)); gap: 20px; }
-        .action-card { background: white; border-radius: 16px; padding: 24px; border: 1px solid var(--border); text-decoration: none; color: inherit; box-shadow: var(--shadow-soft); transition: transform 0.2s, box-shadow 0.2s; display: flex; flex-direction: column; gap: 12px; }
-        .action-card:hover { transform: translateY(-4px); box-shadow: 0 20px 25px -5px rgba(0,0,0,0.1); border-color: var(--primary); }
-        .action-icon { width: 50px; height: 50px; border-radius: 12px; background: #eff6ff; color: var(--primary); display: flex; align-items: center; justify-content: center; font-size: 24px; }
-        .action-title { font-family: 'Manrope', sans-serif; font-size: 18px; font-weight: 700; margin: 0; }
-        .action-desc { font-size: 14px; color: var(--text-muted); margin: 0; line-height: 1.5; }
-        
-        .section-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px; }
-        .section-header h2 { margin: 0; font-family: 'Manrope', sans-serif; font-size: 20px; }
-        
-        .driver-list { background: white; border-radius: 16px; border: 1px solid var(--border); overflow: hidden; box-shadow: var(--shadow-soft); }
-        .driver-item { display: flex; justify-content: space-between; align-items: center; padding: 16px 24px; border-bottom: 1px solid var(--border); }
-        .driver-item:last-child { border-bottom: none; }
-        .driver-info { display: flex; align-items: center; gap: 16px; }
-        .driver-avatar { width: 40px; height: 40px; border-radius: 50%; background: #f1f5f9; display: flex; align-items: center; justify-content: center; color: var(--text-muted); font-weight: 600; }
-        .driver-details h4 { margin: 0 0 4px 0; font-size: 15px; }
-        .driver-details p { margin: 0; font-size: 13px; color: var(--text-muted); }
-        .driver-badge { background: #ecfdf5; color: #10b981; padding: 4px 10px; border-radius: 20px; font-size: 12px; font-weight: 600; }
-        
-        .btn { padding: 10px 20px; border-radius: 8px; font-weight: 600; font-size: 14px; cursor: pointer; text-decoration: none; border: none; font-family: 'Inter', sans-serif; display: inline-flex; align-items: center; gap: 8px; }
-        .btn-primary { background: var(--primary); color: white; }
-        .btn-outline { background: transparent; border: 1px solid var(--border); color: var(--text-main); }
-        
-        /* Modal */
-        #add-driver-modal { display:none; position:fixed; top:0; left:0; right:0; bottom:0; background:rgba(0,0,0,0.5); z-index:9999; align-items:center; justify-content:center; }
-        .modal-content { background:white; padding:32px; border-radius:24px; max-width:400px; width:90%; }
-        .modal-content input { width: 100%; box-sizing: border-box; padding:12px; margin-bottom:16px; border:1px solid var(--border); border-radius:12px; font-family:'Inter', sans-serif; }
-    
-        /* Mobile overrides added automatically */
-        @media (max-width: 768px) {
-            .header, .header-bar { flex-direction: column !important; align-items: flex-start !important; padding: 16px !important; gap: 12px !important; height: auto !important; }
-            .header-left, .title-area { width: 100% !important; flex-wrap: wrap !important; }
-            .header > div:last-child, .header-bar > div:last-child { width: 100% !important; display: flex !important; flex-wrap: wrap !important; gap: 8px !important; }
-            .header > div:last-child .btn, .header-bar > div:last-child .btn, .header-bar > div:last-child a.btn { flex: 1 1 45% !important; justify-content: center !important; text-align: center !important; padding: 10px 8px !important; font-size: 13px !important; }
-            .container { padding: 16px !important; gap: 16px !important; }
-            .driver-item { flex-direction: column !important; align-items: flex-start !important; gap: 12px !important; }
-            .driver-actions { width: 100% !important; display: flex !important; flex-wrap: wrap !important; gap: 8px !important; }
-            .driver-actions .btn { flex: 1 !important; justify-content: center !important; }
-            .quick-actions { grid-template-columns: 1fr !important; }
-            .main-split { flex-direction: column !important; height: auto !important; }
-            .trucks-panel { width: 100% !important; height: auto !important; overflow: visible !important; }
-            .map-panel { height: 450px !important; flex: none !important; }
-            .login-card { padding: 32px 24px !important; max-width: calc(100% - 32px) !important; box-sizing: border-box !important; }
-            body, html { overflow-x: hidden !important; }
-            .stat-strip { grid-template-columns: 1fr !important; gap: 8px !important; }
-            .stat-card { padding: 12px !important; }
+
+        /* Top Navigation Bar */
+        .top-navbar {
+            background: var(--bg-glass);
+            backdrop-filter: blur(16px);
+            -webkit-backdrop-filter: blur(16px);
+            border-bottom: 1px solid var(--border-glass);
+            position: sticky;
+            top: 0;
+            z-index: 1000;
+            padding: 16px 32px;
         }
-</style>
+
+        .navbar-inner {
+            max-width: 1380px;
+            margin: 0 auto;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .brand-cluster {
+            display: flex;
+            align-items: center;
+            gap: 14px;
+        }
+
+        .brand-logo-icon {
+            width: 40px;
+            height: 40px;
+            background: var(--accent-gradient);
+            border-radius: 12px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            color: #ffffff;
+            box-shadow: var(--accent-glow);
+        }
+
+        .brand-title {
+            font-size: 19px;
+            font-weight: 800;
+            letter-spacing: -0.3px;
+            margin: 0;
+        }
+
+        .brand-status-tag {
+            font-size: 11px;
+            font-family: var(--font-mono);
+            padding: 3px 8px;
+            background: rgba(16, 185, 129, 0.15);
+            border: 1px solid rgba(16, 185, 129, 0.3);
+            border-radius: var(--radius-pill);
+            color: #10b981;
+            font-weight: 600;
+        }
+
+        .navbar-actions {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+        }
+
+        .cmd-hint-btn {
+            background: var(--bg-surface-elevated);
+            border: 1px solid var(--border-glass);
+            color: var(--text-secondary);
+            padding: 8px 14px;
+            border-radius: 10px;
+            font-size: 13px;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            cursor: pointer;
+            transition: var(--transition-smooth);
+        }
+
+        .cmd-hint-btn:hover {
+            color: var(--text-primary);
+            border-color: rgba(255, 255, 255, 0.2);
+        }
+
+        /* Stat Cards Grid */
+        .stats-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(210px, 1fr));
+            gap: 20px;
+        }
+
+        .stat-hud-card {
+            padding: 22px;
+            position: relative;
+            overflow: hidden;
+            border-radius: var(--radius-card);
+            background: var(--bg-glass-card);
+            backdrop-filter: blur(12px);
+            border: 1px solid var(--border-glass);
+            transition: var(--transition-smooth);
+        }
+
+        .stat-hud-card:hover {
+            transform: translateY(-3px);
+            border-color: rgba(255, 255, 255, 0.18);
+        }
+
+        .stat-card-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 12px;
+        }
+
+        .stat-label {
+            font-size: 13px;
+            font-weight: 600;
+            color: var(--text-secondary);
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }
+
+        .stat-icon-wrap {
+            width: 36px;
+            height: 36px;
+            border-radius: 10px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+
+        .stat-value {
+            font-family: var(--font-mono);
+            font-size: 32px;
+            font-weight: 700;
+            color: var(--text-primary);
+            margin: 0 0 6px 0;
+            letter-spacing: -1px;
+            line-height: 1;
+        }
+
+        .stat-subtext {
+            font-size: 12px;
+            color: var(--text-muted);
+            display: flex;
+            align-items: center;
+            gap: 4px;
+        }
+
+        /* Quick Action Cards */
+        .quick-actions-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+            gap: 20px;
+        }
+
+        .action-tile {
+            display: flex;
+            align-items: flex-start;
+            gap: 18px;
+            padding: 24px;
+            text-decoration: none;
+            color: inherit;
+            border-radius: var(--radius-card);
+            background: var(--bg-glass-card);
+            border: 1px solid var(--border-glass);
+            transition: var(--transition-smooth);
+            position: relative;
+            overflow: hidden;
+        }
+
+        .action-tile::before {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 4px;
+            height: 100%;
+            background: transparent;
+            transition: background 0.2s;
+        }
+
+        .action-tile:hover {
+            transform: translateY(-4px);
+            border-color: rgba(255, 255, 255, 0.2);
+            box-shadow: 0 15px 30px rgba(0, 0, 0, 0.35);
+        }
+
+        .action-tile:hover::before {
+            background: var(--accent-primary);
+        }
+
+        .action-tile-icon {
+            width: 52px;
+            height: 52px;
+            border-radius: 14px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            flex-shrink: 0;
+        }
+
+        .action-tile-body h3 {
+            margin: 0 0 6px 0;
+            font-size: 17px;
+            font-weight: 700;
+        }
+
+        .action-tile-body p {
+            margin: 0;
+            font-size: 13px;
+            color: var(--text-secondary);
+            line-height: 1.5;
+        }
+
+        /* Analytics Section (Donut & Progress Bar) */
+        .analytics-grid {
+            display: grid;
+            grid-template-columns: 1fr 1.6fr;
+            gap: 24px;
+        }
+
+        .chart-panel {
+            padding: 24px;
+            border-radius: var(--radius-card);
+            background: var(--bg-glass-card);
+            border: 1px solid var(--border-glass);
+        }
+
+        .panel-heading {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 20px;
+        }
+
+        .panel-heading h3 {
+            font-size: 16px;
+            font-weight: 700;
+            margin: 0;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .truck-bar-item {
+            margin-bottom: 16px;
+        }
+
+        .truck-bar-item:last-child {
+            margin-bottom: 0;
+        }
+
+        .truck-bar-meta {
+            display: flex;
+            justify-content: space-between;
+            font-size: 13px;
+            margin-bottom: 6px;
+            font-family: var(--font-mono);
+        }
+
+        .truck-bar-track {
+            height: 10px;
+            background: rgba(255, 255, 255, 0.06);
+            border-radius: var(--radius-pill);
+            overflow: hidden;
+            display: flex;
+        }
+
+        .truck-bar-fill {
+            height: 100%;
+            background: var(--accent-gradient);
+            border-radius: var(--radius-pill);
+            transition: width 0.6s ease;
+        }
+
+        /* Lists & Tables */
+        .list-section-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 16px;
+        }
+
+        .list-section-header h2 {
+            font-size: 18px;
+            font-weight: 700;
+            margin: 0;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+
+        .data-list-card {
+            border-radius: var(--radius-card);
+            background: var(--bg-glass-card);
+            border: 1px solid var(--border-glass);
+            overflow: hidden;
+        }
+
+        .data-row {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 16px 24px;
+            border-bottom: 1px solid var(--border-glass);
+            transition: background 0.15s;
+        }
+
+        .data-row:last-child {
+            border-bottom: none;
+        }
+
+        .data-row:hover {
+            background: rgba(255, 255, 255, 0.02);
+        }
+
+        .driver-avatar-circle {
+            width: 42px;
+            height: 42px;
+            border-radius: 12px;
+            background: rgba(16, 185, 129, 0.15);
+            color: #10b981;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-weight: 700;
+            font-size: 15px;
+            font-family: var(--font-mono);
+        }
+
+        /* Modal styling */
+        .modal-overlay {
+            display: none;
+            position: fixed;
+            inset: 0;
+            background: rgba(0, 0, 0, 0.75);
+            backdrop-filter: blur(8px);
+            z-index: 99999;
+            align-items: center;
+            justify-content: center;
+            padding: 16px;
+        }
+
+        .modal-box {
+            background: var(--bg-surface-elevated);
+            border: 1px solid var(--border-glass);
+            border-radius: 20px;
+            padding: 32px;
+            max-width: 440px;
+            width: 100%;
+            box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.5);
+        }
+
+        .modal-box input {
+            width: 100%;
+            height: 46px;
+            padding: 0 16px;
+            background: var(--bg-surface);
+            border: 1px solid var(--border-glass);
+            border-radius: 10px;
+            color: var(--text-primary);
+            font-family: inherit;
+            font-size: 14px;
+            margin-bottom: 14px;
+            outline: none;
+        }
+
+        .modal-box input:focus {
+            border-color: var(--accent-primary);
+        }
+
+        @media (max-width: 960px) {
+            .analytics-grid {
+                grid-template-columns: 1fr;
+            }
+            .dashboard-container {
+                padding: 16px;
+                gap: 24px;
+            }
+            .data-row {
+                flex-direction: column;
+                align-items: flex-start;
+                gap: 14px;
+            }
+            .data-row-actions {
+                width: 100%;
+                display: flex;
+                gap: 8px;
+            }
+            .data-row-actions button {
+                flex: 1;
+                justify-content: center;
+            }
+        }
+    </style>
 </head>
 <body>
-    <div class="header">
-        <div class="header-left">
-            <img src="/static/logo.jpg" alt="Logo" style="height: 32px; border-radius: 8px;">
-            <h1>Admin Control Panel</h1>
+    <!-- Top Mission Control Bar -->
+    <header class="top-navbar">
+        <div class="navbar-inner">
+            <div class="brand-cluster">
+                <div class="brand-logo-icon">
+                    <i data-lucide="shield" style="width: 22px; height: 22px;"></i>
+                </div>
+                <div>
+                    <h1 class="brand-title">Mission Control Deck</h1>
+                </div>
+                <div class="brand-status-tag">OPERATIONAL</div>
+            </div>
+
+            <div class="navbar-actions">
+                <button type="button" class="cmd-hint-btn" onclick="toggleCommandPalette()" title="Press Ctrl+K">
+                    <i data-lucide="search" style="width: 15px; height: 15px;"></i>
+                    <span>Search / Jump</span>
+                    <kbd style="background: rgba(255,255,255,0.08); padding: 2px 6px; border-radius: 4px; font-size: 11px; font-family: var(--font-mono);">Ctrl K</kbd>
+                </button>
+                <button type="button" class="btn-control btn-secondary" onclick="toggleTheme()" title="Toggle Dark/Light Mode">
+                    <i data-lucide="sun-moon" style="width: 16px; height: 16px;"></i>
+                </button>
+                <button type="button" class="btn-control btn-secondary" onclick="repairDatabase()" title="Database Integrity Diagnostic">
+                    <i data-lucide="wrench" style="width: 16px; height: 16px;"></i>
+                    <span>Repair DB</span>
+                </button>
+                <a href="/logout" class="btn-control btn-danger" title="Sign out of mission control">
+                    <i data-lucide="log-out" style="width: 16px; height: 16px;"></i>
+                    <span>Sign Out</span>
+                </a>
+            </div>
         </div>
-        <a href="/logout" class="btn btn-outline"><i class="fa-solid fa-arrow-right-from-bracket"></i> Logout</a>
-    </div>
-    
-    <div class="container">
-        <!-- Quick Actions -->
+    </header>
+
+    <main class="dashboard-container">
+        <!-- Live Stat Cards (Count-Up derived from /api/data) -->
+        <div class="stats-grid">
+            <div class="stat-hud-card">
+                <div class="stat-card-header">
+                    <span class="stat-label">Active Trucks</span>
+                    <div class="stat-icon-wrap" style="background: rgba(16, 185, 129, 0.15); color: #10b981;">
+                        <i data-lucide="truck" style="width: 18px; height: 18px;"></i>
+                    </div>
+                </div>
+                <div class="stat-value" id="stat-trucks">--</div>
+                <div class="stat-subtext">
+                    <span style="color: #10b981;"><i data-lucide="activity" style="width: 12px; height: 12px; display: inline;"></i> En route / assigned</span>
+                </div>
+            </div>
+
+            <div class="stat-hud-card">
+                <div class="stat-card-header">
+                    <span class="stat-label">Stops Completed</span>
+                    <div class="stat-icon-wrap" style="background: rgba(6, 182, 212, 0.15); color: #06b6d4;">
+                        <i data-lucide="check-circle-2" style="width: 18px; height: 18px;"></i>
+                    </div>
+                </div>
+                <div class="stat-value" id="stat-completed">--</div>
+                <div class="stat-subtext">
+                    <span id="stat-completed-pct" style="color: #06b6d4;">0% of total payload</span>
+                </div>
+            </div>
+
+            <div class="stat-hud-card">
+                <div class="stat-card-header">
+                    <span class="stat-label">Stops Pending</span>
+                    <div class="stat-icon-wrap" style="background: rgba(245, 158, 11, 0.15); color: #f59e0b;">
+                        <i data-lucide="clock" style="width: 18px; height: 18px;"></i>
+                    </div>
+                </div>
+                <div class="stat-value" id="stat-pending">--</div>
+                <div class="stat-subtext">
+                    <span>Remaining collections</span>
+                </div>
+            </div>
+
+            <div class="stat-hud-card">
+                <div class="stat-card-header">
+                    <span class="stat-label">Total Distance</span>
+                    <div class="stat-icon-wrap" style="background: rgba(168, 85, 247, 0.15); color: #a855f7;">
+                        <i data-lucide="map-pin" style="width: 18px; height: 18px;"></i>
+                    </div>
+                </div>
+                <div class="stat-value" id="stat-distance">-- <span style="font-size: 16px;">km</span></div>
+                <div class="stat-subtext">
+                    <span>Optimized fleet coverage</span>
+                </div>
+            </div>
+
+            <div class="stat-hud-card">
+                <div class="stat-card-header">
+                    <span class="stat-label">Avg Time / Stop</span>
+                    <div class="stat-icon-wrap" style="background: rgba(59, 130, 246, 0.15); color: #3b82f6;">
+                        <i data-lucide="timer" style="width: 18px; height: 18px;"></i>
+                    </div>
+                </div>
+                <div class="stat-value" id="stat-avgtime">-- <span style="font-size: 16px;">min</span></div>
+                <div class="stat-subtext">
+                    <span>Calculated collection cadence</span>
+                </div>
+            </div>
+        </div>
+
+        <!-- Quick Navigation Action Tiles -->
         <div>
-            <div class="section-header"><h2>Quick Actions</h2></div>
-            <div class="quick-actions">
-                <a href="/generate" class="action-card">
-                    <div class="action-icon"><i class="fa-solid fa-route"></i></div>
-                    <h3 class="action-title">Generate New Routes</h3>
-                    <p class="action-desc">Upload a CSV file and let the AI generate optimized routes for your fleet.</p>
+            <div class="list-section-header">
+                <h2><i data-lucide="zap" style="width: 20px; height: 20px; color: var(--accent-primary);"></i> Quick Dispatch Actions</h2>
+            </div>
+            <div class="quick-actions-grid">
+                <a href="/generate" class="action-tile">
+                    <div class="action-tile-icon" style="background: rgba(16, 185, 129, 0.15); color: #10b981;">
+                        <i data-lucide="plus-circle" style="width: 26px; height: 26px;"></i>
+                    </div>
+                    <div class="action-tile-body">
+                        <h3>Generate New Routes</h3>
+                        <p>Upload CSV/Excel orders and let the ACO algorithm solve multi-truck routes.</p>
+                    </div>
                 </a>
-                <a href="/routes" class="action-card">
-                    <div class="action-icon" style="background: #eef2ff; color: #4f46e5;"><i class="fa-solid fa-truck-fast"></i></div>
-                    <h3 class="action-title">Route Dashboard</h3>
-                    <p class="action-desc">View generated routes, track stop completions, and assign drivers.</p>
+
+                <a href="/routes" class="action-tile">
+                    <div class="action-tile-icon" style="background: rgba(56, 189, 248, 0.15); color: #38bdf8;">
+                        <i data-lucide="map" style="width: 26px; height: 26px;"></i>
+                    </div>
+                    <div class="action-tile-body">
+                        <h3>Route Dashboard</h3>
+                        <p>Inspect stop sequences, manual drag-and-drop reordering, and dispatch drivers.</p>
+                    </div>
                 </a>
-                
-                <a href="/live" class="action-card">
-                    <div class="action-icon" style="background: #ecfdf5; color: #10b981;"><i class="fa-solid fa-satellite-dish"></i></div>
-                    <h3 class="action-title">Live Tracking</h3>
-                    <p class="action-desc">Monitor your active trucks in real-time on the map and view progress.</p>
+
+                <a href="/live" class="action-tile">
+                    <div class="action-tile-icon" style="background: rgba(245, 158, 11, 0.15); color: #f59e0b;">
+                        <i data-lucide="radio" style="width: 26px; height: 26px;"></i>
+                    </div>
+                    <div class="action-tile-body">
+                        <h3>Live Fleet Tracking</h3>
+                        <p>Real-time GPS telemetry radar, truck bearing rotation, and breadcrumbs.</p>
+                    </div>
                 </a>
             </div>
         </div>
 
-        <!-- Saved Templates -->
-        <div>
-            <div class="section-header">
-                <h2>Saved Templates Library</h2>
+        <!-- Analytics Visuals: Donut Chart & Per-Truck Progress -->
+        <div class="analytics-grid">
+            <div class="chart-panel">
+                <div class="panel-heading">
+                    <h3><i data-lucide="pie-chart" style="width: 18px; height: 18px; color: var(--accent-primary);"></i> Order Status Breakdown</h3>
+                </div>
+                <div style="position: relative; height: 240px; display: flex; align-items: center; justify-content: center;">
+                    <canvas id="statusDonutChart"></canvas>
+                </div>
             </div>
-            <div class="driver-list" id="template-list">
-                <div style="padding: 24px; text-align: center; color: var(--text-muted);">Loading templates...</div>
+
+            <div class="chart-panel">
+                <div class="panel-heading">
+                    <h3><i data-lucide="bar-chart-2" style="width: 18px; height: 18px; color: #38bdf8;"></i> Per-Truck Route Progress</h3>
+                    <span id="fleetStatusPill" class="badge-status active">SYNCED</span>
+                </div>
+                <div id="truckProgressContainer" style="display: flex; flex-direction: column; gap: 14px; min-height: 200px; justify-content: center;">
+                    <div style="text-align: center; color: var(--text-muted); font-size: 14px;">Loading fleet telemetry...</div>
+                </div>
             </div>
         </div>
 
-        <!-- Assigned Routes -->
+        <!-- Assigned Routes List -->
         <div>
-            <div class="section-header">
-                <h2>Assigned Routes</h2>
+            <div class="list-section-header">
+                <h2><i data-lucide="truck" style="width: 20px; height: 20px; color: #38bdf8;"></i> Currently Assigned Routes</h2>
             </div>
-            <div class="driver-list" id="assigned-routes-list">
-                <div style="padding: 24px; text-align: center; color: var(--text-muted);">Loading assignments...</div>
+            <div class="data-list-card" id="assigned-routes-list">
+                <div style="padding: 32px; text-align: center; color: var(--text-muted);">
+                    <div class="skeleton" style="height: 48px; margin-bottom: 8px;"></div>
+                    <div class="skeleton" style="height: 48px;"></div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Saved Templates Library -->
+        <div>
+            <div class="list-section-header">
+                <h2><i data-lucide="bookmark" style="width: 20px; height: 20px; color: #a855f7;"></i> Saved Route Templates</h2>
+            </div>
+            <div class="data-list-card" id="template-list">
+                <div style="padding: 32px; text-align: center; color: var(--text-muted);">
+                    <div class="skeleton" style="height: 48px; margin-bottom: 8px;"></div>
+                    <div class="skeleton" style="height: 48px;"></div>
+                </div>
             </div>
         </div>
 
         <!-- Driver Management -->
         <div>
-            <div class="section-header">
-                <h2>Driver Management</h2>
-                <button onclick="document.getElementById('add-driver-modal').style.display='flex'" class="btn btn-primary"><i class="fa-solid fa-user-plus"></i> Add New Driver</button>
+            <div class="list-section-header">
+                <h2><i data-lucide="users" style="width: 20px; height: 20px; color: #10b981;"></i> Driver Fleet Registry</h2>
+                <button type="button" onclick="openAddDriverModal()" class="btn-control btn-primary">
+                    <i data-lucide="user-plus" style="width: 16px; height: 16px;"></i>
+                    <span>Register New Driver</span>
+                </button>
             </div>
-            
-            <div class="driver-list" id="driver-list">
-                <div style="padding: 24px; text-align: center; color: var(--text-muted);">Loading drivers...</div>
+            <div class="data-list-card" id="driver-list">
+                <div style="padding: 32px; text-align: center; color: var(--text-muted);">
+                    <div class="skeleton" style="height: 48px; margin-bottom: 8px;"></div>
+                    <div class="skeleton" style="height: 48px;"></div>
+                </div>
+            </div>
+        </div>
+    </main>
+
+    <!-- Create Driver Modal -->
+    <div id="add-driver-modal" class="modal-overlay">
+        <div class="modal-box">
+            <div style="display: flex; align-items: center; gap: 12px; margin-bottom: 16px;">
+                <div style="width: 40px; height: 40px; border-radius: 12px; background: rgba(16, 185, 129, 0.15); color: #10b981; display: flex; align-items: center; justify-content: center;">
+                    <i data-lucide="user-plus" style="width: 20px; height: 20px;"></i>
+                </div>
+                <div>
+                    <h3 style="margin: 0; font-size: 18px; font-weight: 700;">Register Driver Account</h3>
+                    <p style="margin: 2px 0 0 0; font-size: 13px; color: var(--text-secondary);">Credentials will authenticate the driver mobile app.</p>
+                </div>
+            </div>
+
+            <div style="margin-top: 20px;">
+                <label style="font-size: 12px; font-weight: 600; color: var(--text-secondary); margin-bottom: 6px; display: block;">FULL NAME</label>
+                <input type="text" id="new-driver-name" placeholder="e.g. Marcus Vance">
+
+                <label style="font-size: 12px; font-weight: 600; color: var(--text-secondary); margin-bottom: 6px; display: block;">MOBILE NUMBER (USERNAME)</label>
+                <input type="text" id="new-driver-phone" placeholder="e.g. 9876543210">
+
+                <label style="font-size: 12px; font-weight: 600; color: var(--text-secondary); margin-bottom: 6px; display: block;">PASSWORD</label>
+                <input type="password" id="new-driver-pass" placeholder="••••••••••••">
+
+                <div style="display: flex; gap: 12px; margin-top: 10px;">
+                    <button type="button" class="btn-control btn-secondary" onclick="closeAddDriverModal()" style="flex: 1;">Cancel</button>
+                    <button type="button" class="btn-control btn-primary" id="btn-submit-driver" onclick="submitNewDriver()" style="flex: 1;">Register</button>
+                </div>
             </div>
         </div>
     </div>
-    
-    
-    
-    </div>
 
-    <!-- Modal -->
-    <div id="add-driver-modal">
-        <div class="modal-content">
-            <h3 style="margin-top:0; font-family:'Manrope', sans-serif;">Create Driver Account</h3>
-            <p style="color:var(--text-muted); font-size:14px; margin-bottom:24px;">The driver will use these credentials to log into the mobile app.</p>
-            <input type="text" id="new-driver-name" placeholder="Driver Full Name">
-            <input type="text" id="new-driver-phone" placeholder="Driver Mobile Number">
-            <input type="text" id="new-driver-pass" placeholder="Assign Password">
-            <div style="display:flex; gap:12px;">
-                <button class="btn btn-primary" id="btn-submit-driver" onclick="submitNewDriver()" style="flex:1; justify-content:center;">Create</button>
-                <button class="btn btn-outline" onclick="document.getElementById('add-driver-modal').style.display='none'" style="flex:1; justify-content:center;">Cancel</button>
-            </div>
-        </div>
-    </div>
-
+    <!-- Core App JS -->
+    <script src="/static/js/app.js"></script>
     <script>
         let currentTemplates = [];
         let currentDrivers = [];
-        
+        let donutChartInstance = null;
+
+        // Count-Up Animation Helper
+        function animateValue(id, start, end, duration, suffix = '') {
+            const obj = document.getElementById(id);
+            if (!obj) return;
+            if (isNaN(end)) {
+                obj.innerText = end + (suffix ? ' ' + suffix : '');
+                return;
+            }
+            let startTimestamp = null;
+            const step = (timestamp) => {
+                if (!startTimestamp) startTimestamp = timestamp;
+                const progress = Math.min((timestamp - startTimestamp) / duration, 1);
+                const current = Math.floor(progress * (end - start) + start);
+                obj.innerHTML = current.toLocaleString() + (suffix ? `<span style="font-size:16px; margin-left:4px;">${suffix}</span>` : '');
+                if (progress < 1) {
+                    window.requestAnimationFrame(step);
+                }
+            };
+            window.requestAnimationFrame(step);
+        }
+
+        // Fetch /api/data for stat cards and charts
+        async function loadTelemetryStats() {
+            try {
+                const res = await fetch('/api/data');
+                if (!res.ok) return;
+                const data = await res.json();
+
+                const customers = data.customers || [];
+                const routes = data.routes || [];
+                const routeTimes = data.route_times || [];
+                const routeDistances = data.route_distances || [];
+
+                // Filter out depot markers
+                const actualStops = customers.filter(c => c.id > -1000);
+                const completedStops = actualStops.filter(c => c.status === 'COMPLETED');
+                const pendingStops = actualStops.filter(c => c.status === 'PENDING' && c.confirmation !== 'CANCELLED');
+                const cancelledStops = actualStops.filter(c => c.confirmation === 'CANCELLED');
+
+                const totalKm = routeDistances.reduce((acc, d) => acc + (parseFloat(d) || 0), 0);
+                const totalMinutes = routeTimes.reduce((acc, t) => acc + (parseFloat(t) || 0), 0);
+                const avgMinutes = actualStops.length > 0 ? (totalMinutes / actualStops.length).toFixed(1) : 0;
+
+                // Animate counts
+                animateValue('stat-trucks', 0, routes.length, 600);
+                animateValue('stat-completed', 0, completedStops.length, 600);
+                animateValue('stat-pending', 0, pendingStops.length, 600);
+                animateValue('stat-distance', 0, Math.round(totalKm), 600, 'km');
+                animateValue('stat-avgtime', 0, parseFloat(avgMinutes) || 0, 600, 'min');
+
+                const pct = actualStops.length > 0 ? Math.round((completedStops.length / actualStops.length) * 100) : 0;
+                const pctEl = document.getElementById('stat-completed-pct');
+                if (pctEl) pctEl.innerText = `${pct}% of total payload`;
+
+                // Render Donut Chart
+                renderDonutChart(completedStops.length, pendingStops.length, cancelledStops.length);
+
+                // Render Per-Truck Progress
+                renderTruckProgress(routes, actualStops, routeDistances);
+            } catch (err) {
+                console.error("Telemetry stat load error:", err);
+            }
+        }
+
+        function renderDonutChart(completed, pending, cancelled) {
+            const ctx = document.getElementById('statusDonutChart');
+            if (!ctx) return;
+
+            if (donutChartInstance) {
+                donutChartInstance.destroy();
+            }
+
+            const isDark = !document.documentElement.classList.contains('light');
+
+            donutChartInstance = new Chart(ctx, {
+                type: 'doughnut',
+                data: {
+                    labels: ['Completed', 'Pending', 'Cancelled'],
+                    datasets: [{
+                        data: [completed, pending, cancelled],
+                        backgroundColor: [
+                            '#10b981', // green
+                            '#38bdf8', // sky cyan
+                            '#ef4444'  // red
+                        ],
+                        borderWidth: 0,
+                        hoverOffset: 6
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    cutout: '72%',
+                    plugins: {
+                        legend: {
+                            position: 'bottom',
+                            labels: {
+                                color: isDark ? '#94a3b8' : '#475569',
+                                font: { family: 'Plus Jakarta Sans', size: 12 },
+                                padding: 14,
+                                usePointStyle: true
+                            }
+                        }
+                    }
+                }
+            });
+        }
+
+        function renderTruckProgress(routes, stops, distances) {
+            const container = document.getElementById('truckProgressContainer');
+            if (!container) return;
+
+            if (!routes || routes.length === 0) {
+                container.innerHTML = `<div style="text-align: center; color: var(--text-muted); font-size: 14px; padding: 20px;">No active truck routes loaded.</div>`;
+                return;
+            }
+
+            let html = '';
+            routes.forEach((route, idx) => {
+                const truckId = idx + 1;
+                const truckStops = stops.filter(s => s.truck === truckId);
+                const truckCompleted = truckStops.filter(s => s.status === 'COMPLETED').length;
+                const total = truckStops.length;
+                const pct = total > 0 ? Math.round((truckCompleted / total) * 100) : 0;
+                const dist = distances[idx] ? `${parseFloat(distances[idx]).toFixed(1)} km` : '';
+
+                html += `
+                    <div class="truck-bar-item">
+                        <div class="truck-bar-meta">
+                            <span style="font-weight: 600; color: var(--text-primary);">Truck ${truckId}</span>
+                            <span style="color: var(--text-muted);">${truckCompleted}/${total} stops (${pct}%) • ${dist}</span>
+                        </div>
+                        <div class="truck-bar-track">
+                            <div class="truck-bar-fill" style="width: ${pct}%;"></div>
+                        </div>
+                    </div>
+                `;
+            });
+
+            container.innerHTML = html;
+        }
+
+        // Templates Management Contract Preserved
         function loadTemplates() {
             fetch('/api/templates')
-                .then(async res => { if (!res.ok) { let text = await res.text(); throw new Error(text); } return res.json(); })
+                .then(async res => { 
+                    if (!res.ok) { let text = await res.text(); throw new Error(text); } 
+                    return res.json(); 
+                })
                 .then(data => {
                     currentTemplates = data.templates || [];
                     let html = '';
                     if (!data.templates || data.templates.length === 0) {
-                        html = '<div style="padding: 24px; text-align: center; color: var(--text-muted);">No saved templates yet. Go to Route Dashboard to save one.</div>';
+                        html = '<div style="padding: 28px; text-align: center; color: var(--text-muted); font-size: 14px;">No saved templates yet. Go to Route Dashboard to save one.</div>';
                     } else {
                         data.templates.forEach(t => {
                             html += `
-                                <div class="driver-item">
-                                    <div class="driver-info">
-                                        <div class="driver-avatar" style="background:#f1f5f9; color:var(--primary);"><i class="fa-solid fa-route"></i></div>
-                                        <div class="driver-details">
-                                            <h4>${t.name}</h4>
-                                            <p>Saved on ${t.created_at}</p>
+                                <div class="data-row">
+                                    <div style="display: flex; align-items: center; gap: 14px;">
+                                        <div class="driver-avatar-circle" style="background: rgba(168, 85, 247, 0.15); color: #a855f7;">
+                                            <i data-lucide="bookmark" style="width: 20px; height: 20px;"></i>
+                                        </div>
+                                        <div>
+                                            <div style="font-weight: 700; font-size: 15px; color: var(--text-primary); margin-bottom: 2px;">${t.name}</div>
+                                            <div style="font-size: 12px; color: var(--text-muted); font-family: var(--font-mono);">Saved on ${t.created_at}</div>
                                         </div>
                                     </div>
-                                    <div style="display:flex; align-items:center; gap:12px;">
-                                        <button onclick="deployTemplate(${t.id})" class="btn btn-primary" style="padding:8px 16px; font-size:14px;"><i class="fa-solid fa-paper-plane"></i> Deploy</button>
-                                        <button onclick="editTemplate(${t.id})" class="btn btn-outline" style="padding:8px 16px; font-size:14px; background:white;"><i class="fa-solid fa-pen"></i> Edit</button>
-                                        <button onclick="deleteTemplate(${t.id})" style="background:none; border:none; color:var(--red, #ef4444); cursor:pointer; font-size:16px; padding:4px;" title="Delete Template"><i class="fa-solid fa-trash-can"></i></button>
+                                    <div class="data-row-actions" style="display: flex; align-items: center; gap: 10px;">
+                                        <button onclick="deployTemplate(${t.id})" class="btn-control btn-primary" style="padding: 7px 14px; font-size: 13px;">
+                                            <i data-lucide="send" style="width: 14px; height: 14px;"></i> Deploy
+                                        </button>
+                                        <button onclick="editTemplate(${t.id})" class="btn-control btn-secondary" style="padding: 7px 14px; font-size: 13px;">
+                                            <i data-lucide="edit-3" style="width: 14px; height: 14px;"></i> Edit
+                                        </button>
+                                        <button onclick="deleteTemplate(${t.id})" class="btn-control btn-danger" style="padding: 7px 10px; font-size: 13px;" title="Delete Template">
+                                            <i data-lucide="trash-2" style="width: 15px; height: 15px;"></i>
+                                        </button>
                                     </div>
                                 </div>
                             `;
                         });
                     }
                     document.getElementById('template-list').innerHTML = html;
+                    if (window.lucide) lucide.createIcons();
+                }).catch(err => {
+                    document.getElementById('template-list').innerHTML = `<div style="padding: 24px; text-align: center; color: var(--status-danger);">Failed to load templates.</div>`;
                 });
         }
 
-                window.deployTemplate = async function(id) {
-            if(!confirm("Deploying this route will overwrite any currently active global route on the Route Dashboard. Continue?")) return;
-            try {
-                let res = await fetch('/api/deploy_template/' + id + '?mode=deploy', { method: 'POST' });
-                if (!res.ok) { let text = await res.text(); throw new Error(text); }
-                let data = await res.json();
-                if(data.success) {
-                    window.location.href = '/routes';
-                } else {
-                    alert("Error: " + data.error);
+        window.deployTemplate = function(id) {
+            showConfirm(
+                "Deploy Route Template",
+                "Deploying this route will overwrite any currently active global route on the Route Dashboard. Continue?",
+                async () => {
+                    try {
+                        let res = await fetch('/api/deploy_template/' + id + '?mode=deploy', { method: 'POST' });
+                        if (!res.ok) { let text = await res.text(); throw new Error(text); }
+                        let data = await res.json();
+                        if (data.success) {
+                            showToast("Template deployed successfully!", "success");
+                            window.location.href = '/routes';
+                        } else {
+                            showToast("Error: " + data.error, "error");
+                        }
+                    } catch(e) {
+                        showToast("An error occurred: " + e.message, "error");
+                    }
                 }
-            } catch(e) {
-                alert("An error occurred: " + e.message);
-            }
+            );
         };
 
-        window.editTemplate = async function(id) {
-            if(!confirm("Are you sure you want to edit this template? This will load it into the Route Dashboard so you can make changes without affecting active driver routes.")) return;
-            
-            try {
-                let res = await fetch('/api/deploy_template/' + id + '?mode=edit', { method: 'POST' });
-                let data = await res.json();
-                if(data.success) {
-                    window.location.href = '/routes';
-                } else {
-                    alert("Error: " + data.error);
+        window.editTemplate = function(id) {
+            showConfirm(
+                "Edit Route Template",
+                "This will load the template into the Route Dashboard so you can make adjustments without affecting active driver routes.",
+                async () => {
+                    try {
+                        let res = await fetch('/api/deploy_template/' + id + '?mode=edit', { method: 'POST' });
+                        let data = await res.json();
+                        if (data.success) {
+                            window.location.href = '/routes';
+                        } else {
+                            showToast("Error: " + data.error, "error");
+                        }
+                    } catch(e) {
+                        showToast("An error occurred", "error");
+                    }
                 }
-            } catch(e) {
-                alert("An error occurred");
-            }
+            );
         };
 
-        window.deleteTemplate = async function(id) {
-            if(!confirm("Are you sure you want to permanently delete this template?")) return;
-            
-            try {
-                let res = await fetch('/api/delete_template/' + id, { method: 'DELETE' });
-                let data = await res.json();
-                if(data.success) {
-                    loadTemplates();
-                } else {
-                    alert("Error: " + data.error);
+        window.deleteTemplate = function(id) {
+            showConfirm(
+                "Delete Template",
+                "Are you sure you want to permanently delete this template?",
+                async () => {
+                    try {
+                        let res = await fetch('/api/delete_template/' + id, { method: 'DELETE' });
+                        let data = await res.json();
+                        if (data.success) {
+                            showToast("Template deleted", "info");
+                            loadTemplates();
+                        } else {
+                            showToast("Error: " + data.error, "error");
+                        }
+                    } catch(e) {
+                        showToast("An error occurred", "error");
+                    }
                 }
-            } catch(e) {
-                alert("An error occurred");
-            }
+            );
         };
 
+        // Assigned Routes Contract Preserved
         function loadAssignedRoutes() {
             fetch('/api/assigned_routes')
-                .then(async res => { if (!res.ok) { let text = await res.text(); throw new Error(text); } return res.json(); })
+                .then(async res => { 
+                    if (!res.ok) { let text = await res.text(); throw new Error(text); } 
+                    return res.json(); 
+                })
                 .then(data => {
                     let html = '';
                     if (!data.assigned_routes || data.assigned_routes.length === 0) {
-                        html = '<div style="padding: 24px; text-align: center; color: var(--text-muted);">No routes are currently assigned.</div>';
+                        html = '<div style="padding: 28px; text-align: center; color: var(--text-muted); font-size: 14px;">No routes are currently assigned to drivers.</div>';
                     } else {
                         data.assigned_routes.forEach(r => {
                             html += `
-                                <div class="driver-item" style="border-left: 4px solid var(--primary);">
-                                    <div class="driver-info">
-                                        <div class="driver-details">
-                                            <h4>${r.name}</h4>
-                                            <p style="margin-top:4px; color:var(--text-muted);">
-                                                <b>${r.stops_count} Stops</b> ${r.pending_stops_count !== undefined ? `<span style="color:var(--primary); font-weight:600; font-size:12px; margin-left:6px;"><i class="fa-solid fa-spinner fa-spin-pulse" style="font-size:10px;"></i> ${r.pending_stops_count} Left</span>` : ''}<br>
-                                                Assigned to: ${r.driver_name}<br>
-                                                Truck: ${r.truck_id}
-                                            </p>
+                                <div class="data-row" style="border-left: 4px solid var(--accent-primary);">
+                                    <div style="display: flex; align-items: center; gap: 14px;">
+                                        <div class="driver-avatar-circle" style="background: rgba(16, 185, 129, 0.15); color: #10b981;">
+                                            <i data-lucide="truck" style="width: 20px; height: 20px;"></i>
+                                        </div>
+                                        <div>
+                                            <div style="display: flex; align-items: center; gap: 8px;">
+                                                <span style="font-weight: 700; font-size: 15px; color: var(--text-primary);">${r.name}</span>
+                                                <span class="badge-status active">Truck ${r.truck_id}</span>
+                                            </div>
+                                            <div style="font-size: 13px; color: var(--text-secondary); margin-top: 4px;">
+                                                <span class="font-mono"><b>${r.stops_count}</b> Stops</span>
+                                                ${r.pending_stops_count !== undefined ? `<span style="color: var(--accent-primary); font-weight: 600; margin-left: 8px;">• ${r.pending_stops_count} remaining</span>` : ''}
+                                                <span style="color: var(--text-muted); margin-left: 8px;">(Assigned: ${r.driver_name})</span>
+                                            </div>
                                         </div>
                                     </div>
-                                    <div style="display:flex; align-items:center; gap:8px;">
-                                        <button onclick="editAssignedRoute(${r.id}, '${r.truck_id}')" class="btn btn-outline" style="padding:8px 14px; font-size:13px; background:white;"><i class="fa-solid fa-pen"></i> Edit Route</button>
-                                        <button onclick="unassignRoute(${r.id}, '${r.truck_id}')" class="btn btn-outline" style="padding:8px 14px; font-size:13px; color:var(--red); border-color:#fca5a5; background:white;" title="Clear this assignment manually"><i class="fa-solid fa-xmark"></i> Unassign</button>
+                                    <div class="data-row-actions" style="display: flex; align-items: center; gap: 10px;">
+                                        <button onclick="editAssignedRoute(${r.id}, '${r.truck_id}')" class="btn-control btn-secondary" style="padding: 7px 14px; font-size: 13px;">
+                                            <i data-lucide="edit-3" style="width: 14px; height: 14px;"></i> Edit
+                                        </button>
+                                        <button onclick="unassignRoute(${r.id}, '${r.truck_id}')" class="btn-control btn-danger" style="padding: 7px 14px; font-size: 13px;" title="Clear assignment">
+                                            <i data-lucide="user-x" style="width: 14px; height: 14px;"></i> Unassign
+                                        </button>
                                     </div>
                                 </div>
                             `;
                         });
                     }
                     document.getElementById('assigned-routes-list').innerHTML = html;
-                }).catch(err => { console.error('Error loading assigned routes:', err); });
+                    if (window.lucide) lucide.createIcons();
+                }).catch(err => {
+                    console.error('Error loading assigned routes:', err);
+                });
         }
 
-        window.unassignRoute = async function(templateId, truckIdStr) {
+        window.unassignRoute = function(templateId, truckIdStr) {
             let truckId = truckIdStr ? truckIdStr.split(',')[0] : '';
-            if (!confirm("Are you sure you want to clear this assignment? The driver will be unassigned.")) return;
-            try {
-                let res = await fetch('/api/unassign_route', {
-                    method: 'POST',
-                    headers: {'Content-Type': 'application/json'},
-                    body: JSON.stringify({ template_id: templateId, truck_id: truckId })
-                });
-                let data = await res.json();
-                if (data.success) {
-                    loadAssignedRoutes();
-                    loadDrivers();
-                } else {
-                    alert("Error: " + data.error);
+            showConfirm(
+                "Unassign Route",
+                "Are you sure you want to clear this assignment? The driver will be unassigned.",
+                async () => {
+                    try {
+                        let res = await fetch('/api/unassign_route', {
+                            method: 'POST',
+                            headers: {'Content-Type': 'application/json'},
+                            body: JSON.stringify({ template_id: templateId, truck_id: truckId })
+                        });
+                        let data = await res.json();
+                        if (data.success) {
+                            showToast("Route unassigned", "info");
+                            loadAssignedRoutes();
+                            loadDrivers();
+                        } else {
+                            showToast("Error: " + data.error, "error");
+                        }
+                    } catch(e) {
+                        showToast("Network error: " + e.message, "error");
+                    }
                 }
-            } catch(e) {
-                alert("Network error: " + e.message);
-            }
+            );
         };
 
         window.editAssignedRoute = function(id, truckIdStr) {
@@ -301,142 +1000,177 @@
             window.location.href = url;
         };
 
+        // Driver Management Contract Preserved
         function loadDrivers() {
             fetch('/api/drivers')
-                .then(async res => { if (!res.ok) { let text = await res.text(); throw new Error(text); } return res.json(); })
+                .then(async res => { 
+                    if (!res.ok) { let text = await res.text(); throw new Error(text); } 
+                    return res.json(); 
+                })
                 .then(data => {
                     currentDrivers = data.drivers || [];
                     let html = '';
                     
                     if (currentDrivers.length === 0) {
-                        html = '<div style="padding: 24px; text-align: center; color: var(--text-muted);">No drivers created yet.</div>';
+                        html = '<div style="padding: 28px; text-align: center; color: var(--text-muted); font-size: 14px;">No drivers registered yet.</div>';
                     } else {
                         currentDrivers.forEach(d => {
+                            const initials = (d.name || 'D').split(' ').map(n => n[0]).join('').substring(0, 2).toUpperCase();
                             html += `
-                                <div class="driver-item">
-                                    <div class="driver-info">
-                                        <div class="driver-avatar"><i class="fa-solid fa-user"></i></div>
-                                        <div class="driver-details">
-                                            <h4>${d.name || 'Unknown Driver'} <span style="font-size:13px; font-weight:normal; color:var(--text-muted); padding-left:4px;">(${d.username})</span></h4>
-                                            <p>Password: ${d.password_hash === 'redacted' ? '********' : 'Stored securely'}</p>
+                                <div class="data-row">
+                                    <div style="display: flex; align-items: center; gap: 14px;">
+                                        <div class="driver-avatar-circle">
+                                            ${initials}
+                                        </div>
+                                        <div>
+                                            <div style="font-weight: 700; font-size: 15px; color: var(--text-primary); margin-bottom: 2px;">
+                                                ${d.name || 'Unknown Driver'}
+                                                <span style="font-size: 13px; font-weight: normal; color: var(--text-muted); margin-left: 6px; font-family: var(--font-mono);">(${d.username})</span>
+                                            </div>
+                                            <div style="font-size: 12px; color: var(--text-muted);">
+                                                Password: ${d.password_hash === 'redacted' ? '••••••••' : 'Stored securely'}
+                                            </div>
                                         </div>
                                     </div>
-                                    <div style="display:flex; align-items:center; gap:12px;">
-                                        <div class="driver-badge"><i class="fa-solid fa-truck" style="margin-right:4px;"></i> Truck ${d.truck_id || 1}</div>
-                                        <button onclick="deleteDriver(${d.id})" style="background:none; border:none; color:var(--red, #ef4444); cursor:pointer; font-size:16px; padding:4px;" title="Delete Driver"><i class="fa-solid fa-trash-can"></i></button>
+                                    <div class="data-row-actions" style="display: flex; align-items: center; gap: 10px;">
+                                        <span class="badge-status active">
+                                            <i data-lucide="truck" style="width: 12px; height: 12px;"></i> Truck ${d.truck_id || 1}
+                                        </span>
+                                        <button onclick="deleteDriver(${d.id})" class="btn-control btn-danger" style="padding: 7px 10px; font-size: 13px;" title="Delete Driver">
+                                            <i data-lucide="trash-2" style="width: 15px; height: 15px;"></i>
+                                        </button>
                                     </div>
                                 </div>
                             `;
                         });
                     }
                     document.getElementById('driver-list').innerHTML = html;
+                    if (window.lucide) lucide.createIcons();
                 });
         }
 
-        window.deleteDriver = async function(id) {
-            if(!confirm("Are you sure you want to permanently delete this driver?")) return;
-            
-            try {
-                let res = await fetch('/api/admin_delete_driver/' + id, { method: 'DELETE' });
-                let data = await res.json();
-                if(data.success) {
-                    loadDrivers(); // Refresh list
-                    loadAssignedRoutes();
-                } else {
-                    alert("Error: " + data.error);
-                }
-            } catch(e) {
-                alert("An error occurred");
-            }
-        };
+        function openAddDriverModal() {
+            document.getElementById('add-driver-modal').style.display = 'flex';
+            if (window.lucide) lucide.createIcons();
+        }
+
+        function closeAddDriverModal() {
+            document.getElementById('add-driver-modal').style.display = 'none';
+        }
 
         window.submitNewDriver = async function() {
-            const name = document.getElementById('new-driver-name').value;
-            const phone = document.getElementById('new-driver-phone').value;
-            const pass = document.getElementById('new-driver-pass').value;
+            const name = document.getElementById('new-driver-name').value.trim();
+            const phone = document.getElementById('new-driver-phone').value.trim();
+            const pass = document.getElementById('new-driver-pass').value.trim();
             const btn = document.getElementById('btn-submit-driver');
             
-            if(!name || !phone || !pass) { alert("Please fill all fields"); return; }
+            if (!name || !phone || !pass) { 
+                showToast("Please fill all required fields", "warning"); 
+                return; 
+            }
             
-            btn.innerHTML = '<i class="fa-solid fa-circle-notch fa-spin"></i> Creating...';
+            btn.innerHTML = 'Registering...';
             btn.disabled = true;
             
             try {
                 let res = await fetch('/api/admin_create_driver', {
                     method: 'POST',
                     headers: {'Content-Type': 'application/json'},
-                    body: JSON.stringify({username: phone, password: pass, name: name})
+                    body: JSON.stringify({ username: phone, password: pass, name: name })
                 });
                 let data = await res.json();
-                if(data.success) {
-                    document.getElementById('add-driver-modal').style.display = 'none';
+                if (data.success) {
+                    closeAddDriverModal();
                     document.getElementById('new-driver-name').value = '';
                     document.getElementById('new-driver-phone').value = '';
                     document.getElementById('new-driver-pass').value = '';
-                    loadDrivers(); // Refresh list
+                    showToast("Driver registered successfully!", "success");
+                    loadDrivers();
                 } else {
-                    alert("Error: " + data.error);
+                    showToast("Error: " + data.error, "error");
                 }
             } catch(e) {
-                alert("An error occurred");
+                showToast("An error occurred: " + e.message, "error");
             }
-            btn.innerHTML = 'Create';
+            btn.innerHTML = 'Register';
             btn.disabled = false;
         };
 
-                window.repairDatabase = async function() {
+        window.deleteDriver = function(id) {
+            showConfirm(
+                "Delete Driver Account",
+                "Are you sure you want to permanently delete this driver?",
+                async () => {
+                    try {
+                        let res = await fetch('/api/admin_delete_driver/' + id, { method: 'DELETE' });
+                        let data = await res.json();
+                        if (data.success) {
+                            showToast("Driver account deleted", "info");
+                            loadDrivers();
+                            loadAssignedRoutes();
+                        } else {
+                            showToast("Error: " + data.error, "error");
+                        }
+                    } catch(e) {
+                        showToast("An error occurred", "error");
+                    }
+                }
+            );
+        };
+
+        // Database Repair Diagnostics
+        window.repairDatabase = async function() {
             try {
-                // Dry run first
                 let dryRes = await fetch('/api/admin/repair_database', { 
                     method: 'POST',
                     headers: {'Content-Type': 'application/json'},
-                    body: JSON.stringify({dry_run: true})
+                    body: JSON.stringify({ dry_run: true })
                 });
                 let dryData = await dryRes.json();
                 
                 if (!dryData.success) {
-                    alert("Dry run failed: " + dryData.error);
+                    showToast("Dry run failed: " + dryData.error, "error");
                     return;
                 }
                 
-                let details = `DRY RUN RESULTS:
-
-Ghost Assignments to Clear: ${dryData.details.ghosts.length}
-Stop Sequences to Fix: ${dryData.details.sequences.length}
-Orphaned Customers (truck_id=null) to Delete: ${dryData.details.orphans.length}
-
-WARNING: Orphaned customers may include unoptimized CSV uploads. Ensure no one is currently setting up a new global route.
-
-Do you want to proceed and apply these changes permanently?`;
+                let detailsMsg = `Ghost Assignments: ${dryData.details.ghosts.length} | Stop Sequences: ${dryData.details.sequences.length} | Orphan Customers: ${dryData.details.orphans.length}. Apply permanent repair?`;
                 
-                if (confirm(details)) {
-                    let res = await fetch('/api/admin/repair_database', { 
-                        method: 'POST',
-                        headers: {'Content-Type': 'application/json'},
-                        body: JSON.stringify({dry_run: false})
-                    });
-                    let data = await res.json();
-                    if(data.success) {
-                        alert(data.message);
-                        loadAssignedRoutes();
-                    } else {
-                        alert("Error during execution: " + data.error);
+                showConfirm(
+                    "Database Repair Diagnostic",
+                    detailsMsg,
+                    async () => {
+                        let res = await fetch('/api/admin/repair_database', { 
+                            method: 'POST',
+                            headers: {'Content-Type': 'application/json'},
+                            body: JSON.stringify({ dry_run: false })
+                        });
+                        let data = await res.json();
+                        if (data.success) {
+                            showToast(data.message, "success");
+                            loadAssignedRoutes();
+                            loadTelemetryStats();
+                        } else {
+                            showToast("Error: " + data.error, "error");
+                        }
                     }
-                }
+                );
             } catch(e) {
-                alert("Network error: " + e.message);
+                showToast("Network error: " + e.message, "error");
             }
         };
 
+        // Page Init
         window.onload = function() {
+            loadTelemetryStats();
             loadDrivers();
             loadTemplates();
             loadAssignedRoutes();
 
-            // Auto-refresh assigned routes & driver status every 10s so completed routes vanish live
+            // Refresh periodically
             setInterval(() => {
                 loadAssignedRoutes();
                 loadDrivers();
+                loadTelemetryStats();
             }, 10000);
         };
     </script>
