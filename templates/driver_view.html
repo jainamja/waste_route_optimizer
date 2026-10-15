@@ -354,7 +354,7 @@
     </div>
 
     <!-- Incoming Message Floating Banner -->
-    <div id="driver-alert-banner" style="display:none; position:fixed; top:calc(max(env(safe-area-inset-top, 16px), 16px) + 64px); left:16px; right:16px; z-index:10001; background:linear-gradient(135deg, #1e293b, #0f172a); color:white; border-radius:14px; padding:14px 16px; box-shadow:0 12px 30px rgba(0,0,0,0.35); border:1px solid rgba(255,255,255,0.2); animation:slideDownAlert 0.3s cubic-bezier(0.16, 1, 0.3, 1);">
+    <div id="driver-alert-banner" style="display:none; position:fixed; top:calc(max(env(safe-area-inset-top, 16px), 16px) + 64px); left:16px; right:16px; z-index:10005; background:linear-gradient(135deg, #1e293b, #0f172a); color:white; border-radius:14px; padding:14px 16px; box-shadow:0 12px 30px rgba(0,0,0,0.35); border:1px solid rgba(255,255,255,0.2); animation:slideDownAlert 0.3s cubic-bezier(0.16, 1, 0.3, 1);">
         <div style="display:flex; justify-content:space-between; align-items:flex-start; gap:8px;">
             <div style="display:flex; gap:12px; align-items:center;">
                 <div style="width:36px; height:36px; border-radius:50%; background:#2563eb; display:flex; align-items:center; justify-content:center; font-size:16px; flex-shrink:0; color:white;">
@@ -1564,30 +1564,45 @@
                 if (!ctx) return;
                 const now = ctx.currentTime;
                 
-                // 3-tone ascending alert chime (C5 -> E5 -> G5 -> C6)
+                // Prominent 3.6-second repeating dispatch alert chime (3 ascending phrases with resonant bell sustain)
                 const notes = [
-                    { f: 523.25, start: now, dur: 0.12, gain: 0.35 },
-                    { f: 659.25, start: now + 0.10, dur: 0.12, gain: 0.40 },
-                    { f: 783.99, start: now + 0.20, dur: 0.14, gain: 0.45 },
-                    { f: 1046.50, start: now + 0.30, dur: 0.30, gain: 0.50 }
+                    // Phrase 1 (0.00s - 0.70s)
+                    { f: 587.33, start: now + 0.00, dur: 0.18, gain: 0.35, type: 'triangle' }, // D5
+                    { f: 739.99, start: now + 0.16, dur: 0.18, gain: 0.40, type: 'triangle' }, // F#5
+                    { f: 880.00, start: now + 0.32, dur: 0.20, gain: 0.45, type: 'triangle' }, // A5
+                    { f: 1174.66, start: now + 0.48, dur: 0.35, gain: 0.50, type: 'sine' },    // D6
+
+                    // Phrase 2 (1.05s - 1.75s)
+                    { f: 587.33, start: now + 1.05, dur: 0.18, gain: 0.35, type: 'triangle' }, // D5
+                    { f: 739.99, start: now + 1.21, dur: 0.18, gain: 0.40, type: 'triangle' }, // F#5
+                    { f: 880.00, start: now + 1.37, dur: 0.20, gain: 0.45, type: 'triangle' }, // A5
+                    { f: 1174.66, start: now + 1.53, dur: 0.35, gain: 0.50, type: 'sine' },    // D6
+
+                    // Phrase 3 - Urgent Finale Chime (2.10s - 3.60s)
+                    { f: 587.33, start: now + 2.10, dur: 0.18, gain: 0.40, type: 'triangle' }, // D5
+                    { f: 739.99, start: now + 2.26, dur: 0.18, gain: 0.45, type: 'triangle' }, // F#5
+                    { f: 880.00, start: now + 2.42, dur: 0.20, gain: 0.50, type: 'triangle' }, // A5
+                    { f: 1174.66, start: now + 2.58, dur: 0.35, gain: 0.55, type: 'sine' },    // D6
+                    { f: 1479.98, start: now + 2.80, dur: 0.80, gain: 0.60, type: 'sine' }     // F#6 (long ringing bell decay to ~3.6s)
                 ];
                 
                 notes.forEach(n => {
                     const osc = ctx.createOscillator();
                     const gainNode = ctx.createGain();
-                    osc.type = 'sine';
+                    osc.type = n.type || 'sine';
                     osc.frequency.setValueAtTime(n.f, n.start);
-                    gainNode.gain.setValueAtTime(n.gain, n.start);
-                    gainNode.gain.exponentialRampToValueAtTime(0.001, n.start + n.dur);
+                    gainNode.gain.setValueAtTime(0.001, n.start);
+                    gainNode.gain.linearRampToValueAtTime(n.gain, n.start + 0.02);
+                    gainNode.gain.exponentialRampToValueAtTime(0.0001, n.start + n.dur);
                     osc.connect(gainNode);
                     gainNode.connect(ctx.destination);
                     osc.start(n.start);
                     osc.stop(n.start + n.dur);
                 });
                 
-                // Haptic vibration
+                // Rhythmic multi-pulse vibration over 3.15 seconds
                 if (navigator.vibrate) {
-                    navigator.vibrate([250, 100, 250]);
+                    navigator.vibrate([400, 150, 400, 150, 400, 150, 800, 200, 900]);
                 }
             } catch(e) {
                 console.warn("Audio chime error:", e);
@@ -1611,8 +1626,35 @@
                 driverMessages[snapshot.key] = msg;
                 
                 if (!driverMessagesInitialLoad && msg.sender === 'admin' && !msg.read) {
+                    // 1. Play 3.5s alert chime
                     playDriverNotificationSound();
+
+                    // 2. Show floating alert banner
                     showDriverAlertBanner(msg.text || '');
+
+                    // 3. Automatically open the driver chat sheet so driver immediately sees notification & full chat
+                    openDriverChat(true);
+
+                    // 4. If running inside native Android APK, wake screen and bring app to front
+                    if (window.Capacitor && window.Capacitor.Plugins && window.Capacitor.Plugins.BackgroundLocation && typeof window.Capacitor.Plugins.BackgroundLocation.bringToFront === 'function') {
+                        try {
+                            window.Capacitor.Plugins.BackgroundLocation.bringToFront({
+                                title: "🚨 Message from Dispatch",
+                                text: msg.text || "New message received"
+                            });
+                        } catch(e) {
+                            console.warn("Capacitor bringToFront error:", e);
+                        }
+                    }
+
+                    // 5. Browser notification if supported
+                    if (window.Notification && Notification.permission === 'granted') {
+                        try {
+                            new Notification("🚨 Message from Dispatch", {
+                                body: msg.text || "New message received"
+                            });
+                        } catch(e) {}
+                    }
                 }
                 updateDriverUnreadBadge();
                 if (driverChatOpen) {
@@ -1674,9 +1716,9 @@
             if (driverAlertTimeout) clearTimeout(driverAlertTimeout);
         }
 
-        function openDriverChat() {
+        function openDriverChat(keepBanner = false) {
             driverChatOpen = true;
-            dismissDriverAlert();
+            if (!keepBanner) dismissDriverAlert();
             const modal = document.getElementById('driver-chat-modal');
             if (modal) modal.style.display = 'flex';
             renderDriverChatMessages();

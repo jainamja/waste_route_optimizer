@@ -2194,15 +2194,15 @@
         <!-- Header -->
         <div style="background:#0f172a; color:white; padding:12px 16px; display:flex; align-items:center; justify-content:space-between; gap:10px;">
             <div style="display:flex; align-items:center; gap:10px; min-width:0; flex:1;">
-                <div style="width:34px; height:34px; border-radius:10px; background:#2563eb; display:flex; align-items:center; justify-content:center; flex-shrink:0;">
-                    <i class="fa-solid fa-headset" style="font-size:16px; color:white;"></i>
+                <div style="width:36px; height:36px; border-radius:10px; background:#2563eb; display:flex; align-items:center; justify-content:center; flex-shrink:0;">
+                    <i class="fa-solid fa-truck" style="font-size:16px; color:white;"></i>
                 </div>
                 <div style="min-width:0; flex:1;">
-                    <div style="font-size:11px; font-weight:700; color:#94a3b8; text-transform:uppercase; letter-spacing:0.5px;">Dispatch Messenger</div>
-                    <div style="margin-top:2px;">
-                        <select id="admin-chat-truck-select" onchange="switchAdminChatTruck(this.value)" style="width:100%; background:#1e293b; color:#f8fafc; border:1px solid #334155; border-radius:6px; padding:3px 6px; font-size:12px; font-weight:600; font-family:inherit; outline:none; cursor:pointer;">
-                            <!-- Populated dynamically -->
-                        </select>
+                    <div id="admin-chat-header-title" style="font-size:15px; font-weight:800; color:#ffffff; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">
+                        Truck &bull; Driver
+                    </div>
+                    <div id="admin-chat-header-status" style="font-size:11px; color:#94a3b8; font-weight:600; display:flex; align-items:center; gap:5px; margin-top:2px;">
+                        <span style="width:7px; height:7px; border-radius:50%; background:#10b981; display:inline-block;"></span> Active Driver
                     </div>
                 </div>
             </div>
@@ -2414,30 +2414,30 @@
                 }
             }
             
-            renderAdminChatTruckSelect();
+            if (adminChatWidgetOpen && adminActiveTruckId) {
+                updateAdminChatHeader(adminActiveTruckId);
+            }
         }
 
-        function renderAdminChatTruckSelect() {
-            const select = document.getElementById('admin-chat-truck-select');
-            if (!select) return;
-            const allIds = getAllTruckIdsForChat();
-            if (allIds.length === 0) {
-                select.innerHTML = '<option value="">No trucks available</option>';
-                return;
-            }
+        function updateAdminChatHeader(tId, dName) {
+            const titleEl = document.getElementById('admin-chat-header-title');
+            const statusEl = document.getElementById('admin-chat-header-status');
+            if (!titleEl) return;
             
-            if (!adminActiveTruckId || !allIds.includes(String(adminActiveTruckId))) {
-                adminActiveTruckId = String(allIds[0]);
-            }
+            if (!tId) tId = adminActiveTruckId;
+            if (!dName) dName = (driverMap && driverMap[tId]) || (window.liveTrucks && window.liveTrucks[tId] && window.liveTrucks[tId].driverName) || 'Driver';
             
-            let optionsHtml = '';
-            allIds.forEach(id => {
-                let dName = (driverMap && driverMap[id]) || (window.liveTrucks && window.liveTrucks[id] && window.liveTrucks[id].driverName) || 'Driver';
-                let unread = getTruckUnreadCount(id);
-                let unreadLabel = unread > 0 ? ` (${unread} new)` : '';
-                optionsHtml += `<option value="${id}" ${String(adminActiveTruckId) === String(id) ? 'selected' : ''}>Truck ${id} &mdash; ${dName}${unreadLabel}</option>`;
-            });
-            select.innerHTML = optionsHtml;
+            titleEl.innerHTML = `Truck ${tId} &bull; ${escapeAdminHtml(dName)}`;
+            
+            if (statusEl) {
+                let tData = (typeof getTruckData === 'function') ? getTruckData(tId) : null;
+                let isOnline = (typeof isTruckOnline === 'function') ? isTruckOnline(tData) : false;
+                if (isOnline) {
+                    statusEl.innerHTML = `<span style="width:7px; height:7px; border-radius:50%; background:#10b981; display:inline-block;"></span> Online &bull; Active Route`;
+                } else {
+                    statusEl.innerHTML = `<span style="width:7px; height:7px; border-radius:50%; background:#94a3b8; display:inline-block;"></span> Offline`;
+                }
+            }
         }
 
         function showAdminMessageToast(tId, dName, text) {
@@ -2490,7 +2490,7 @@
             }
             
             dismissAdminToast();
-            renderAdminChatTruckSelect();
+            updateAdminChatHeader(adminActiveTruckId, driverName);
             renderAdminChatMessages();
             markDriverMessagesRead(adminActiveTruckId);
             
@@ -2516,13 +2516,13 @@
             }
         }
 
-        function switchAdminChatTruck(tId) {
+        function switchAdminChatTruck(tId, driverName) {
             if (!tId) return;
             adminActiveTruckId = String(tId);
             ensureAdminTruckMessageListener(adminActiveTruckId);
+            updateAdminChatHeader(adminActiveTruckId, driverName);
             renderAdminChatMessages();
             markDriverMessagesRead(adminActiveTruckId);
-            renderAdminChatTruckSelect();
             setTimeout(() => {
                 const input = document.getElementById('admin-chat-input');
                 if (input) input.focus();
