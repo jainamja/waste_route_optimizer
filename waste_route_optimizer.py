@@ -214,6 +214,21 @@ def resolve_gmaps_url(url):
         if lat and lng and (8 <= lat <= 38) and (68 <= lng <= 98):
             return lat, lng
             
+        # Check preview link if present in HTML (e.g. for place shortlinks without direct coordinates in URL)
+        try:
+            preview_match = re.search(r'href="(/maps/preview/place[^"]+)"', res.text)
+            if preview_match:
+                import html
+                preview_url = "https://www.google.com" + html.unescape(preview_match.group(1))
+                p_res = requests.get(preview_url, headers=headers, timeout=10)
+                coord_match = re.search(r'\[null,\s*null,\s*(-?\d+\.\d+),\s*(-?\d+\.\d+)\]', p_res.text)
+                if coord_match:
+                    p_lat, p_lng = float(coord_match.group(1)), float(coord_match.group(2))
+                    if (8 <= p_lat <= 38) and (68 <= p_lng <= 98):
+                        return p_lat, p_lng
+        except Exception as pe:
+            print(f"Error fetching preview URL: {pe}")
+            
         import urllib.parse
         unquoted_url = urllib.parse.unquote_plus(res.url)
         place_match = re.search(r'place/([^/]+)/', unquoted_url)
@@ -1347,11 +1362,19 @@ def sync_firebase_to_sql(template_id=None):
                                 continue
                             
                             c = db.session.get(Customer, stop_id)
-                            if c and c.truck_id == truck_id_int:
+                            if not c or c.truck_id != truck_id_int:
+                                stop_name = stop_data.get('name', '').strip()
+                                if stop_name:
+                                    c = Customer.query.filter_by(truck_id=truck_id_int, name=stop_name).first()
+                                    
+                            if c:
                                 fb_status = stop_data.get('status')
                                 fb_conf = stop_data.get('confirmation')
                                 fb_cust_status = stop_data.get('customer_status')
                                 fb_seq = stop_data.get('sequence')
+                                fb_lat = stop_data.get('lat')
+                                fb_lng = stop_data.get('lng')
+                                fb_addr = stop_data.get('address')
                                 
                                 if fb_status and c.status != fb_status:
                                     c.status = fb_status
@@ -1361,6 +1384,40 @@ def sync_firebase_to_sql(template_id=None):
                                     c.customer_status = fb_cust_status
                                 if fb_seq is not None and c.stop_number != fb_seq:
                                     c.stop_number = fb_seq
+                                if fb_lat is not None and fb_lng is not None:
+                                    if c.lat != fb_lat or c.lng != fb_lng:
+                                        c.lat = fb_lat
+                                        c.lng = fb_lng
+                                if fb_addr and c.address != fb_addr:
+                                    c.address = fb_addr
+
+                # Keep SavedTemplates in sync with updated stop coordinates
+                try:
+                    for t in SavedTemplate.query.all():
+                        if t.customers_json:
+                            t_custs = json.loads(t.customers_json)
+                            t_changed = False
+                            for tc in t_custs:
+                                tc_name = tc.get('name', '').strip()
+                                for rk, rinfo in routes_data.items():
+                                    if not rk.startswith('route_'): continue
+                                    r_stops = rinfo.get('stops', {})
+                                    for sid, sdata in r_stops.items():
+                                        if sdata and sdata.get('name', '').strip() == tc_name:
+                                            s_lat = sdata.get('lat')
+                                            s_lng = sdata.get('lng')
+                                            s_addr = sdata.get('address')
+                                            if s_lat is not None and s_lng is not None:
+                                                if tc.get('lat') != s_lat or tc.get('lng') != s_lng:
+                                                    tc['lat'] = s_lat
+                                                    tc['lng'] = s_lng
+                                                    if s_addr: tc['address'] = s_addr
+                                                    t_changed = True
+                            if t_changed:
+                                t.customers_json = json.dumps(t_custs)
+                except Exception as te:
+                    print("Error syncing SavedTemplates in sync_firebase_to_sql:", te)
+
                 db.session.commit()
     except Exception as e:
         print("Error syncing Firebase to SQL inside get_data:", e)
