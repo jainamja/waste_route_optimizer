@@ -1423,6 +1423,7 @@ def sync_firebase_to_sql(template_id=None):
         print("Error syncing Firebase to SQL inside get_data:", e)
 
 @app.route('/api/data')
+@login_required
 def get_data():
     template_id = request.args.get('template_id')
     req_truck_id = request.args.get('truck_id')
@@ -1532,6 +1533,7 @@ def get_data():
     })
 
 @app.route('/api/mark_completed/<int:customer_id>', methods=['POST'])
+@login_required
 def mark_completed(customer_id):
     customer = db.session.get(Customer, customer_id)
     if customer:
@@ -1572,6 +1574,7 @@ def resolve_token():
     return jsonify({'error': 'Invalid or expired token'}), 404
 
 @app.route('/download_excel')
+@login_required
 def download_excel():
     customers = Customer.query.order_by(Customer.truck_id.asc(), Customer.stop_number.asc()).all()
     if not customers: return "No data", 400
@@ -1589,6 +1592,7 @@ def download_excel():
     return send_file(export_path, as_attachment=True)
 
 @app.route('/api/remove_stop', methods=['POST'])
+@login_required
 def remove_stop():
     data = request.json or {}
     cust_id = data.get('customer_id')
@@ -1654,6 +1658,7 @@ def remove_stop():
         return jsonify({'error': str(e)}), 500
 
 @app.route('/api/add_stop', methods=['POST'])
+@login_required
 def add_stop():
     data = request.json
     if not data: return jsonify({'error': 'No data provided'}), 400
@@ -2820,6 +2825,7 @@ def deploy_template(t_id):
     return jsonify({'success': True})
 
 @app.route('/api/dynamic_recalculate', methods=['POST'])
+@login_required
 def dynamic_recalculate():
     import requests
     firebase_url = "https://wasteroutelive-default-rtdb.firebaseio.com"
