@@ -1474,15 +1474,14 @@ def get_data():
             pass
 
     # Auto-cleanup finished routes: if a truck has stops in Customer, but 0 pending stops remain,
-    # or if the truck has no active driver assigned, remove them so finished routes disappear from live_dashboard
+    # remove them so finished routes disappear from live_dashboard
     if not template_id and not req_truck_id:
-        active_assigned_trucks = set(d.truck_id for d in User.query.filter(User.assigned_template_id != None, User.truck_id != None).all())
         all_truck_ids = [t[0] for t in db.session.query(Customer.truck_id).distinct().all() if t[0] is not None]
         cleaned_any = False
         for tid in all_truck_ids:
             total_c = Customer.query.filter_by(truck_id=tid).count()
             pending_c = Customer.query.filter(Customer.truck_id == tid, Customer.status == 'PENDING', Customer.confirmation != 'CANCELLED').count()
-            if total_c > 0 and (pending_c == 0 or tid not in active_assigned_trucks):
+            if total_c > 0 and pending_c == 0:
                 Customer.query.filter_by(truck_id=tid).delete()
                 cleaned_any = True
         if cleaned_any:
