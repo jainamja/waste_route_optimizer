@@ -499,6 +499,44 @@ def read_data_file(filepath):
                 })
         except (ValueError, TypeError):
             pass
+
+    # F1: Outlier detection & safe conditional auto-swap (flag-only, no dropping)
+    try:
+        import statistics
+        from geopy.distance import geodesic
+        valid_pts = [(c['lat'], c['lng']) for c in customers if c.get('lat') is not None and c.get('lng') is not None and 8.0 <= c['lat'] <= 38.0 and 68.0 <= c['lng'] <= 98.0]
+        if valid_pts:
+            med_lat = statistics.median([p[0] for p in valid_pts])
+            med_lng = statistics.median([p[1] for p in valid_pts])
+            med_center = (med_lat, med_lng)
+            
+            for c in customers:
+                clat, clng = c.get('lat'), c.get('lng')
+                if clat is None or clng is None:
+                    c['is_outlier'] = True
+                    c['outlier_warning'] = 'Missing coordinates'
+                    continue
+                
+                in_india = (8.0 <= clat <= 38.0) and (68.0 <= clng <= 98.0)
+                # Auto-swap ONLY if swapped point is in India AND within 60 km of median
+                swapped_lat, swapped_lng = clng, clat
+                if (not in_india) and (8.0 <= swapped_lat <= 38.0 and 68.0 <= swapped_lng <= 98.0):
+                    swapped_dist = geodesic(med_center, (swapped_lat, swapped_lng)).kilometers
+                    if swapped_dist <= 60.0:
+                        print(f"[AUTO-SWAP] Corrected inverted coordinates for stop {c['id']} ({c['name']}): ({clat}, {clng}) -> ({swapped_lat}, {swapped_lng}) [{swapped_dist:.1f} km from median]")
+                        c['lat'] = swapped_lat
+                        c['lng'] = swapped_lng
+                        clat, clng = swapped_lat, swapped_lng
+                        in_india = True
+
+                dist_km = geodesic(med_center, (clat, clng)).kilometers
+                if (not in_india) or dist_km > 60.0:
+                    c['is_outlier'] = True
+                    c['outlier_distance_km'] = round(dist_km, 1)
+                    c['outlier_warning'] = f"Stop is {dist_km:.1f} km from fleet center (limit: 60 km)" if in_india else f"Stop ({clat}, {clng}) is outside India"
+                    print(f"[OUTLIER DETECTED] Stop {c['id']} ({c['name']}): {c['outlier_warning']}")
+    except Exception as e:
+        print("Error during outlier detection in read_data_file:", e)
             
     return customers
 
@@ -923,7 +961,13 @@ def upload():
     m_tokens = Metadata(key='driver_tokens', value=json.dumps(driver_tokens))
     m_template = Metadata(key='is_from_template', value='false')
     m_ws = Metadata(key='workspace_truck_ids', value=json.dumps(workspace_trucks))
-    db.session.add_all([m1, m2, m3, m4, m_tokens, m_template, m_ws])
+    outliers = [{
+        'id': c['id'], 'name': c['name'], 'address': c.get('address', ''),
+        'lat': c['lat'], 'lng': c['lng'], 'distance_km': c.get('outlier_distance_km', 0),
+        'warning': c.get('outlier_warning', '')
+    } for c in customers_data if c.get('is_outlier')]
+    m_outliers = Metadata(key='outlier_warnings', value=json.dumps(outliers))
+    db.session.add_all([m1, m2, m3, m4, m_tokens, m_template, m_ws, m_outliers])
     
     existing_ids = set(r[0] for r in db.session.query(Customer.id).all())
     max_id = db.session.query(db.func.max(Customer.id)).scalar() or 0
@@ -1548,7 +1592,8 @@ def get_data():
         'drivers': drivers_data,
         'is_from_template': metadata.get('is_from_template') == 'true',
         'current_template_id': metadata.get('current_template_id'),
-        'current_template_name': metadata.get('current_template_name')
+        'current_template_name': metadata.get('current_template_name'),
+        'outlier_warnings': json.loads(metadata.get('outlier_warnings', '[]'))
     })
 
 @app.route('/api/mark_completed/<int:customer_id>', methods=['POST'])
