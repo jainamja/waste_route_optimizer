@@ -1870,9 +1870,6 @@ def repair_database():
         db.session.rollback()
         return jsonify({'error': str(e)}), 500
 
-if __name__ == '__main__':
-    app.run(debug=True, port=5000)
-
 
 
 
@@ -3024,3 +3021,5 @@ def dynamic_recalculate():
         traceback.print_exc()
         return jsonify({'error': str(e)}), 500
 
+if __name__ == '__main__':
+    app.run(debug=True, port=5000)
