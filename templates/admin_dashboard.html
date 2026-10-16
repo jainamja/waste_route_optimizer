@@ -664,15 +664,37 @@
             window.requestAnimationFrame(step);
         }
 
-        // Fetch /api/data for stat cards and charts
+        // Fetch stats strictly synced with active driver assignments
         async function loadTelemetryStats() {
             try {
+                // Check currently assigned routes first
+                let assignedCount = 0;
+                try {
+                    const assignedRes = await fetch('/api/assigned_routes');
+                    if (assignedRes.ok) {
+                        const assignedData = await assignedRes.json();
+                        const assignedList = assignedData.assigned_routes || [];
+                        assignedCount = assignedList.length;
+                    }
+                } catch(e) {}
+
+                // If no routes are assigned to drivers, display 0 active metrics
+                if (assignedCount === 0) {
+                    animateValue('stat-trucks', 0, 0, 400);
+                    animateValue('stat-completed', 0, 0, 400);
+                    animateValue('stat-pending', 0, 0, 400);
+                    animateValue('stat-distance', 0, 0, 400, 'km');
+                    animateValue('stat-avgtime', 0, 0, 400, 'min');
+                    const pctEl = document.getElementById('stat-completed-pct');
+                    if (pctEl) pctEl.innerText = `No active assignments`;
+                    return;
+                }
+
                 const res = await fetch('/api/data');
                 if (!res.ok) return;
                 const data = await res.json();
 
                 const customers = data.customers || [];
-                const routes = data.routes || [];
                 const routeTimes = data.route_times || [];
                 const routeDistances = data.route_distances || [];
 
@@ -680,14 +702,13 @@
                 const actualStops = customers.filter(c => c.id > -1000);
                 const completedStops = actualStops.filter(c => c.status === 'COMPLETED');
                 const pendingStops = actualStops.filter(c => c.status === 'PENDING' && c.confirmation !== 'CANCELLED');
-                const cancelledStops = actualStops.filter(c => c.confirmation === 'CANCELLED');
 
                 const totalKm = routeDistances.reduce((acc, d) => acc + (parseFloat(d) || 0), 0);
                 const totalMinutes = routeTimes.reduce((acc, t) => acc + (parseFloat(t) || 0), 0);
                 const avgMinutes = actualStops.length > 0 ? (totalMinutes / actualStops.length).toFixed(1) : 0;
 
-                // Animate counts
-                animateValue('stat-trucks', 0, routes.length, 600);
+                // Animate counts accurately reflecting assigned fleet
+                animateValue('stat-trucks', 0, assignedCount, 600);
                 animateValue('stat-completed', 0, completedStops.length, 600);
                 animateValue('stat-pending', 0, pendingStops.length, 600);
                 animateValue('stat-distance', 0, Math.round(totalKm), 600, 'km');
@@ -696,94 +717,12 @@
                 const pct = actualStops.length > 0 ? Math.round((completedStops.length / actualStops.length) * 100) : 0;
                 const pctEl = document.getElementById('stat-completed-pct');
                 if (pctEl) pctEl.innerText = `${pct}% of total payload`;
-
-                // Render Donut Chart
-                renderDonutChart(completedStops.length, pendingStops.length, cancelledStops.length);
-
-                // Render Per-Truck Progress
-                renderTruckProgress(routes, actualStops, routeDistances);
             } catch (err) {
                 console.error("Telemetry stat load error:", err);
             }
         }
 
-        function renderDonutChart(completed, pending, cancelled) {
-            const ctx = document.getElementById('statusDonutChart');
-            if (!ctx) return;
 
-            if (donutChartInstance) {
-                donutChartInstance.destroy();
-            }
-
-            const isDark = !document.documentElement.classList.contains('light');
-
-            donutChartInstance = new Chart(ctx, {
-                type: 'doughnut',
-                data: {
-                    labels: ['Completed', 'Pending', 'Cancelled'],
-                    datasets: [{
-                        data: [completed, pending, cancelled],
-                        backgroundColor: [
-                            '#10b981', // green
-                            '#38bdf8', // sky cyan
-                            '#ef4444'  // red
-                        ],
-                        borderWidth: 0,
-                        hoverOffset: 6
-                    }]
-                },
-                options: {
-                    responsive: true,
-                    maintainAspectRatio: false,
-                    cutout: '72%',
-                    plugins: {
-                        legend: {
-                            position: 'bottom',
-                            labels: {
-                                color: isDark ? '#94a3b8' : '#475569',
-                                font: { family: 'Plus Jakarta Sans', size: 12 },
-                                padding: 14,
-                                usePointStyle: true
-                            }
-                        }
-                    }
-                }
-            });
-        }
-
-        function renderTruckProgress(routes, stops, distances) {
-            const container = document.getElementById('truckProgressContainer');
-            if (!container) return;
-
-            if (!routes || routes.length === 0) {
-                container.innerHTML = `<div style="text-align: center; color: var(--text-muted); font-size: 14px; padding: 20px;">No active truck routes loaded.</div>`;
-                return;
-            }
-
-            let html = '';
-            routes.forEach((route, idx) => {
-                const truckId = idx + 1;
-                const truckStops = stops.filter(s => s.truck === truckId);
-                const truckCompleted = truckStops.filter(s => s.status === 'COMPLETED').length;
-                const total = truckStops.length;
-                const pct = total > 0 ? Math.round((truckCompleted / total) * 100) : 0;
-                const dist = distances[idx] ? `${parseFloat(distances[idx]).toFixed(1)} km` : '';
-
-                html += `
-                    <div class="truck-bar-item">
-                        <div class="truck-bar-meta">
-                            <span style="font-weight: 600; color: var(--text-primary);">Truck ${truckId}</span>
-                            <span style="color: var(--text-muted);">${truckCompleted}/${total} stops (${pct}%) • ${dist}</span>
-                        </div>
-                        <div class="truck-bar-track">
-                            <div class="truck-bar-fill" style="width: ${pct}%;"></div>
-                        </div>
-                    </div>
-                `;
-            });
-
-            container.innerHTML = html;
-        }
 
         // Templates Management Contract Preserved
         function loadTemplates() {
