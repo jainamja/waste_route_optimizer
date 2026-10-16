@@ -190,11 +190,6 @@ with app.app_context():
         for i in range(1, 11):
             db.session.add(User(username='driver'+str(i), password_hash=generate_password_hash('driver'+str(i)), role='DRIVER', truck_id=i))
         db.session.commit()
-    else:
-        from werkzeug.security import check_password_hash
-        if not check_password_hash(admin_user.password_hash, 'admin'):
-            admin_user.password_hash = generate_password_hash('admin')
-            db.session.commit()
 
 @lru_cache(maxsize=100)
 def resolve_gmaps_url(url):
