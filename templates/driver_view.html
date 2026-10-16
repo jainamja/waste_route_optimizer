@@ -1040,7 +1040,7 @@
                 <div id="groupSkipModalOverlay" class="mission-modal-overlay" style="display:flex; align-items:flex-end;" onclick="if(event.target===this) closeGroupSkipModal()">
                     <div class="mission-modal-body" style="border-radius: 24px 24px 0 0; width: 100%;">
                         <h3 style="margin: 0 0 16px 0; font-size: 18px; font-weight: 800;">Select Order to Skip</h3>
-                        <div>
+                        <div id="skipRadioGroup">
                             ${pendingSubStops.map(ss => `
                                 <label style="display: flex; align-items: center; gap: 12px; padding: 12px; background: var(--bg-surface); border: 1px solid var(--border-glass); border-radius: 12px; margin-bottom: 10px; cursor: pointer;">
                                     <input type="radio" name="skipCustomerRadio" value="${ss.id}" onchange="document.getElementById('skipSelectedBtn').disabled = false" style="width: 20px; height: 20px;">
@@ -1054,6 +1054,7 @@
                         <div style="display: flex; flex-direction: column; gap: 10px; margin-top: 18px;">
                             <button id="skipSelectedBtn" class="btn-control btn-danger" disabled onclick="skipSelectedCustomer(event)">Skip Selected</button>
                             <button class="btn-control btn-secondary" onclick="closeGroupSkipModal()">Cancel</button>
+                            <a href="#" onclick="skipAllRemainingCustomers(event)" style="text-align:center; color:var(--text-muted); margin-top:6px; font-size:13px; text-decoration:underline;">Skip all remaining at this location</a>
                         </div>
                     </div>
                 </div>
@@ -1076,6 +1077,143 @@
             db.ref(`routes/route_${truckId}/stops`).update(updates).then(() => {
                 closeGroupSkipModal();
             });
+        };
+
+        window.skipAllRemainingCustomers = function(e) {
+            if (e && e.preventDefault) e.preventDefault();
+            const stop = stops[currentIndex];
+            if (!stop || !stop.subStops) return;
+            let updates = {};
+            stop.subStops.forEach(ss => {
+                if (ss.status === 'PENDING' && ss.confirmation !== 'CANCELLED') {
+                    updates[ss.id + "/status"] = 'SKIPPED';
+                }
+            });
+            
+            db.ref(`routes/route_${truckId}/stops`).update(updates).then(() => {
+                closeGroupSkipModal();
+                if (typeof snapSheet === 'function' && window.snapPoints) snapSheet(snapPoints.peek);
+            }).catch(err => {
+                console.error("Firebase write failed:", err);
+                alert("Failed to update stop status.");
+            });
+        };
+
+        window.endShift = async function() {
+            if (!confirm("End your shift and go offline?")) return;
+            
+            // 1. Stop Native Foreground Service
+            if (window.Capacitor && window.Capacitor.Plugins && window.Capacitor.Plugins.BackgroundLocation) {
+                window.Capacitor.Plugins.BackgroundLocation.stop().catch(e=>{});
+            }
+
+            // 2. Stop GPS Polling
+            if (window.gpsInterval) clearInterval(window.gpsInterval);
+            
+            // 3. Set Firebase to Offline & cancel disconnect hook
+            if (truckId) {
+                const truckRef = db.ref(`trucks/${truckId}/status`);
+                truckRef.set('offline').catch(e=>{});
+                truckRef.onDisconnect().cancel().catch(e=>{});
+            }
+            if (driverId) {
+                const dRef = db.ref(`driver_locations/${driverId}/status`);
+                dRef.set('offline').catch(e=>{});
+                dRef.onDisconnect().cancel().catch(e=>{});
+            }
+            
+            // 3. Clear Token to prevent auto-login
+            if (window.Capacitor && window.Capacitor.Plugins && window.Capacitor.Plugins.Preferences) {
+                await window.Capacitor.Plugins.Preferences.remove({ key: 'driver_token' }).catch(e=>{});
+            } else {
+                localStorage.removeItem('driver_token');
+            }
+            
+            // Notify backend that route is finished
+            try {
+                let backendUrl = window.location.origin.includes('localhost') || window.location.origin.includes('capacitor://') ? 'https://waste-route-optimizer-robn.onrender.com' : window.location.origin;
+                fetch(backendUrl + '/api/driver_finish_route', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({ truck_id: truckId, driver_id: driverId })
+                }).catch(e=>{});
+            } catch(e) {}
+            
+            // 4. Update UI
+            const container = document.getElementById('current-stop-container');
+            if (container) {
+                container.innerHTML = `
+                    <div style="text-align:center; padding: 20px;">
+                        <i class="fa-solid fa-power-off" style="font-size:48px; color:var(--text-muted); margin-bottom:16px;"></i>
+                        <h2 style="margin:0 0 8px 0;">Shift Ended</h2>
+                        <p style="color:var(--text-muted); margin:0;">You are now offline. You can safely close the app.</p>
+                    </div>
+                `;
+            }
+            const tTitle = document.getElementById('truck-title');
+            if (tTitle) tTitle.innerText = "Offline";
+        };
+
+        window.toggleTracking = async function() {
+            if (window.isTrackingActive) {
+                // Stop tracking
+                if (window.gpsInterval) {
+                    clearInterval(window.gpsInterval);
+                    window.gpsInterval = null;
+                }
+                if (window.geoWatchId && navigator.geolocation && navigator.geolocation.clearWatch) {
+                    navigator.geolocation.clearWatch(window.geoWatchId);
+                    window.geoWatchId = null;
+                }
+                if (window.capWatchId && window.Capacitor && window.Capacitor.Plugins && window.Capacitor.Plugins.Geolocation) {
+                    window.Capacitor.Plugins.Geolocation.clearWatch({ id: window.capWatchId }).catch(e=>{});
+                    window.capWatchId = null;
+                }
+                if (window.Capacitor && window.Capacitor.Plugins && window.Capacitor.Plugins.BackgroundLocation) {
+                    await window.Capacitor.Plugins.BackgroundLocation.stop().catch(e=>{});
+                }
+                window.isTrackingActive = false;
+                const dot = document.getElementById('tracking-dot');
+                if (dot) dot.style.background = '#94a3b8';
+                const lbl = document.getElementById('tracking-label');
+                if (lbl) lbl.innerText = '⚪ LOCATION NOT ACTIVE';
+                const btn = document.getElementById('btn-tracking');
+                if (btn) {
+                    btn.innerText = 'Start Route';
+                    btn.style.background = 'var(--primary)';
+                }
+                
+                let tid = (window.currentTruckId || truckId || '').toString();
+                let did = (window.currentDriverId || driverId || tid || '').toString();
+                const offlinePayload = {
+                    status: 'offline',
+                    currentLat: null,
+                    currentLng: null,
+                    speed: 0,
+                    lastUpdated: firebase.database.ServerValue.TIMESTAMP
+                };
+                if (tid) db.ref(`trucks/${tid}`).update(offlinePayload).catch(e=>{});
+                if (did) db.ref(`driver_locations/${did}`).update(offlinePayload).catch(e=>{});
+            } else {
+                // Start tracking
+                window.isTrackingActive = true;
+                await window.startBackgroundTracking();
+                const dot = document.getElementById('tracking-dot');
+                if (dot) dot.style.background = '#10b981';
+                const lbl = document.getElementById('tracking-label');
+                if (lbl) lbl.innerText = '🟢 LIVE LOCATION ACTIVE';
+                const btn = document.getElementById('btn-tracking');
+                if (btn) {
+                    btn.innerText = 'Stop';
+                    btn.style.background = 'var(--red, #ef4444)';
+                }
+                
+                let tid = (window.currentTruckId || truckId || '').toString();
+                let did = (window.currentDriverId || driverId || tid || '').toString();
+                if (tid) db.ref(`trucks/${tid}`).update({ status: 'online' }).catch(e=>{});
+                if (did) db.ref(`driver_locations/${did}`).update({ status: 'online' }).catch(e=>{});
+                if (typeof startGpsPolling === 'function') startGpsPolling();
+            }
         };
 
         window.startBackgroundTracking = async function() {

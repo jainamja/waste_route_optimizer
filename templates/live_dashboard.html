@@ -542,6 +542,29 @@
         </div>
     </div>
 
+    <!-- Add Driver Modal -->
+    <div id="add-driver-modal" class="mission-modal-overlay">
+        <div class="mission-modal-body">
+            <div style="display: flex; align-items: center; gap: 12px; margin-bottom: 16px;">
+                <div style="width: 38px; height: 38px; border-radius: 10px; background: rgba(16, 185, 129, 0.15); color: #10b981; display: flex; align-items: center; justify-content: center;">
+                    <i data-lucide="user-plus" style="width: 20px; height: 20px;"></i>
+                </div>
+                <div>
+                    <h3 style="margin: 0; font-size: 17px; font-weight: 700;">Create Driver Account</h3>
+                    <p style="margin: 2px 0 0 0; font-size: 13px; color: var(--text-secondary);">Create driver credentials for mobile app</p>
+                </div>
+            </div>
+            <div style="display: flex; flex-direction: column; gap: 12px; margin-bottom: 16px;">
+                <input type="text" id="new-driver-phone" placeholder="Driver Mobile Number" style="margin-bottom: 0;">
+                <input type="text" id="new-driver-pass" placeholder="Assign Password" style="margin-bottom: 0;">
+            </div>
+            <div style="display: flex; gap: 10px;">
+                <button type="button" class="btn-control btn-secondary" onclick="document.getElementById('add-driver-modal').style.display='none'" style="flex: 1;">Cancel</button>
+                <button type="button" class="btn-control btn-primary" id="btn-submit-driver" onclick="submitNewDriver()" style="flex: 1;">Create</button>
+            </div>
+        </div>
+    </div>
+
     <!-- Assign Driver Modal (Step 1) -->
     <div id="assign-driver-modal" class="mission-modal-overlay">
         <div class="mission-modal-body">
@@ -1702,6 +1725,45 @@
                 btn.disabled = false;
                 btn.innerText = "Save Template";
             });
+        };
+
+        window.submitNewDriver = async function() {
+            const phone = document.getElementById('new-driver-phone').value;
+            const pass = document.getElementById('new-driver-pass').value;
+            const btn = document.getElementById('btn-submit-driver');
+            
+            if(!phone || !pass) { 
+                if (typeof showToast === 'function') showToast("Please fill all fields", "warning");
+                else alert("Please fill all fields"); 
+                return; 
+            }
+            
+            btn.innerHTML = 'Creating...';
+            btn.disabled = true;
+            
+            try {
+                let res = await fetch('/api/admin_create_driver', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({username: phone, password: pass})
+                });
+                let data = await res.json();
+                if(data.success) {
+                    if (typeof showToast === 'function') showToast("Driver created successfully!", "success");
+                    else alert("Driver created successfully!");
+                    document.getElementById('add-driver-modal').style.display = 'none';
+                    document.getElementById('new-driver-phone').value = '';
+                    document.getElementById('new-driver-pass').value = '';
+                } else {
+                    if (typeof showToast === 'function') showToast("Error: " + data.error, "error");
+                    else alert("Error: " + data.error);
+                }
+            } catch(e) {
+                if (typeof showToast === 'function') showToast("An error occurred", "error");
+                else alert("An error occurred");
+            }
+            btn.innerHTML = 'Create';
+            btn.disabled = false;
         };
 
         window.onload = function() {
