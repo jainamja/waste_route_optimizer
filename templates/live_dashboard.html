@@ -812,6 +812,10 @@
                     }
 
                     if (resData.error || !resData.routes || resData.routes.length === 0) {
+                        if (map) {
+                            map.remove();
+                            map = null;
+                        }
                         setDisplay('empty-state', 'block');
                         setDisplay('error-state', 'none');
                         setDisplay('dashboard-content', 'none');
@@ -1768,6 +1772,8 @@
 
         window.onload = function() {
             loadData();
+            // Periodically refresh telemetry so finished routes automatically clear from the map
+            setInterval(loadData, 20000);
         };
     </script>
 </body>

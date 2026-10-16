@@ -1468,6 +1468,22 @@ def get_data():
                 query = query.filter(Customer.truck_id.in_(ws_trucks))
         except:
             pass
+
+    # Auto-cleanup finished routes: if a truck has stops in Customer, but 0 pending stops remain,
+    # or if the truck has no active driver assigned, remove them so finished routes disappear from live_dashboard
+    if not template_id and not req_truck_id:
+        active_assigned_trucks = set(d.truck_id for d in User.query.filter(User.assigned_template_id != None, User.truck_id != None).all())
+        all_truck_ids = [t[0] for t in db.session.query(Customer.truck_id).distinct().all() if t[0] is not None]
+        cleaned_any = False
+        for tid in all_truck_ids:
+            total_c = Customer.query.filter_by(truck_id=tid).count()
+            pending_c = Customer.query.filter(Customer.truck_id == tid, Customer.status == 'PENDING', Customer.confirmation != 'CANCELLED').count()
+            if total_c > 0 and (pending_c == 0 or tid not in active_assigned_trucks):
+                Customer.query.filter_by(truck_id=tid).delete()
+                cleaned_any = True
+        if cleaned_any:
+            db.session.commit()
+            recompute_route_metrics()
         
     customers_db = query.order_by(Customer.truck_id.asc(), Customer.stop_number.asc()).all()
     
@@ -2576,12 +2592,22 @@ def get_assigned_routes():
 
         # If all stops on the route are completed or skipped (0 pending left):
         # The route is finished! Automatically clear the driver's assignment so it disappears from Assigned Routes!
-        if total_stops > 0 and pending_stops == 0:
+        if (total_stops > 0 and pending_stops == 0) or total_stops == 0:
             if d.assigned_template_id:
                 old_inst = db.session.get(SavedTemplate, d.assigned_template_id)
                 if old_inst and getattr(old_inst, 'is_assigned_instance', False):
                     db.session.delete(old_inst)
             d.assigned_template_id = None
+            if d.truck_id:
+                Customer.query.filter_by(truck_id=d.truck_id).delete()
+                try:
+                    import requests
+                    firebase_url = "https://wasteroutelive-default-rtdb.firebaseio.com"
+                    id_token = get_firebase_token()
+                    if id_token:
+                        requests.delete(f"{firebase_url}/routes/route_{d.truck_id}.json?auth={id_token}", timeout=4)
+                except:
+                    pass
             continue
 
         res.append({
@@ -2656,12 +2682,30 @@ def driver_finish_route():
         except: pass
         
     if driver:
+        eff_truck_id = driver.truck_id or (int(truck_id) if truck_id else None)
         if driver.assigned_template_id:
             old_inst = db.session.get(SavedTemplate, driver.assigned_template_id)
             if old_inst and getattr(old_inst, 'is_assigned_instance', False):
                 db.session.delete(old_inst)
         driver.assigned_template_id = None
+        if eff_truck_id:
+            Customer.query.filter_by(truck_id=eff_truck_id).delete()
         db.session.commit()
+        
+        try:
+            import requests
+            firebase_url = "https://wasteroutelive-default-rtdb.firebaseio.com"
+            id_token = get_firebase_token()
+            if id_token and eff_truck_id:
+                requests.delete(f"{firebase_url}/routes/route_{eff_truck_id}.json?auth={id_token}", timeout=4)
+                requests.patch(f"{firebase_url}/trucks/{eff_truck_id}.json?auth={id_token}", json={
+                    "status": "offline",
+                    "routeCompleted": True
+                }, timeout=4)
+        except Exception as e:
+            print("Firebase finish route cleanup error:", e)
+
+        recompute_route_metrics()
         return jsonify({'success': True})
     return jsonify({'error': 'Driver not found'}), 404
 
