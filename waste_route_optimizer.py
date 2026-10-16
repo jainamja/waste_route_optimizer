@@ -402,8 +402,14 @@ def read_data_file(filepath):
                         import requests
                         g_res = requests.get('https://maps.googleapis.com/maps/api/geocode/json', params={'address': search_query, 'key': gmaps_key}).json()
                         if g_res.get('status') == 'OK':
-                            lat = g_res['results'][0]['geometry']['location']['lat']
-                            lng = g_res['results'][0]['geometry']['location']['lng']
+                            glat = g_res['results'][0]['geometry']['location']['lat']
+                            glng = g_res['results'][0]['geometry']['location']['lng']
+                            if 8.0 <= glat <= 38.0 and 68.0 <= glng <= 98.0:
+                                if "ahmedabad" in search_query.lower():
+                                    if 22.4 <= glat <= 23.6 and 72.0 <= glng <= 73.1:
+                                        lat, lng = glat, glng
+                                else:
+                                    lat, lng = glat, glng
                     except Exception as e: print(f"GMAPS Geocode Error: {e}")
                 if lat is None or lng is None:
                     try:
@@ -411,32 +417,45 @@ def read_data_file(filepath):
                         nom = Nominatim(user_agent="waste_route_123")
                         parts = [p.strip() for p in search_query.split(',')]
                         queries = [search_query]
-                        if len(parts) >= 5: queries.append(", ".join(parts[-5:]))
-                        if len(parts) >= 4: queries.append(", ".join(parts[-4:]))
-                        if len(parts) >= 3: queries.append(", ".join(parts[-3:]))
-                        if len(parts) >= 2: queries.append(", ".join(parts[-2:]))
+                        # Only keep queries that retain street/local area details (never drop down to just City, State, Country)
+                        for k in [5, 4]:
+                            if len(parts) > k:
+                                cand_q = ", ".join(parts[-k:])
+                                if cand_q not in queries:
+                                    queries.append(cand_q)
                           
-                        # Progressive Nominatim (strict but accurate)
                         for short_q in queries:
                             try:
-                                print(f'NOM TRY: {short_q}')
                                 loc = nom.geocode(short_q, timeout=3)
                                 if loc:
-                                    lat, lng = loc.latitude, loc.longitude
-                                    break
+                                    clat, clng = loc.latitude, loc.longitude
+                                    if 8.0 <= clat <= 38.0 and 68.0 <= clng <= 98.0:
+                                        if "ahmedabad" in search_query.lower():
+                                            if 22.4 <= clat <= 23.6 and 72.0 <= clng <= 73.1:
+                                                lat, lng = clat, clng
+                                                break
+                                        else:
+                                            lat, lng = clat, clng
+                                            break
                             except: pass
                               
-                        # If still none, fallback to progressive ArcGIS
+                        # If still none, fallback to progressive ArcGIS with same bounds check
                         if lat is None or lng is None:
                             from geopy.geocoders import ArcGIS
                             arc = ArcGIS()
                             for short_q in queries:
                                 try:
-                                    print(f'ARC TRY: {short_q}')
                                     loc = arc.geocode(short_q, timeout=3)
                                     if loc:
-                                        lat, lng = loc.latitude, loc.longitude
-                                        break
+                                        clat, clng = loc.latitude, loc.longitude
+                                        if 8.0 <= clat <= 38.0 and 68.0 <= clng <= 98.0:
+                                            if "ahmedabad" in search_query.lower():
+                                                if 22.4 <= clat <= 23.6 and 72.0 <= clng <= 73.1:
+                                                    lat, lng = clat, clng
+                                                    break
+                                            else:
+                                                lat, lng = clat, clng
+                                                break
                                 except: pass
                     except: pass
             
@@ -1694,8 +1713,14 @@ def add_stop():
                 import requests
                 g_res = requests.get('https://maps.googleapis.com/maps/api/geocode/json', params={'address': search_query, 'key': gmaps_key}).json()
                 if g_res.get('status') == 'OK':
-                    lat = g_res['results'][0]['geometry']['location']['lat']
-                    lng = g_res['results'][0]['geometry']['location']['lng']
+                    glat = g_res['results'][0]['geometry']['location']['lat']
+                    glng = g_res['results'][0]['geometry']['location']['lng']
+                    if 8.0 <= glat <= 38.0 and 68.0 <= glng <= 98.0:
+                        if "ahmedabad" in search_query.lower():
+                            if 22.4 <= glat <= 23.6 and 72.0 <= glng <= 73.1:
+                                lat, lng = glat, glng
+                        else:
+                            lat, lng = glat, glng
             except Exception as e: print(f"GMAPS Geocode Error: {e}")
         if lat is None or lng is None:
             try:
@@ -1703,32 +1728,43 @@ def add_stop():
                 nom = Nominatim(user_agent="waste_route_optim_ahmedabad_1")
                 parts = [p.strip() for p in search_query.split(',')]
                 queries = [search_query]
-                if len(parts) >= 5: queries.append(", ".join(parts[-5:]))
-                if len(parts) >= 4: queries.append(", ".join(parts[-4:]))
-                if len(parts) >= 3: queries.append(", ".join(parts[-3:]))
-                if len(parts) >= 2: queries.append(", ".join(parts[-2:]))
+                for k in [5, 4]:
+                    if len(parts) > k:
+                        cand_q = ", ".join(parts[-k:])
+                        if cand_q not in queries:
+                            queries.append(cand_q)
                   
-                # Progressive Nominatim (strict but accurate)
                 for short_q in queries:
                     try:
-                        print(f'NOM TRY: {short_q}')
                         loc = nom.geocode(short_q, timeout=3)
                         if loc:
-                            lat, lng = loc.latitude, loc.longitude
-                            break
+                            clat, clng = loc.latitude, loc.longitude
+                            if 8.0 <= clat <= 38.0 and 68.0 <= clng <= 98.0:
+                                if "ahmedabad" in search_query.lower():
+                                    if 22.4 <= clat <= 23.6 and 72.0 <= clng <= 73.1:
+                                        lat, lng = clat, clng
+                                        break
+                                else:
+                                    lat, lng = clat, clng
+                                    break
                     except: pass
                       
-                # If still none, fallback to progressive ArcGIS
                 if lat is None or lng is None:
                     from geopy.geocoders import ArcGIS
                     arc = ArcGIS()
                     for short_q in queries:
                         try:
-                            print(f'ARC TRY: {short_q}')
                             loc = arc.geocode(short_q, timeout=3)
                             if loc:
-                                lat, lng = loc.latitude, loc.longitude
-                                break
+                                clat, clng = loc.latitude, loc.longitude
+                                if 8.0 <= clat <= 38.0 and 68.0 <= clng <= 98.0:
+                                    if "ahmedabad" in search_query.lower():
+                                        if 22.4 <= clat <= 23.6 and 72.0 <= clng <= 73.1:
+                                            lat, lng = clat, clng
+                                            break
+                                    else:
+                                        lat, lng = clat, clng
+                                        break
                         except: pass
             except: pass
         
