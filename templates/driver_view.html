@@ -3,48 +3,70 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
-    <title>Driver Mission HUD - Waste Route Optimizer</title>
+    <title>Driver Navigation</title>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=Manrope:wght@600;700;800&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
     
-    <!-- Fonts -->
-    <link rel="preconnect" href="https://fonts.googleapis.com">
-    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-    <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600;700&family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet">
-    
-    <!-- Lucide Icons -->
-    <script src="https://unpkg.com/lucide@latest"></script>
-    
-    <!-- Leaflet & Clustering -->
+    <!-- Leaflet -->
     <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
     <link rel="stylesheet" href="https://unpkg.com/leaflet.markercluster@1.4.1/dist/MarkerCluster.css" />
     <link rel="stylesheet" href="https://unpkg.com/leaflet.markercluster@1.4.1/dist/MarkerCluster.Default.css" />
     <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
     <script src="https://unpkg.com/leaflet.markercluster@1.4.1/dist/leaflet.markercluster.js"></script>
     
-    <!-- Firebase SDKs -->
+    <!-- Firebase -->
     <script src="https://www.gstatic.com/firebasejs/10.9.0/firebase-app-compat.js"></script>
     <script src="https://www.gstatic.com/firebasejs/10.9.0/firebase-auth-compat.js"></script>
     <script src="https://www.gstatic.com/firebasejs/10.9.0/firebase-database-compat.js"></script>
-
-    <!-- App Design System -->
-    <link rel="stylesheet" href="/static/css/app.css">
     
     <style>
+        #splash-screen {
+            position: fixed; top: 0; left: 0; width: 100%; height: 100%;
+            background: var(--primary); z-index: 99999; display: flex;
+            justify-content: center; align-items: center;
+            transition: opacity 0.4s ease-out;
+        }
+        .splash-logo {
+            width: 100px; height: 100px; fill: white;
+            animation: cinematicZoom 2s cubic-bezier(0.25, 0.46, 0.45, 0.94) forwards;
+        }
+        @keyframes cinematicZoom {
+            0% { transform: scale(0.9); opacity: 0; }
+            20% { transform: scale(1); opacity: 1; }
+            100% { transform: scale(1.15); opacity: 1; }
+        }
+        #login-overlay {
+            position: fixed; top: 0; left: 0; width: 100%; height: 100%;
+            background: #f8fafc; z-index: 10000; display: flex;
+            flex-direction: column; justify-content: center; align-items: center; padding: 20px;
+        }
+        .login-box {
+            background: white; padding: 30px; border-radius: 16px;
+            box-shadow: 0 4px 20px rgba(0,0,0,0.05); width: 100%; max-width: 360px;
+            text-align: center;
+        }
+        .login-box input {
+            width: 100%; padding: 14px; margin-bottom: 16px;
+            border: 1px solid #e2e8f0; border-radius: 8px; font-size: 16px; box-sizing: border-box;
+        }
+        .login-box button {
+            width: 100%; padding: 14px; background: var(--primary);
+            color: white; border: none; border-radius: 8px; font-size: 16px; font-weight: 600; cursor: pointer;
+        }
+        .error-msg { color: #ef4444; margin-bottom: 16px; font-size: 14px; display: none; }
         :root {
-            --primary: #10b981;
-            --primary-hover: #059669;
-            --amber: #f59e0b;
+            --primary: #2F5FFF;
+            --primary-hover: #1e40af;
+            --amber: #FFA93E;
             --green: #10b981;
             --red: #ef4444;
-            --bg: #070b14;
-            --card-bg: #0e1526;
-            --text-main: #f8fafc;
-            --text-muted: #94a3b8;
-            --border: rgba(255, 255, 255, 0.08);
-            --conf-strip: 6px;
-            --accent-gradient: linear-gradient(135deg, #10b981 0%, #06b6d4 100%);
-            --accent-glow: 0 0 20px rgba(16, 185, 129, 0.35);
-            --font-sans: 'Plus Jakarta Sans', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
-            --font-mono: 'JetBrains Mono', monospace;
+            --bg: #f8fafc;
+            --card-bg: #ffffff;
+            --text-main: #0f172a;
+            --text-muted: #64748b;
+            --border: #e2e8f0;
+            --shadow: 0 4px 20px rgba(0,0,0,0.1);
+            --conf-strip: 8px;
         }
 
         * { box-sizing: border-box; }
@@ -53,216 +75,127 @@
             margin: 0; padding: 0;
             width: 100%; height: 100%;
             overflow: hidden;
-            font-family: var(--font-sans);
+            font-family: 'Inter', sans-serif;
             color: var(--text-main);
             background-color: var(--bg);
-            -webkit-tap-highlight-color: transparent;
         }
 
-        #splash-screen {
-            position: fixed; top: 0; left: 0; width: 100%; height: 100%;
-            background: #070b14; z-index: 99999; display: flex;
-            flex-direction: column;
-            justify-content: center; align-items: center;
-            transition: opacity 0.4s ease-out;
-            gap: 16px;
-        }
-        .splash-logo {
-            width: 80px; height: 80px; fill: #10b981;
-            animation: cinematicZoom 2s cubic-bezier(0.25, 0.46, 0.45, 0.94) forwards;
-        }
-        @keyframes cinematicZoom {
-            0% { transform: scale(0.9); opacity: 0; }
-            20% { transform: scale(1); opacity: 1; }
-            100% { transform: scale(1.15); opacity: 1; }
-        }
-
-        #login-overlay {
-            position: fixed; top: 0; left: 0; width: 100%; height: 100%;
-            background: #070b14; z-index: 10000; display: flex;
-            flex-direction: column; justify-content: center; align-items: center; padding: 24px;
-        }
-        .login-box {
-            background: #0e1526; padding: 32px 24px; border-radius: 20px;
-            border: 1px solid rgba(255, 255, 255, 0.08);
-            box-shadow: 0 20px 40px rgba(0,0,0,0.5); width: 100%; max-width: 360px;
-            text-align: center;
-        }
-        .login-box input {
-            width: 100%; height: 48px; padding: 0 16px; margin-bottom: 16px;
-            background: #151f38; border: 1px solid rgba(255, 255, 255, 0.08); border-radius: 12px;
-            font-size: 15px; color: #f8fafc; font-family: inherit; outline: none;
-        }
-        .login-box input:focus { border-color: #10b981; }
+        h1, h2, h3, h4 { font-family: 'Manrope', sans-serif; margin: 0; }
 
         /* Full Screen Map */
         #map {
             position: absolute;
             top: 0; left: 0; right: 0; bottom: 0;
             z-index: 1;
-            background: #070b14;
         }
 
-        /* Top Navbar HUD */
+        /* Glassmorphism Navbar */
         #navbar {
             position: absolute;
-            top: max(env(safe-area-inset-top, 14px), 14px);
-            left: 14px;
-            right: 14px;
+            top: max(env(safe-area-inset-top, 16px), 16px);
+            left: 16px;
+            right: 16px;
             z-index: 1000;
-            background: rgba(14, 21, 38, 0.85);
-            backdrop-filter: blur(16px);
-            -webkit-backdrop-filter: blur(16px);
-            border: 1px solid rgba(255, 255, 255, 0.1);
+            background: rgba(255, 255, 255, 0.7);
+            backdrop-filter: blur(12px);
+            -webkit-backdrop-filter: blur(12px);
+            border: 1px solid rgba(255,255,255,0.5);
             border-radius: 16px;
-            padding: 10px 16px;
+            padding: 12px 20px;
             display: flex;
             justify-content: space-between;
             align-items: center;
-            box-shadow: 0 10px 30px rgba(0, 0, 0, 0.4);
+            box-shadow: var(--shadow);
+        }
+        
+        @supports not (backdrop-filter: blur(1px)) {
+            #navbar { background: rgba(255, 255, 255, 0.95); }
         }
 
-        .navbar-brand {
-            display: flex;
-            align-items: center;
-            gap: 10px;
-        }
-
-        .progress-ring-circle {
-            transition: stroke-dashoffset 0.35s;
-            transform: rotate(-90deg);
-            transform-origin: 50% 50%;
-        }
-
-        /* Floating Navigate Action Button (FAB) */
+        .navbar-title { font-weight: 800; font-size: 18px; display: flex; align-items: center; gap: 8px; }
+        
+        /* Floating Action Button */
         #fab {
             position: absolute;
-            bottom: max(env(safe-area-inset-bottom, 20px), 20px);
-            right: 18px;
-            width: 60px;
-            height: 60px;
-            border-radius: 18px;
-            background: var(--accent-gradient);
+            bottom: max(env(safe-area-inset-bottom, 16px), 16px); /* Dynamic adjustment via JS */
+            right: 16px;
+            width: 56px;
+            height: 56px;
+            border-radius: 28px;
+            background: var(--primary);
             color: white;
             display: flex;
             align-items: center;
             justify-content: center;
-            box-shadow: var(--accent-glow);
+            font-size: 20px;
+            box-shadow: 0 4px 15px rgba(47, 95, 255, 0.4);
             border: none;
             z-index: 1000;
             cursor: pointer;
             transition: transform 0.2s;
         }
-        #fab:active { transform: scale(0.92); }
+        #fab:active { transform: scale(0.95); }
 
         /* Bottom Sheet */
         #bottom-sheet {
             position: absolute;
             bottom: 0; left: 0; right: 0;
-            background: var(--bg-surface);
-            border-top: 1px solid var(--border-glass);
+            background: var(--card-bg);
             border-radius: 24px 24px 0 0;
-            box-shadow: 0 -8px 30px rgba(0, 0, 0, 0.6);
-            z-index: 1001;
+            box-shadow: 0 -4px 20px rgba(0,0,0,0.15);
+            z-index: 1001; /* Above map and FAB */
             display: flex;
             flex-direction: column;
-            transform: translateY(100%);
+            transform: translateY(100%); /* Hidden initially */
             will-change: transform;
+            /* Height is tall enough to cover screen, but peeked */
             height: 90vh; 
         }
 
         .sheet-handle-area {
             width: 100%;
-            padding: 12px 0 6px;
+            padding: 12px 0 8px;
             display: flex;
             justify-content: center;
             cursor: grab;
-            touch-action: none;
+            touch-action: none; /* Prevent native scroll here */
         }
-
         .sheet-handle {
-            width: 44px; height: 5px;
-            background: rgba(255, 255, 255, 0.18);
-            border-radius: 4px;
+            width: 40px; height: 5px;
+            background: #cbd5e1;
+            border-radius: 3px;
         }
 
         .sheet-content {
-            padding: 0 18px 18px;
+            padding: 0 20px 20px;
             flex: 1;
-            overflow-y: hidden;
+            overflow-y: hidden; /* Scroll enabled when fully expanded */
             display: flex;
             flex-direction: column;
         }
 
-        /* Current Stop Card */
+        /* Current Stop Card (Always visible in peek) */
         .current-stop-card {
-            padding-bottom: 14px;
+            padding-bottom: 16px;
             border-bottom: 1px solid var(--border);
-            margin-bottom: 14px;
+            margin-bottom: 16px;
         }
 
+        /* Current Stop Container - scrollable when needed */
         #current-stop-container {
             overflow-y: auto;
             overscroll-behavior: contain;
         }
-
-        /* Swipe to Complete Slider */
-        .swipe-slider-track {
-            position: relative;
-            height: 54px;
-            background: var(--bg-surface-elevated);
-            border: 1px solid var(--border-glass);
-            border-radius: var(--radius-pill);
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            overflow: hidden;
-            user-select: none;
-            touch-action: none;
-            margin-top: 12px;
-        }
-
-        .swipe-slider-text {
-            font-size: 14px;
-            font-weight: 700;
-            color: var(--text-secondary);
-            letter-spacing: 0.5px;
-            pointer-events: none;
-            display: flex;
-            align-items: center;
-            gap: 6px;
-        }
-
-        .swipe-slider-fill {
-            position: absolute;
-            left: 0;
-            top: 0;
-            bottom: 0;
-            width: 0%;
-            background: rgba(16, 185, 129, 0.2);
-            border-radius: var(--radius-pill);
-            pointer-events: none;
-        }
-
-        .swipe-slider-thumb {
-            position: absolute;
-            left: 4px;
-            width: 46px;
-            height: 46px;
-            border-radius: 50%;
-            background: var(--accent-gradient);
-            color: #ffffff;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            box-shadow: var(--accent-glow);
-            cursor: grab;
-            transition: transform 0.05s linear;
-        }
-
-        .swipe-slider-thumb:active {
-            cursor: grabbing;
-        }
+        
+        .progress-text { font-size: 12px; font-weight: 700; color: var(--primary); text-transform: uppercase; margin-bottom: 4px;}
+        .stop-name { font-size: 22px; font-weight: 800; margin-bottom: 4px; }
+        .stop-address { font-size: 14px; color: var(--text-muted); display: flex; gap: 6px; }
+        
+        .action-buttons { display: flex; gap: 12px; margin-top: 16px; }
+        .btn { padding: 12px 16px; border-radius: 12px; font-weight: 700; cursor: pointer; border: none; font-size: 14px; display: flex; align-items: center; justify-content: center; gap: 6px;}
+        .btn-success { background: var(--green); color: white; flex: 2; }
+        .btn-danger { background: #fee2e2; color: var(--red); flex: 1; }
+        .btn:active { opacity: 0.8; }
 
         /* Stop List */
         .stop-list {
@@ -270,31 +203,39 @@
             overflow-y: auto;
             display: flex;
             flex-direction: column;
-            gap: 10px;
+            gap: 12px;
             padding-bottom: env(safe-area-inset-bottom, 20px);
         }
-
         .stop-item {
-            display: flex;
-            align-items: flex-start;
-            gap: 12px;
-            padding: 12px 14px;
-            background: var(--bg-surface-elevated);
-            border: 1px solid var(--border);
-            border-radius: 14px;
-            transition: var(--transition-smooth);
+            display: flex; align-items: flex-start; gap: 12px; padding: 12px; background: var(--bg); border-radius: 12px;
         }
+        .stop-item.active { outline: 2px solid var(--primary); outline-offset: -2px; box-shadow: 0 4px 12px rgba(47, 95, 255, 0.15); }
+        .stop-item.completed { opacity: 0.6; }
+        .status-icon { font-size: 18px; margin-top: 2px; }
+        .status-icon.completed { color: var(--green); }
+        .status-icon.skipped { color: var(--red); }
+        .status-icon.pending { color: var(--text-muted); }
 
-        .stop-item.active {
-            border-color: var(--accent-primary);
-            box-shadow: 0 0 0 2px rgba(16, 185, 129, 0.2);
+        /* Driver Chat UI */
+        .quick-chip {
+            padding: 6px 12px;
+            background: #f1f5f9;
+            color: #334155;
+            border: 1px solid #cbd5e1;
+            border-radius: 18px;
+            font-size: 12px;
+            font-weight: 600;
+            white-space: nowrap;
+            cursor: pointer;
+            transition: all 0.15s;
+            flex-shrink: 0;
         }
-
-        .stop-item.completed {
-            opacity: 0.45;
+        .quick-chip:active {
+            background: var(--primary);
+            color: white;
+            border-color: var(--primary);
+            transform: scale(0.95);
         }
-
-        /* Messenger & Alerts */
         .driver-chat-bubble {
             max-width: 82%;
             padding: 10px 14px;
@@ -302,51 +243,45 @@
             font-size: 14px;
             line-height: 1.4;
             word-break: break-word;
+            box-shadow: 0 1px 2px rgba(0,0,0,0.06);
         }
-
         .driver-chat-bubble.admin {
             align-self: flex-start;
-            background: var(--bg-surface);
-            color: var(--text-primary);
-            border: 1px solid var(--border);
+            background: white;
+            color: #0f172a;
+            border: 1px solid #e2e8f0;
             border-bottom-left-radius: 4px;
         }
-
         .driver-chat-bubble.driver {
             align-self: flex-end;
-            background: var(--accent-gradient);
-            color: #ffffff;
+            background: #2563eb;
+            color: white;
             border-bottom-right-radius: 4px;
         }
-
-        .quick-chip {
-            padding: 6px 14px;
-            background: var(--bg-surface-elevated);
-            color: var(--text-primary);
-            border: 1px solid var(--border);
-            border-radius: var(--radius-pill);
-            font-size: 13px;
-            font-weight: 600;
-            white-space: nowrap;
-            cursor: pointer;
-            transition: all 0.15s;
-            flex-shrink: 0;
+        .chat-meta {
+            font-size: 10px;
+            margin-top: 4px;
+            opacity: 0.8;
+            display: flex;
+            align-items: center;
+            gap: 4px;
         }
-
-        .quick-chip:active {
-            background: var(--accent-primary);
-            color: white;
+        .driver-chat-bubble.driver .chat-meta {
+            justify-content: flex-end;
+            color: #e0e7ff;
         }
-
-        .pulse-badge {
-            animation: pulseBadge 1.8s infinite;
+        .driver-chat-bubble.admin .chat-meta {
+            color: #64748b;
         }
-
         @keyframes pulseBadge {
             0% { transform: scale(1); box-shadow: 0 0 0 0 rgba(239, 68, 68, 0.7); }
             70% { transform: scale(1.15); box-shadow: 0 0 0 6px rgba(239, 68, 68, 0); }
             100% { transform: scale(1); box-shadow: 0 0 0 0 rgba(239, 68, 68, 0); }
         }
+        .pulse-badge {
+            animation: pulseBadge 1.8s infinite;
+        }
+
     </style>
 </head>
 <body>
@@ -355,160 +290,148 @@
         <svg class="splash-logo" viewBox="0 0 24 24">
             <path d="M20 8h-3V4c0-1.1-.9-2-2-2H5C3.9 2 3 2.9 3 4v11h2c0 1.66 1.34 3 3 3s3-1.34 3-3h6c0 1.66 1.34 3 3 3s3-1.34 3-3h2v-5l-3-4zM8 16c-.55 0-1-.45-1-1s.45-1 1-1 1 .45 1 1-.45 1-1 1zm10 0c-.55 0-1-.45-1-1s.45-1 1-1 1 .45 1 1-.45 1-1 1zm-3-11v6H5V5h10zm3.5 3l1.5 2h-3V8h1.5z"/>
         </svg>
-        <div style="font-weight: 800; font-size: 18px; letter-spacing: -0.3px;">ONROUTE DRIVER</div>
     </div>
 
     <!-- Login Overlay -->
     <div id="login-overlay">
+        <svg class="splash-logo" viewBox="0 0 24 24" style="margin-bottom:20px; animation:none; transform:scale(1.15); opacity:1;">
+            <path d="M20 8h-3V4c0-1.1-.9-2-2-2H5C3.9 2 3 2.9 3 4v11h2c0 1.66 1.34 3 3 3s3-1.34 3-3h6c0 1.66 1.34 3 3 3s3-1.34 3-3h2v-5l-3-4zM8 16c-.55 0-1-.45-1-1s.45-1 1-1 1 .45 1 1-.45 1-1 1zm10 0c-.55 0-1-.45-1-1s.45-1 1-1 1 .45 1 1-.45 1-1 1zm-3-11v6H5V5h10zm3.5 3l1.5 2h-3V8h1.5z"/>
+        </svg>
         <div class="login-box">
-            <div style="width: 52px; height: 52px; border-radius: 14px; background: var(--accent-gradient); display: flex; align-items: center; justify-content: center; margin: 0 auto 16px auto; color: white;">
-                <i data-lucide="truck" style="width: 26px; height: 26px;"></i>
-            </div>
-            <h3 style="margin: 0 0 6px 0; font-size: 20px; font-weight: 800;">Driver Telemetry Login</h3>
-            <p style="color: var(--text-muted); font-size: 13px; margin-bottom: 24px;">Enter your phone credentials to activate assigned route.</p>
-            <input type="tel" id="username" placeholder="Mobile Number (e.g. 9876543210)" autocomplete="tel">
+            <h3 style="margin:0 0 8px 0;text-align:center;">Driver Login</h3>
+            <p style="text-align:center;color:var(--text-muted);font-size:14px;margin-bottom:24px;">Enter your assigned mobile number to view your route</p>
+            <input type="tel" id="username" placeholder="Mobile Number" autocomplete="tel">
             <input type="password" id="password" placeholder="Password">
-            <div id="login-error" style="color: var(--status-danger); font-size: 13px; margin-bottom: 12px; font-weight: 600; display: none;"></div>
-            <button id="login-btn" onclick="handleDriverLogin()" class="btn-control btn-primary" style="width: 100%; height: 48px; border-radius: 12px; font-size: 15px;">Sign In to Route</button>
+            <div id="login-error" style="color:var(--red);font-size:13px;margin-bottom:12px;text-align:center;display:none;font-weight:600;"></div>
+            <button id="login-btn" onclick="handleDriverLogin()">Sign In</button>
         </div>
     </div>
 
-    <!-- Map Viewport -->
+
+    <!-- Map -->
     <div id="map"></div>
 
-    <!-- Navbar HUD -->
-    <header id="navbar">
-        <div class="navbar-brand">
-            <!-- Progress Ring Indicator -->
-            <div style="position: relative; width: 36px; height: 36px; display: flex; align-items: center; justify-content: center;">
-                <svg width="36" height="36" viewBox="0 0 36 36">
-                    <circle cx="18" cy="18" r="14" fill="none" stroke="rgba(255,255,255,0.1)" stroke-width="3" />
-                    <circle id="progress-ring-fill" class="progress-ring-circle" cx="18" cy="18" r="14" fill="none" stroke="#10b981" stroke-width="3" stroke-dasharray="88" stroke-dashoffset="88" stroke-linecap="round" />
-                </svg>
-                <span id="progress-ring-text" style="position: absolute; font-size: 10px; font-family: var(--font-mono); font-weight: 700;">0%</span>
-            </div>
-
-            <div>
-                <div style="font-weight: 800; font-size: 15px; display: flex; align-items: center; gap: 6px;" id="truck-title">Loading...</div>
-                <div style="font-size: 10px; color: var(--accent-primary); font-family: var(--font-mono); font-weight: 600;">GPS TRANSMITTER ACTIVE</div>
-            </div>
-        </div>
-
-        <div style="display: flex; gap: 8px; align-items: center;">
-            <button id="driver-chat-btn" onclick="openDriverChat()" class="btn-control btn-secondary" style="position: relative; padding: 6px 12px; font-size: 12px;">
-                <i data-lucide="message-square" style="width: 15px; height: 15px;"></i>
-                <span>Dispatch</span>
-                <span id="driver-unread-badge" class="pulse-badge" style="display: none; position: absolute; top: -5px; right: -5px; background: #ef4444; color: white; border-radius: 10px; min-width: 16px; height: 16px; font-size: 9px; font-weight: 800; align-items: center; justify-content: center;">0</span>
+    <!-- Navbar -->
+    <div id="navbar">
+        <div class="navbar-title"><i class="fa-solid fa-truck"></i> <span id="truck-title">Loading...</span></div>
+        <div style="display:flex; gap:10px; align-items:center;">
+            <button id="driver-chat-btn" onclick="openDriverChat()" style="position:relative; background:#2563eb; color:white; border:none; border-radius:8px; padding:6px 12px; font-size:13px; font-weight:700; cursor:pointer; display:flex; align-items:center; gap:6px; box-shadow:0 2px 8px rgba(37,99,235,0.3);" title="Message Dispatch / Admin">
+                <i class="fa-solid fa-comment-dots"></i>
+                <span>Admin</span>
+                <span id="driver-unread-badge" class="pulse-badge" style="display:none; position:absolute; top:-6px; right:-6px; background:#ef4444; color:white; border-radius:10px; min-width:18px; height:18px; padding:0 4px; font-size:10px; font-weight:800; border:2px solid white; align-items:center; justify-content:center;">0</span>
             </button>
-            <button onclick="resetRoute()" class="btn-control btn-secondary" style="padding: 6px 10px;" title="Refresh Route">
-                <i data-lucide="rotate-ccw" style="width: 15px; height: 15px;"></i>
-            </button>
-            <button onclick="driverLogout()" class="btn-control btn-danger" style="padding: 6px 10px;" title="Logout">
-                <i data-lucide="power" style="width: 15px; height: 15px;"></i>
-            </button>
+            <button onclick="resetRoute()" style="background:none; border:none; color:var(--text-muted); font-size:14px; font-weight:600; cursor:pointer;" title="Refresh"><i class="fa-solid fa-rotate-right"></i></button>
+            <button onclick="driverLogout()" style="background:var(--red); color:white; border:none; border-radius:8px; padding:6px 12px; font-size:14px; font-weight:700; cursor:pointer;" title="Logout"><i class="fa-solid fa-power-off"></i></button>
         </div>
-    </header>
-
-    <!-- Overlay Permission Prompt -->
-    <div id="overlay-perm-prompt" style="display: none; position: fixed; top: calc(max(env(safe-area-inset-top, 14px), 14px) + 60px); left: 14px; right: 14px; z-index: 9999; background: rgba(245, 158, 11, 0.15); border: 1px solid rgba(245, 158, 11, 0.3); border-radius: 14px; padding: 12px 14px; align-items: center; justify-content: space-between; gap: 10px; color: #f59e0b;">
-        <div style="font-size: 12px; font-weight: 600; display: flex; align-items: center; gap: 8px;">
-            <i data-lucide="alert-triangle" style="width: 16px; height: 16px; flex-shrink: 0;"></i>
-            <span>Enable <b>"Appear on top"</b> to auto-open dispatch messages while driving.</span>
-        </div>
-        <button onclick="requestOverlay()" class="btn-control btn-primary" style="padding: 6px 12px; font-size: 12px;">Enable</button>
     </div>
 
-    <!-- Floating Action Navigate Button (Opens Google Maps) -->
-    <button id="fab" onclick="openNavigation()" title="Navigate in Google Maps">
-        <i data-lucide="navigation" style="width: 26px; height: 26px;"></i>
-    </button>
+    <!-- Overlay Permission Prompt (Appear on top for auto-opening alerts) -->
+    <div id="overlay-perm-prompt" style="display:none; position:fixed; top:calc(max(env(safe-area-inset-top, 16px), 16px) + 60px); left:16px; right:16px; z-index:9999; background:#fef3c7; border:1px solid #f59e0b; border-radius:12px; padding:10px 14px; box-shadow:0 8px 24px rgba(0,0,0,0.15); align-items:center; justify-content:space-between; gap:10px; color:#92400e; animation:slideDownAlert 0.3s cubic-bezier(0.16, 1, 0.3, 1);">
+        <div style="font-size:12px; font-weight:600; display:flex; align-items:center; gap:8px;">
+            <i class="fa-solid fa-triangle-exclamation" style="font-size:16px; color:#d97706; flex-shrink:0;"></i>
+            <span>Enable <b>"Appear on top"</b> so dispatch messages open automatically while driving.</span>
+        </div>
+        <button onclick="requestOverlay()" style="background:#d97706; color:white; border:none; border-radius:8px; padding:6px 12px; font-weight:700; font-size:12px; cursor:pointer; flex-shrink:0;">
+            Enable
+        </button>
+    </div>
+
+    <!-- FAB -->
+    <button id="fab" onclick="openNavigation()"><i class="fa-solid fa-location-arrow"></i></button>
 
     <!-- Bottom Sheet -->
     <div id="bottom-sheet">
         <div class="sheet-handle-area" id="drag-handle">
             <div class="sheet-handle"></div>
         </div>
-
         <div class="sheet-content">
-            <!-- Current Active Stop Card -->
-            <div id="current-stop-container" class="current-stop-card"></div>
-
-            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px;">
-                <h3 style="margin: 0; font-size: 15px; font-weight: 800;">Upcoming Fleet Stops</h3>
-                <div style="display: flex; gap: 10px; font-size: 10px; font-weight: 700; text-transform: uppercase;">
-                    <span style="color: #10b981;">• Confirmed</span>
-                    <span style="color: #38bdf8;">• Pending</span>
-                    <span style="color: #ef4444;">• Cancelled</span>
+            <div id="current-stop-container" class="current-stop-card">
+                <!-- Rendered via JS -->
+            </div>
+            
+            <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:12px;">
+                <h3 style="margin:0; font-size:16px;">Upcoming Stops</h3>
+                <div style="display:flex; gap:12px; font-size:11px; font-weight:700;">
+                    <div style="display:flex; align-items:center; gap:4px;"><span style="width:18px;height:12px;border-radius:3px;background:#ecfdf5;border-left:6px solid #10b981;"></span> Confirmed</div>
+                    <div style="display:flex; align-items:center; gap:4px;"><span style="width:18px;height:12px;border-radius:3px;background:#eff6ff;border-left:6px solid #2F5FFF;"></span> Not confirmed</div>
+                    <div style="display:flex; align-items:center; gap:4px;"><span style="width:18px;height:12px;border-radius:3px;background:#fef2f2;border-left:6px solid #ef4444;"></span> Cancelled</div>
                 </div>
             </div>
-
-            <div id="stop-list-container" class="stop-list"></div>
+            
+            <div id="stop-list-container" class="stop-list">
+                <!-- Rendered via JS -->
+            </div>
         </div>
     </div>
 
     <!-- Incoming Message Floating Banner -->
-    <div id="driver-alert-banner" style="display: none; position: fixed; top: calc(max(env(safe-area-inset-top, 14px), 14px) + 64px); left: 14px; right: 14px; z-index: 10005; background: var(--bg-surface-elevated); border: 1px solid var(--border-glass); color: white; border-radius: 16px; padding: 14px 16px; box-shadow: 0 15px 40px rgba(0,0,0,0.6);">
-        <div style="display: flex; justify-content: space-between; align-items: flex-start; gap: 8px;">
-            <div style="display: flex; gap: 12px; align-items: center;">
-                <div style="width: 36px; height: 36px; border-radius: 10px; background: var(--accent-gradient); display: flex; align-items: center; justify-content: center; color: white;">
-                    <i data-lucide="bell" style="width: 18px; height: 18px;"></i>
+    <div id="driver-alert-banner" style="display:none; position:fixed; top:calc(max(env(safe-area-inset-top, 16px), 16px) + 64px); left:16px; right:16px; z-index:10005; background:linear-gradient(135deg, #1e293b, #0f172a); color:white; border-radius:14px; padding:14px 16px; box-shadow:0 12px 30px rgba(0,0,0,0.35); border:1px solid rgba(255,255,255,0.2); animation:slideDownAlert 0.3s cubic-bezier(0.16, 1, 0.3, 1);">
+        <div style="display:flex; justify-content:space-between; align-items:flex-start; gap:8px;">
+            <div style="display:flex; gap:12px; align-items:center;">
+                <div style="width:36px; height:36px; border-radius:50%; background:#2563eb; display:flex; align-items:center; justify-content:center; font-size:16px; flex-shrink:0; color:white;">
+                    <i class="fa-solid fa-bell"></i>
                 </div>
                 <div>
-                    <div style="font-size: 11px; text-transform: uppercase; color: var(--accent-primary); font-weight: 800;">Message from Dispatch</div>
-                    <div id="driver-alert-text" style="font-size: 14px; font-weight: 600; margin-top: 2px; word-break: break-word;"></div>
+                    <div style="font-size:11px; text-transform:uppercase; letter-spacing:0.5px; color:#93c5fd; font-weight:800;">Message from Admin</div>
+                    <div id="driver-alert-text" style="font-size:14px; font-weight:600; color:#f8fafc; margin-top:2px; word-break:break-word;"></div>
                 </div>
             </div>
-            <button onclick="dismissDriverAlert()" style="background: none; border: none; color: var(--text-muted); cursor: pointer; padding: 2px;">
-                <i data-lucide="x" style="width: 16px; height: 16px;"></i>
+            <button onclick="dismissDriverAlert()" style="background:none; border:none; color:#94a3b8; font-size:18px; cursor:pointer; padding:2px;">
+                <i class="fa-solid fa-xmark"></i>
             </button>
         </div>
-        <div style="display: flex; justify-content: flex-end; gap: 8px; margin-top: 10px;">
-            <button onclick="dismissDriverAlert()" class="btn-control btn-secondary" style="padding: 6px 12px; font-size: 12px;">Dismiss</button>
-            <button onclick="openDriverChat(); dismissDriverAlert();" class="btn-control btn-primary" style="padding: 6px 14px; font-size: 12px;">Reply</button>
+        <div style="display:flex; justify-content:flex-end; gap:8px; margin-top:10px;">
+            <button onclick="dismissDriverAlert()" style="background:rgba(255,255,255,0.12); border:none; border-radius:8px; padding:6px 14px; font-size:12px; font-weight:600; color:#cbd5e1; cursor:pointer;">Dismiss</button>
+            <button onclick="openDriverChat(); dismissDriverAlert();" style="background:#2563eb; border:none; border-radius:8px; padding:6px 16px; font-size:12px; font-weight:700; color:white; cursor:pointer; display:flex; align-items:center; gap:6px;">
+                <i class="fa-solid fa-reply"></i> Reply
+            </button>
         </div>
     </div>
 
-    <!-- Driver Chat Modal Sheet -->
-    <div id="driver-chat-modal" style="display: none; position: fixed; inset: 0; z-index: 10002; background: rgba(0,0,0,0.7); backdrop-filter: blur(6px); flex-direction: column; justify-content: flex-end;">
-        <div style="background: var(--bg-surface); width: 100%; height: 85vh; max-height: 85vh; border-radius: 24px 24px 0 0; display: flex; flex-direction: column; box-shadow: 0 -10px 40px rgba(0,0,0,0.6); overflow: hidden; border-top: 1px solid var(--border-glass);">
-            <div style="padding: 16px 20px; background: var(--bg-surface-elevated); border-bottom: 1px solid var(--border-glass); display: flex; justify-content: space-between; align-items: center;">
-                <div style="display: flex; align-items: center; gap: 10px;">
-                    <div style="width: 36px; height: 36px; border-radius: 10px; background: var(--accent-gradient); color: white; display: flex; align-items: center; justify-content: center;">
-                        <i data-lucide="headset" style="width: 18px; height: 18px;"></i>
+    <!-- Driver Chat Modal (Full-featured mobile sheet) -->
+    <div id="driver-chat-modal" style="display:none; position:fixed; top:0; left:0; width:100%; height:100%; z-index:10002; background:rgba(15,23,42,0.65); backdrop-filter:blur(4px); -webkit-backdrop-filter:blur(4px); flex-direction:column; justify-content:flex-end;">
+        <div style="background:white; width:100%; height:85vh; max-height:85vh; border-radius:24px 24px 0 0; display:flex; flex-direction:column; box-shadow:0 -10px 35px rgba(0,0,0,0.25); overflow:hidden; animation:slideUpSheet 0.3s cubic-bezier(0.16, 1, 0.3, 1);">
+            <!-- Chat Header -->
+            <div style="padding:16px 20px; background:#f8fafc; border-bottom:1px solid #e2e8f0; display:flex; justify-content:space-between; align-items:center;">
+                <div style="display:flex; align-items:center; gap:10px;">
+                    <div style="width:38px; height:38px; border-radius:50%; background:#2563eb; color:white; display:flex; align-items:center; justify-content:center; font-size:16px;">
+                        <i class="fa-solid fa-headset"></i>
                     </div>
                     <div>
-                        <h3 style="margin: 0; font-size: 16px; font-weight: 800;">Dispatch Control</h3>
-                        <span style="font-size: 11px; color: #10b981; font-weight: 700;">🟢 Online Dispatcher</span>
+                        <h3 style="margin:0; font-size:16px; font-weight:800; color:#0f172a;">Dispatch / Admin</h3>
+                        <span style="font-size:11px; color:#10b981; font-weight:700;"><i class="fa-solid fa-circle" style="font-size:8px;"></i> Live Support</span>
                     </div>
                 </div>
-                <button onclick="closeDriverChat()" style="background: transparent; border: none; color: var(--text-muted); cursor: pointer; padding: 4px;">
-                    <i data-lucide="x" style="width: 20px; height: 20px;"></i>
+                <button onclick="closeDriverChat()" style="background:#e2e8f0; border:none; border-radius:50%; width:34px; height:34px; display:flex; align-items:center; justify-content:center; color:#475569; font-size:15px; cursor:pointer;">
+                    <i class="fa-solid fa-xmark"></i>
                 </button>
             </div>
             
-            <div id="driver-chat-messages" style="flex: 1; overflow-y: auto; padding: 16px 20px; display: flex; flex-direction: column; gap: 12px; background: var(--bg-deep);"></div>
-
-            <div style="padding: 8px 16px; background: var(--bg-surface-elevated); border-top: 1px solid var(--border-glass); display: flex; gap: 8px; overflow-x: auto; scrollbar-width: none;">
-                <button onclick="sendQuickReply('👍 On my way')" class="quick-chip">👍 On my way</button>
-                <button onclick="sendQuickReply('📍 Arrived at stop')" class="quick-chip">📍 Arrived at stop</button>
-                <button onclick="sendQuickReply('🚗 Stuck in traffic')" class="quick-chip">🚗 Traffic delay</button>
-                <button onclick="sendQuickReply('⚠️ Issue at stop')" class="quick-chip">⚠️ Issue at stop</button>
-                <button onclick="sendQuickReply('📞 Please call me')" class="quick-chip">📞 Call me</button>
+            <!-- Messages List -->
+            <div id="driver-chat-messages" style="flex:1; overflow-y:auto; padding:16px 20px; display:flex; flex-direction:column; gap:12px; background:#f1f5f9;">
+                <!-- Rendered dynamically -->
             </div>
 
-            <div style="padding: 12px 16px calc(12px + env(safe-area-inset-bottom, 0px)); background: var(--bg-surface); border-top: 1px solid var(--border-glass); display: flex; gap: 8px; align-items: center;">
-                <input type="text" id="driver-chat-input" placeholder="Type message to Dispatch..." style="flex: 1; height: 44px; padding: 0 16px; border: 1px solid var(--border-glass); border-radius: 22px; font-size: 14px; color: var(--text-primary); outline: none; background: var(--bg-surface-elevated);" onkeydown="if(event.key==='Enter') sendDriverChat();">
-                <button onclick="sendDriverChat()" class="btn-control btn-primary" style="width: 44px; height: 44px; border-radius: 50%; padding: 0;">
-                    <i data-lucide="send" style="width: 16px; height: 16px;"></i>
+            <!-- Quick Reply Chips -->
+            <div style="padding:8px 16px; background:white; border-top:1px solid #f1f5f9; display:flex; gap:8px; overflow-x:auto; scrollbar-width:none;">
+                <button onclick="sendQuickReply('👍 On my way')" class="quick-chip">👍 On my way</button>
+                <button onclick="sendQuickReply('📍 Arrived at stop')" class="quick-chip">📍 Arrived at stop</button>
+                <button onclick="sendQuickReply('🚗 Stuck in traffic')" class="quick-chip">🚗 Stuck in traffic</button>
+                <button onclick="sendQuickReply('⚠️ Issue at stop')" class="quick-chip">⚠️ Issue at stop</button>
+                <button onclick="sendQuickReply('📞 Please call me')" class="quick-chip">📞 Please call me</button>
+                <button onclick="sendQuickReply('✅ Done with area')" class="quick-chip">✅ Done with area</button>
+            </div>
+
+            <!-- Input Box -->
+            <div style="padding:12px 16px calc(12px + env(safe-area-inset-bottom, 0px)); background:white; border-top:1px solid #e2e8f0; display:flex; gap:8px; align-items:center;">
+                <input type="text" id="driver-chat-input" placeholder="Type a message to Admin..." style="flex:1; padding:12px 16px; border:1px solid #cbd5e1; border-radius:24px; font-size:15px; outline:none; background:#f8fafc;" onkeydown="if(event.key==='Enter') sendDriverChat();">
+                <button onclick="sendDriverChat()" style="width:44px; height:44px; border-radius:50%; background:#2563eb; color:white; border:none; display:flex; align-items:center; justify-content:center; font-size:16px; cursor:pointer; flex-shrink:0; box-shadow:0 3px 10px rgba(37,99,235,0.4);">
+                    <i class="fa-solid fa-paper-plane"></i>
                 </button>
             </div>
         </div>
     </div>
 
-    <!-- Core App JS -->
-    <script src="/static/js/app.js"></script>
-
-    <!-- Main Driver Execution Logic Preserved -->
     <script>
         const firebaseConfig = {
             apiKey: "AIzaSyAhLnjh0gRa2pf29G90zr-6AMcjLjbQpPg",
@@ -537,9 +460,15 @@
             });
         }
         
-        // Web fallback Deep Link
+        // Web fallback Deep Link Banner
         if (!window.Capacitor && /Android|iPhone|iPad|iPod/i.test(navigator.userAgent)) {
             window.location.replace("wasteroute://driver" + window.location.search);
+            setTimeout(() => {
+                let banner = document.createElement('div');
+                banner.style.cssText = 'position:fixed; top:0; left:0; right:0; background:var(--primary); color:white; padding:12px; text-align:center; z-index:9999; font-weight:bold;';
+                banner.innerHTML = `<a href="wasteroute://driver${window.location.search}" style="color:white; text-decoration:none;">📱 Open in App</a>`;
+                document.body.appendChild(banner);
+            }, 500);
         }
 
         let truckId = null;
@@ -550,19 +479,16 @@
         let markerCluster;
         let currentRenderId = 0;
 
+        // Setup Leaflet
         function initMap() {
             if (map) {
                 map.remove();
                 map = null;
             }
             map = L.map("map", { zoomControl: false }).setView([23.0225, 72.5714], 12);
-            const isRetina = (window.devicePixelRatio && window.devicePixelRatio > 1.2);
-            const scaleParam = isRetina ? '&scale=2' : '';
-            L.tileLayer(`https://{s}.google.com/vt/lyrs=m&hl=en&x={x}&y={y}&z={z}${scaleParam}`, {
+            L.tileLayer("https://{s}.google.com/vt/lyrs=m&hl=en&x={x}&y={y}&z={z}", {
                 maxZoom: 20, 
-                subdomains: ["mt0", "mt1", "mt2", "mt3"],
-                tileSize: 256,
-                zoomOffset: 0,
+                subdomains:["mt0","mt1","mt2","mt3"],
                 attribution: 'Map data &copy; Google'
             }).addTo(map);
             setTimeout(() => { if (map) map.invalidateSize(); }, 100);
@@ -571,6 +497,7 @@
         function init() {
             startGpsPolling();
 
+            // Firebase Listener
             const routeRef = db.ref(`routes/route_${truckId}/stops`);
             routeRef.on('value', snapshot => {
                 const data = snapshot.val();
@@ -583,15 +510,16 @@
                     }
                     stops.sort((a, b) => (a.sequence || 999) - (b.sequence || 999));
                 
-                    let dynamicSr = 1;
-                    stops.forEach(s => {
-                        let isDepot = s.id < 0 || s.name === 'End Location / Depot';
-                        if (!isDepot) {
-                            s.dynamicSr = dynamicSr++;
-                        }
-                    });
+                // Assign dynamic serial number (route position)
+                let dynamicSr = 1;
+                stops.forEach(s => {
+                    let isDepot = s.id < 0 || s.name === 'End Location / Depot';
+                    if (!isDepot) {
+                        s.dynamicSr = dynamicSr++;
+                    }
+                });
                     
-                    // Group nearby stops (< 50m)
+                    // --- BEGIN CLUSTERING LOGIC ---
                     let groupedStops = [];
                     let currentGroup = null;
                     
@@ -632,6 +560,7 @@
                     });
                     if (currentGroup) groupedStops.push(currentGroup);
                     stops = groupedStops;
+                    // --- END CLUSTERING LOGIC ---
                     
                     currentIndex = 0;
                     for (let i = 0; i < stops.length; i++) {
@@ -654,35 +583,31 @@
                 } else {
                     document.getElementById('current-stop-container').innerHTML = `
                         <div style="text-align:center; color:var(--text-muted); padding:20px;">
-                            <div class="skeleton" style="height: 36px; margin-bottom: 8px;"></div>
-                            <div>Waiting for Route Telemetry...</div>
+                            <i class="fa-solid fa-spinner fa-spin" style="font-size:24px; margin-bottom:12px;"></i><br>
+                            Waiting for Route...
                         </div>`;
                 }
             });
         }
 
-        function updateProgressRing(completed, total) {
-            const circle = document.getElementById('progress-ring-fill');
-            const text = document.getElementById('progress-ring-text');
-            if (!circle || !text) return;
-
-            const radius = 14;
-            const circumference = 2 * Math.PI * radius; // ~88
-            const pct = total > 0 ? Math.round((completed / total) * 100) : 0;
-            const offset = circumference - (pct / 100) * circumference;
-
-            circle.style.strokeDashoffset = offset;
-            text.innerText = `${pct}%`;
-        }
-
         function render() {
+            console.log("[RENDER] Running render | Current Index:", currentIndex);
+            
             let savedScrollTop = 0;
             let groupListEl = document.getElementById('group-customer-list');
             if (groupListEl) savedScrollTop = groupListEl.scrollTop;
             
+            let savedSkipModalVal = null;
+            let skipModal = document.getElementById('groupSkipModalOverlay');
+            if (skipModal) {
+                let checkedRadio = document.querySelector('input[name="skipCustomerRadio"]:checked');
+                if (checkedRadio) savedSkipModalVal = checkedRadio.value;
+            }
+            
             currentRenderId++;
             let thisRenderId = currentRenderId;
 
+            // 1. Draw Map Route
             if (routeLine) map.removeLayer(routeLine);
             if (markerCluster) map.removeLayer(markerCluster);
             routeMarkers.forEach(m => map.removeLayer(m));
@@ -693,7 +618,7 @@
                 showCoverageOnHover: false,
                 iconCreateFunction: function(cluster) {
                     return L.divIcon({ 
-                        html: `<div style="background:#10b981; width:26px; height:26px; border-radius:50%; border:2px solid white; box-shadow:0 2px 6px rgba(0,0,0,0.5); color:white; display:flex; align-items:center; justify-content:center; font-size:11px; font-weight:bold;">${cluster.getChildCount()}</div>`, 
+                        html: `<div style="background:#0f172a; width:26px; height:26px; border-radius:50%; border:2px solid white; box-shadow:0 2px 4px rgba(0,0,0,0.3); color:white; display:flex; align-items:center; justify-content:center; font-size:11px; font-weight:bold;">${cluster.getChildCount()}</div>`, 
                         className: 'custom-div-icon', 
                         iconSize: [26, 26], 
                         iconAnchor: [13,13] 
@@ -710,26 +635,32 @@
                     
                     let isCompleted = s.status !== 'PENDING';
                     let isCurrent = idx === currentIndex;
-                    let color = isCurrent ? '#10b981' : (isCompleted ? '#06b6d4' : (isCanc ? '#ef4444' : '#64748b'));
+                    let color = isCurrent ? '#2F5FFF' : (isCompleted ? '#10b981' : (isCanc ? '#fca5a5' : '#64748b'));
                     
                     if (s.status !== 'SKIPPED' && !isCanc) latlngs.push([s.lat, s.lng]);
+                    
                     let isDepot = s.id < 0 || s.name === 'End Location / Depot';
+                    let hasSeq = (s.sequence !== undefined && s.sequence !== null);
+                    if (!hasSeq) console.warn("Stop missing sequence, falling back to index:", s);
+                    let displaySeq = hasSeq ? s.sequence : '?';
 
                     let markerHtml = '';
                     if (isDepot) {
-                        markerHtml = `<div style="background-color:#f59e0b; width:18px; height:18px; border-radius:50%; border:2px solid white; box-shadow:0 0 8px rgba(245,158,11,0.8);"></div>`;
+                        markerHtml = `<div style="background-color:#f59e0b; width:16px; height:16px; border-radius:50%; border:2px solid white; box-shadow:0 0 4px rgba(0,0,0,0.5);"></div>`;
                     } else {
-                        markerHtml = `<div style="background:${color}; width:26px; height:26px; border-radius:50%; border:3px solid white; box-shadow:0 2px 8px rgba(0,0,0,0.4); color:white; display:flex; align-items:center; justify-content:center; font-size:11px; font-weight:bold;">${s.sequence || idx + 1}</div>`;
+                        markerHtml = `<div style="background:${color}; width:24px; height:24px; border-radius:50%; border:3px solid white; box-shadow:0 2px 4px rgba(0,0,0,0.3); color:white; display:flex; align-items:center; justify-content:center; font-size:10px; font-weight:bold;">${displaySeq}</div>`;
                     }
                     
-                    let icon = L.divIcon({ html: markerHtml, className: 'custom-div-icon', iconSize: [26, 26], iconAnchor: [13, 13] });
-                    let m = L.marker([s.lat, s.lng], { icon: icon });
+                    let iconSize = isDepot ? [20, 20] : [24, 24];
+                    let iconAnchor = isDepot ? [10, 10] : [12, 12];
+                    
+                    let icon = L.divIcon({ html: markerHtml, className: 'custom-div-icon', iconSize: iconSize, iconAnchor: iconAnchor });
+                    let m = L.marker([s.lat, s.lng], {icon: icon});
                     markerCluster.addLayer(m);
                     routeMarkers.push(m);
                 }
             });
             map.addLayer(markerCluster);
-
             if (latlngs.length > 0) {
                 let coordsString = latlngs.map(ll => `${ll[1]},${ll[0]}`).join(';');
                 let url = `https://router.project-osrm.org/route/v1/driving/${coordsString}?overview=full&geometries=geojson`;
@@ -738,55 +669,51 @@
                     if (thisRenderId !== currentRenderId) return;
                     if (routeData.routes && routeData.routes.length > 0) {
                         let geojson = routeData.routes[0].geometry;
-                        routeLine = L.geoJSON(geojson, { style: { color: '#10b981', weight: 5, opacity: 0.85 } }).addTo(map);
+                        routeLine = L.geoJSON(geojson, { style: { color: '#2F5FFF', weight: 5, opacity: 0.8 } }).addTo(map);
                     } else {
-                        routeLine = L.polyline(latlngs, { color: '#10b981', weight: 4, dashArray: '8, 8', opacity: 0.6 }).addTo(map);
+                        routeLine = L.polyline(latlngs, {color: '#2F5FFF', weight: 4, dashArray: '8, 8', opacity: 0.6}).addTo(map);
                     }
                 }).catch(e => {
-                    routeLine = L.polyline(latlngs, { color: '#10b981', weight: 4, dashArray: '8, 8', opacity: 0.6 }).addTo(map);
+                    if (thisRenderId !== currentRenderId) return;
+                    console.error('OSRM fetch error:', e);
+                    routeLine = L.polyline(latlngs, {color: '#2F5FFF', weight: 4, dashArray: '8, 8', opacity: 0.6}).addTo(map);
                 });
                 
+                // Center Map on Current Stop smoothly
                 if (currentIndex < stops.length) {
                     const currentStop = stops[currentIndex];
-                    map.flyTo([currentStop.lat, currentStop.lng], 15, { animate: true, duration: 1 });
+                    // Offset the center slightly down so the bottom sheet doesn't cover it
+                    map.flyTo([currentStop.lat, currentStop.lng], 14, {animate: true, duration: 1});
                 } else {
-                    map.fitBounds(routeLine.getBounds(), { padding: [50, 50] });
+                    map.fitBounds(routeLine.getBounds(), {padding: [50, 50]});
                 }
             }
 
-            // Calculate completed and total stops for Progress Ring
-            let completedCount = 0;
-            let totalCount = 0;
-            stops.forEach(s => {
-                if (s.id > -1000 && s.name !== 'End Location / Depot') {
-                    if (s.subStops) {
-                        s.subStops.forEach(ss => {
-                            totalCount++;
-                            if (ss.status === 'COMPLETED') completedCount++;
-                        });
-                    } else {
-                        totalCount++;
-                        if (s.status === 'COMPLETED') completedCount++;
-                    }
-                }
-            });
-            updateProgressRing(completedCount, totalCount);
-
-            // 2. Render Current Stop Card & Swipe Slider
+            // 2. Render UI
             if (currentIndex >= stops.length) {
                 triggerImmediateAutoOffline();
                 
+                let totalCompleted = stops.reduce((acc, s) => {
+                    if (s.subStops) return acc + s.subStops.length;
+                    return acc + 1;
+                }, 0);
+                
+                const hasDepot = stops.length > 0 && (stops[stops.length-1].id < 0 || stops[stops.length-1].name === 'End Location / Depot');
+                if (hasDepot) totalCompleted -= 1;
+
                 document.getElementById('current-stop-container').innerHTML = `
-                    <div style="text-align: center; padding: 24px 16px;">
-                        <div style="width: 56px; height: 56px; border-radius: 16px; background: rgba(16, 185, 129, 0.15); color: #10b981; display: flex; align-items: center; justify-content: center; margin: 0 auto 16px auto;">
-                            <i data-lucide="check-check" style="width: 32px; height: 32px;"></i>
+                    <div style="text-align:center; padding: 20px;">
+                        <i class="fa-solid fa-flag-checkered" style="font-size:48px; color:var(--green); margin-bottom:16px;"></i>
+                        <h2 style="margin:0 0 8px 0;">Shift Complete!</h2>
+                        <div style="display:inline-flex; align-items:center; gap:6px; background:#f1f5f9; color:#475569; font-weight:700; font-size:12px; padding:5px 14px; border-radius:20px; margin-bottom:14px; border:1px solid #cbd5e1;">
+                            <span style="width:8px; height:8px; border-radius:50%; background:#64748b; display:inline-block;"></span> Status: Offline
                         </div>
-                        <h2 style="margin: 0 0 6px 0; font-size: 20px; font-weight: 800;">Mission Complete!</h2>
-                        <p style="color: var(--text-secondary); margin: 0 0 20px 0; font-size: 14px;">
-                            All ${completedCount} collection stops fulfilled. You are now offline.
+                        <p style="color:var(--text-muted); margin:0 0 20px 0; font-size:15px; line-height:1.5;">
+                            Great job! You completed <b>${totalCompleted}</b> stops today.<br>
+                            Your truck has <b>automatically gone offline</b>.
                         </p>
-                        <button onclick="window.driverLogout()" class="btn-control btn-danger" style="width: 100%; height: 48px; border-radius: 12px; font-size: 15px;">
-                            Sign Out & Close
+                        <button onclick="window.driverLogout()" class="btn btn-primary" style="width:100%; padding:14px; font-size:15px; border-radius:12px; background:#334155; border:none; box-shadow:0 4px 12px rgba(0, 0, 0, 0.15);">
+                            <i class="fa-solid fa-arrow-right-from-bracket"></i> Logout & Close App
                         </button>
                     </div>`;
             } else {
@@ -794,178 +721,149 @@
                 const isLast = currentIndex === stops.length - 1;
                 const isDepot = stop.id < 0 || stop.name === 'End Location / Depot';
                 
-                let progressText = isDepot ? "Final Facility Depot" : `Stop ${currentIndex + 1} of ${totalCount}`;
+                let progressText = isDepot ? "Final Destination" : `Stop ${currentIndex + 1} of ${stops.length - (stops[stops.length-1].id < 0 ? 1 : 0)}`;
                 
                 let subStopsHtml = '';
                 if (stop.subStops && stop.subStops.length > 1) {
                     let pendingCount = stop.subStops.filter(ss => ss.status === 'PENDING').length;
-                    subStopsHtml = `
-                        <div id="group-card-header" style="margin-bottom: 8px;">
-                            <span class="badge-status active">${stop.subStops.length} Orders Cluster • ${pendingCount} Remaining</span>
-                        </div>
-                        <div id="group-customer-list" style="overflow-y: auto; max-height: 220px; display: flex; flex-direction: column; gap: 8px; margin-bottom: 12px;">
-                            ${stop.subStops.map(ss => {
-                                let cConf = ss.confirmation === 'CONFIRMED';
-                                return `
-                                    <div style="display: flex; justify-content: space-between; align-items: center; background: var(--bg-surface-elevated); padding: 10px 14px; border-radius: 12px; border: 1px solid var(--border-glass);">
-                                        <div style="flex: 1; min-width: 0;">
-                                            <div style="font-weight: 700; font-size: 14px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">${ss.name}</div>
-                                            <div style="font-size: 12px; color: var(--text-muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">${ss.address || 'Address on file'}</div>
-                                        </div>
-                                        ${ss.phone ? `<a href="tel:${ss.phone}" class="btn-control btn-primary" style="width: 36px; height: 36px; border-radius: 50%; padding: 0; margin-left: 8px;"><i data-lucide="phone" style="width: 16px; height: 16px;"></i></a>` : ''}
-                                    </div>
-                                `;
-                            }).join('')}
-                        </div>
-                    `;
+                    subStopsHtml = `<div id="group-card-header" style="padding-bottom:8px;">
+                        <div style="font-size: 13px; font-weight: 700; color: var(--primary); text-transform: uppercase; margin-bottom: 6px; letter-spacing: 0.5px;">${stop.subStops.length} Customers \u00B7 ${pendingCount} left</div>
+                    </div>
+                    <div id="group-customer-list" style="overflow-y:auto; overscroll-behavior:contain; -webkit-overflow-scrolling:touch; max-height:min(calc(55dvh - 100px), calc(55vh - 100px)); display:flex; flex-direction:column; gap:6px; margin-bottom:8px;">
+                        ${stop.subStops.map((ss, i) => {
+                            let cConf = ss.confirmation === 'CONFIRMED';
+                            let isInactive = ss.customer_status === 'INACTIVE';
+                            let bg = isInactive ? '#fef2f2' : (cConf ? '#ecfdf5' : '#eff6ff');
+                            let brd = isInactive ? '#ef4444' : (cConf ? '#10b981' : '#2F5FFF');
+                            let txt = isInactive ? 'INACTIVE' : (cConf ? 'Confirmed' : 'Not confirmed');
+                            let statusLabel = ss.status === 'COMPLETED' ? ' <span style="color:#10b981;font-size:10px;">\u2713 Done</span>' : (ss.status === 'SKIPPED' ? ' <span style="color:#ef4444;font-size:10px;">\u2717 Skipped</span>' : '');
+                            return `
+                            <div style="display: flex; justify-content: space-between; align-items: flex-start; background:${bg}; border-left: var(--conf-strip) solid ${brd}; padding:8px 10px; border-radius:8px;">
+                                <div style="flex:1; min-width:0;">
+                                    <div style="font-weight: 700; font-size: 14px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; color:var(--text-main);">${ss.name} ${ss.dynamicSr ? `(Sr. ${ss.dynamicSr})` : ''}</div>
+                                    <div style="font-size: 12px; color: var(--text-muted); display:-webkit-box; -webkit-line-clamp:2; -webkit-box-orient:vertical; overflow:hidden; margin-top:2px;">${ss.address || 'No exact address'}</div>
+                                    <div style="font-size:10px; font-weight:700; margin-top:4px; color:${brd};">${txt}</div>
+                                </div>
+                                ${ss.phone ? `<a href="tel:${ss.phone}" style="background: var(--primary); color: white; width: 32px; height: 32px; min-width:32px; border-radius: 50%; display: flex; justify-content: center; align-items: center; text-decoration: none; margin-left:8px;"><i class="fa-solid fa-phone" style="font-size:13px;"></i></a>` : ''}
+                            </div>
+                        `;
+                        }).join('')}
+                    </div>`;
                 } else {
                     let single = stop.subStops ? stop.subStops[0] : stop;
                     let cConf = single.confirmation === 'CONFIRMED';
+                    let isInactive = single.customer_status === 'INACTIVE';
+                    let bg = isInactive ? '#fef2f2' : (cConf ? '#ecfdf5' : '#eff6ff');
+                    let brd = isInactive ? '#ef4444' : (cConf ? '#10b981' : '#2F5FFF');
+                    let txt = isInactive ? 'INACTIVE' : (cConf ? 'Confirmed' : 'Not confirmed');
                     subStopsHtml = `
-                        <div style="background: var(--bg-surface-elevated); border: 1px solid var(--border-glass); border-radius: 16px; padding: 18px; margin-bottom: 14px;">
-                            <div style="display: flex; justify-content: space-between; align-items: flex-start; gap: 12px;">
-                                <div style="flex: 1; min-width: 0;">
-                                    <div style="font-size: 11px; font-weight: 700; color: var(--accent-primary); letter-spacing: 0.5px; margin-bottom: 4px;">NEXT STOP</div>
-                                    <h2 style="margin: 0 0 6px 0; font-size: 20px; font-weight: 800; line-height: 1.2;">${single.name}</h2>
-                                    <div style="font-size: 13px; color: var(--text-secondary); margin-bottom: 12px; line-height: 1.4;">${single.address || 'GPS waypoint specified'}</div>
-                                    <span class="badge-status ${cConf ? 'active' : 'warning'}">${cConf ? 'Confirmed Order' : 'Unconfirmed'}</span>
+                        <div style="background: ${bg}; border-left: var(--conf-strip) solid ${brd}; padding: 16px; border-radius: 8px; margin-bottom: 16px; display: flex; justify-content: space-between; align-items: flex-start;">
+                            <div>
+                                <h2 style="margin: 0 0 8px 0; font-size: 20px; font-weight: 800; color: var(--text-main);">${single.name} ${single.dynamicSr ? `(Sr. ${single.dynamicSr})` : ''}</h2>
+                                <div style="display: flex; align-items: flex-start; margin-bottom: 12px; color: var(--text-muted); font-size: 14px; line-height: 1.4;">
+                                    <i class="fa-solid fa-location-dot" style="margin-top: 4px; margin-right: 8px; font-size: 14px;"></i>
+                                    <span>${single.address || 'No address provided'}</span>
                                 </div>
-                                ${single.phone ? `
-                                    <a href="tel:${single.phone}" class="btn-control btn-primary" style="width: 48px; height: 48px; border-radius: 50%; padding: 0; box-shadow: var(--accent-glow);" title="Call Customer">
-                                        <i data-lucide="phone" style="width: 20px; height: 20px;"></i>
-                                    </a>
-                                ` : ''}
+                                <div style="display: inline-block; padding: 4px 10px; border-radius: 20px; font-size: 12px; font-weight: 700; background: ${cConf ? '#10b98120' : '#2F5FFF20'}; color: ${brd};">
+                                    <i class="fa-solid ${cConf ? 'fa-check' : 'fa-clock'}" style="margin-right: 4px;"></i> ${txt}
+                                </div>
                             </div>
+                            ${single.phone ? `
+                                <a href="tel:${single.phone}" style="background: var(--primary); color: white; width: 44px; height: 44px; min-width: 44px; border-radius: 50%; display: flex; justify-content: center; align-items: center; text-decoration: none; box-shadow: 0 4px 10px rgba(47, 95, 255, 0.3); margin-left: 12px;">
+                                    <i class="fa-solid fa-phone" style="font-size: 18px;"></i>
+                                </a>
+                            ` : ''}
                         </div>
                     `;
                 }
                 
                 document.getElementById('current-stop-container').innerHTML = `
-                    <div style="font-size: 11px; font-weight: 700; color: var(--text-muted); text-transform: uppercase; margin-bottom: 8px; letter-spacing: 0.5px;">${progressText}</div>
+                    <div class="progress-text">${progressText}</div>
                     ${subStopsHtml}
-                    
-                    <!-- Swipe to Complete Slider -->
-                    <div class="swipe-slider-track" id="swipe-track">
-                        <div class="swipe-slider-fill" id="swipe-fill"></div>
-                        <div class="swipe-slider-text">
-                            <span>Swipe to Complete</span>
-                            <i data-lucide="chevrons-right" style="width: 16px; height: 16px;"></i>
-                        </div>
-                        <div class="swipe-slider-thumb" id="swipe-thumb">
-                            <i data-lucide="check" style="width: 22px; height: 22px;"></i>
-                        </div>
-                    </div>
-
-                    <!-- Direct Action Buttons Row -->
-                    <div style="display: flex; gap: 10px; margin-top: 10px;">
-                        <button class="btn-control btn-secondary" onclick="markStop('COMPLETED')" style="flex: 2; height: 46px;">
-                            <i data-lucide="check-circle" style="width: 16px; height: 16px; color: #10b981;"></i>
-                            <span>Complete Stop</span>
+                    <div class="action-buttons" style="position:sticky; bottom:0; background:var(--card-bg); padding-top:8px;">
+                        <button class="btn btn-success" onclick="markStop('COMPLETED')">
+                            <i class="fa-solid fa-check"></i> ${isLast ? 'Finish' : ((stop.subStops && stop.subStops.length > 1) ? `Complete ${stop.subStops.filter(ss => ss.status === 'PENDING' && ss.confirmation !== 'CANCELLED').length} & Next` : 'Complete & Next')}
                         </button>
-                        <button class="btn-control btn-danger" onclick="markStop('SKIPPED')" style="flex: 1; height: 46px;">
-                            <i data-lucide="skip-forward" style="width: 16px; height: 16px;"></i>
-                            <span>Skip</span>
+                        <button class="btn btn-danger" onclick="markStop('SKIPPED')">
+                            <i class="fa-solid fa-forward-step"></i> Skip
                         </button>
                     </div>
                 `;
-                initSwipeSlider();
             }
 
-            // 3. Render Upcoming Stops List
+            // 3. Render Stop List
             let listHtml = stops.map((s, idx) => {
-                let isCompleted = idx < currentIndex;
-                let isActive = idx === currentIndex;
-                let isDepot = s.id < 0 || s.name === 'End Location / Depot';
-                let titleText = isDepot ? s.name : `Stop ${s.dynamicSr || idx + 1}: ${s.name}`;
+                let icon = '<i class="fa-regular fa-circle status-icon pending"></i>';
+                let classes = 'stop-item';
+                if (idx < currentIndex) {
+                    icon = s.status === 'SKIPPED' ? '<i class="fa-solid fa-circle-xmark status-icon skipped"></i>' : '<i class="fa-solid fa-circle-check status-icon completed"></i>';
+                    classes += ' completed';
+                } else if (idx === currentIndex) {
+                    icon = '<i class="fa-solid fa-location-dot status-icon" style="color:var(--primary);"></i>';
+                    classes += ' active';
+                }
                 
-                let iconName = isCompleted ? 'check-circle' : (isActive ? 'map-pin' : 'circle');
-                let iconColor = isCompleted ? 'color:#10b981;' : (isActive ? 'color:var(--accent-primary);' : 'color:var(--text-muted);');
-
+                let isDepot = s.id < 0 || s.name === 'End Location / Depot';
+                let hasSeq = (s.sequence !== undefined && s.sequence !== null);
+                let displaySeq = hasSeq ? s.sequence : '?';
+                let titleText = isDepot ? s.name : `Stop ${s.dynamicSr}: ${s.name} ${s.dynamicSr ? `(Sr. ${s.dynamicSr})` : ''}`;
+                
+                let confStyle = '';
+                let badgeHtml = '';
+                if (!isDepot) {
+                    if (s.subStops && s.subStops.length > 1) {
+                        let cCount = s.subStops.filter(x => x.confirmation === 'CONFIRMED').length;
+                        let nCount = s.subStops.length - cCount;
+                        if (nCount === 0) {
+                            confStyle = 'background:#ecfdf5; border-left: var(--conf-strip) solid #10b981;';
+                            badgeHtml = '<div style="font-size:10px; font-weight:700; margin-top:4px; color:#10b981;">Confirmed</div>';
+                        } else if (cCount === 0) {
+                            confStyle = 'background:#eff6ff; border-left: var(--conf-strip) solid #2F5FFF;';
+                            badgeHtml = '<div style="font-size:10px; font-weight:700; margin-top:4px; color:#2F5FFF;">Not confirmed</div>';
+                        } else {
+                            confStyle = 'background: linear-gradient(90deg, #ecfdf5 50%, #eff6ff 50%); border-left: var(--conf-strip) solid #10b981; border-right: var(--conf-strip) solid #2F5FFF;';
+                            badgeHtml = `<div style="font-size:10px; font-weight:700; margin-top:4px; color:var(--text-main);">${cCount} confirmed \u00B7 ${nCount} not</div>`;
+                        }
+                    } else {
+                        let cConf = s.confirmation === 'CONFIRMED';
+                        let isInactive = s.customer_status === 'INACTIVE';
+                        let bg = isInactive ? '#fef2f2' : (cConf ? '#ecfdf5' : '#eff6ff');
+                        let brd = isInactive ? '#ef4444' : (cConf ? '#10b981' : '#2F5FFF');
+                        let txt = isInactive ? 'INACTIVE' : (cConf ? 'Confirmed' : 'Not confirmed');
+                        confStyle = `background:${bg}; border-left: var(--conf-strip) solid ${brd};`;
+                        badgeHtml = `<div style="font-size:10px; font-weight:700; margin-top:4px; color:${brd};">${txt}</div>`;
+                    }
+                }
+                
                 return `
-                    <div class="stop-item ${isActive ? 'active' : ''} ${isCompleted ? 'completed' : ''}">
-                        <div style="${iconColor} margin-top: 2px;">
-                            <i data-lucide="${iconName}" style="width: 18px; height: 18px;"></i>
-                        </div>
-                        <div style="flex: 1; overflow: hidden;">
-                            <div style="font-weight: 700; font-size: 14px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">${titleText}</div>
-                            <div style="font-size: 12px; color: var(--text-muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; margin-top: 2px;">${s.address || 'Address on file'}</div>
+                    <div class="${classes}" style="${confStyle}">
+                        ${icon}
+                        <div>
+                            <div style="font-weight:600;">${titleText}</div>
+                            <div style="font-size:12px; color:var(--text-muted);">${s.address}</div>
+                            ${badgeHtml}
                         </div>
                     </div>
                 `;
             }).join('');
             document.getElementById('stop-list-container').innerHTML = listHtml;
             
+            // Recalculate Peek Height after rendering content
             setTimeout(calculateSnapPoints, 50);
-            if (window.lucide) lucide.createIcons();
-        }
-
-        // Swipe Slider Implementation
-        function initSwipeSlider() {
-            const track = document.getElementById('swipe-track');
-            const thumb = document.getElementById('swipe-thumb');
-            const fill = document.getElementById('swipe-fill');
-            if (!track || !thumb) return;
-
-            let isDraggingSlider = false;
-            let startX = 0;
-            let maxSlide = 0;
-
-            function onTouchStart(e) {
-                isDraggingSlider = true;
-                startX = e.touches ? e.touches[0].clientX : e.clientX;
-                maxSlide = track.offsetWidth - thumb.offsetWidth - 8;
-                thumb.style.transition = 'none';
-            }
-
-            function onTouchMove(e) {
-                if (!isDraggingSlider) return;
-                const currentX = e.touches ? e.touches[0].clientX : e.clientX;
-                let delta = currentX - startX;
-                if (delta < 0) delta = 0;
-                if (delta > maxSlide) delta = maxSlide;
-
-                thumb.style.transform = `translateX(${delta}px)`;
-                const pct = (delta / maxSlide) * 100;
-                fill.style.width = pct + '%';
-            }
-
-            function onTouchEnd() {
-                if (!isDraggingSlider) return;
-                isDraggingSlider = false;
-                const currentMatrix = thumb.style.transform;
-                const match = currentMatrix.match(/translateX\((\d+)px\)/);
-                const currentX = match ? parseFloat(match[1]) : 0;
-
-                if (currentX >= maxSlide * 0.75) {
-                    // Swiped fully!
-                    thumb.style.transform = `translateX(${maxSlide}px)`;
-                    fill.style.width = '100%';
-                    if (navigator.vibrate) navigator.vibrate(50);
-                    markStop('COMPLETED');
-                } else {
-                    // Snap back
-                    thumb.style.transition = 'transform 0.25s ease';
-                    thumb.style.transform = `translateX(0px)`;
-                    fill.style.width = '0%';
-                }
-            }
-
-            thumb.addEventListener('touchstart', onTouchStart, { passive: true });
-            window.addEventListener('touchmove', onTouchMove, { passive: true });
-            window.addEventListener('touchend', onTouchEnd);
-
-            thumb.addEventListener('mousedown', onTouchStart);
-            window.addEventListener('mousemove', onTouchMove);
-            window.addEventListener('mouseup', onTouchEnd);
         }
 
         function triggerImmediateAutoOffline() {
             if (window.isAlreadyAutoOffline) return;
             window.isAlreadyAutoOffline = true;
             
+            console.log("[AUTO-OFFLINE] Last stop completed! Disabling GPS & marking driver offline immediately...");
+            
+            // 1. Stop Native Foreground Service
             if (window.Capacitor && window.Capacitor.Plugins && window.Capacitor.Plugins.BackgroundLocation) {
                 window.Capacitor.Plugins.BackgroundLocation.stop().catch(e=>{});
             }
+
+            // 2. Stop GPS Polling & Watchers
             if (window.gpsInterval) {
                 clearInterval(window.gpsInterval);
                 window.gpsInterval = null;
@@ -975,20 +873,37 @@
                 window.geoWatchId = null;
             }
 
+            // 3. Set Firebase to Offline immediately
             const nowTs = Date.now();
             const tId = window.currentTruckId || truckId;
             const dId = window.currentDriverId || driverId;
             
             if (tId) {
-                db.ref(`trucks/${tId}`).update({ status: 'offline', lastUpdated: nowTs, routeCompleted: true }).catch(e=>{});
+                const truckRef = db.ref(`trucks/${tId}`);
+                truckRef.update({
+                    status: 'offline',
+                    lastUpdated: nowTs,
+                    routeCompleted: true
+                }).catch(e=>{});
+                truckRef.child('status').onDisconnect().cancel().catch(e=>{});
             }
             if (dId) {
-                db.ref(`driver_locations/${dId}`).update({ status: 'offline', lastUpdated: nowTs, routeCompleted: true }).catch(e=>{});
+                const dRef = db.ref(`driver_locations/${dId}`);
+                dRef.update({
+                    status: 'offline',
+                    lastUpdated: nowTs,
+                    routeCompleted: true
+                }).catch(e=>{});
+                dRef.child('status').onDisconnect().cancel().catch(e=>{});
             }
 
+            // 4. Update Header status
             const truckTitle = document.getElementById('truck-title');
-            if (truckTitle) truckTitle.innerText = "Offline";
+            if (truckTitle) {
+                truckTitle.innerText = "Offline";
+            }
 
+            // 5. Notify backend to clear assigned template
             try {
                 let backendUrl = window.location.origin.includes('localhost') || window.location.origin.includes('capacitor://') ? 'https://waste-route-optimizer-robn.onrender.com' : window.location.origin;
                 fetch(backendUrl + '/api/driver_finish_route', {
@@ -1000,11 +915,15 @@
         }
 
         window.markStop = function(status) {
+            console.log("[MARK STOP] Tapped:", status, "| Current Index:", currentIndex);
             if (currentIndex < stops.length) {
                 const stop = stops[currentIndex];
                 const isLastStop = (currentIndex === stops.length - 1);
                 
+                let actionableSubStops = stop.subStops ? stop.subStops.filter(ss => ss.status === 'PENDING' && ss.confirmation !== 'CANCELLED') : [];
+                
                 if (status === 'SKIPPED' && stop.subStops && stop.subStops.length > 1) {
+                    // Open Group Skip Modal
                     openGroupSkipModal(stop);
                     return;
                 }
@@ -1012,6 +931,7 @@
                 let updates = {};
                 if (stop.subStops) {
                     stop.subStops.forEach(ss => {
+                        // Only mark actionable as COMPLETED/SKIPPED
                         if (ss.status === 'PENDING' && ss.confirmation !== 'CANCELLED') {
                             updates[ss.id + "/status"] = status;
                         }
@@ -1023,66 +943,89 @@
                 }
                 
                 db.ref(`routes/route_${truckId}/stops`).update(updates).then(() => {
-                    if (isLastStop) triggerImmediateAutoOffline();
+                    if (isLastStop) {
+                        triggerImmediateAutoOffline();
+                    }
                 }).catch(err => {
-                    console.error("Firebase write error:", err);
+                    console.error("Firebase write failed (markStop):", err);
+                    alert("Failed to update stop status. Check connection.");
                 });
                 
                 snapSheet(snapPoints.peek);
             }
         };
-
+        
         window.openGroupSkipModal = function(stop) {
             let pendingSubStops = stop.subStops.filter(ss => ss.status === 'PENDING' && ss.confirmation !== 'CANCELLED');
             if (pendingSubStops.length === 0) return;
             
             let modalHtml = `
-                <div id="groupSkipModalOverlay" class="mission-modal-overlay" style="display:flex; align-items:flex-end;" onclick="if(event.target===this) closeGroupSkipModal()">
-                    <div class="mission-modal-body" style="border-radius: 24px 24px 0 0; width: 100%;">
-                        <h3 style="margin: 0 0 16px 0; font-size: 18px; font-weight: 800;">Select Order to Skip</h3>
+                <div id="groupSkipModalOverlay" class="modal-overlay" style="display:flex; position:fixed; top:0; left:0; right:0; bottom:0; background:rgba(0,0,0,0.5); z-index:9999; justify-content:center; align-items:flex-end;" onclick="if(event.target===this) closeGroupSkipModal()">
+                    <div class="modal-content" style="background:var(--surface); width:100%; border-radius:24px 24px 0 0; padding:20px; box-shadow:0 -5px 20px rgba(0,0,0,0.1); max-height:80vh; overflow-y:auto; padding-bottom:max(20px, env(safe-area-inset-bottom));">
+                        <h3 style="margin-top:0; margin-bottom:15px; font-size:18px;">Which stop to skip?</h3>
                         <div id="skipRadioGroup">
-                            ${pendingSubStops.map(ss => `
-                                <label style="display: flex; align-items: center; gap: 12px; padding: 12px; background: var(--bg-surface); border: 1px solid var(--border-glass); border-radius: 12px; margin-bottom: 10px; cursor: pointer;">
-                                    <input type="radio" name="skipCustomerRadio" value="${ss.id}" onchange="document.getElementById('skipSelectedBtn').disabled = false" style="width: 20px; height: 20px;">
-                                    <div>
-                                        <div style="font-weight: 700; font-size: 15px;">${ss.name}</div>
-                                        <div style="font-size: 12px; color: var(--text-muted);">${ss.address}</div>
+                            ${pendingSubStops.map(ss => {
+                                let cConf = ss.confirmation === 'CONFIRMED';
+                                let isInactive = ss.customer_status === 'INACTIVE';
+                                let bg = isInactive ? '#fef2f2' : (cConf ? '#ecfdf5' : '#eff6ff');
+                                let brd = isInactive ? '#ef4444' : (cConf ? '#10b981' : '#2F5FFF');
+                                let txt = isInactive ? 'INACTIVE' : (cConf ? 'Confirmed' : 'Not confirmed');
+                                return `
+                                <label style="display:flex; align-items:center; padding:15px; border:1px solid ${brd}; background:${bg}; border-left: var(--conf-strip) solid ${brd}; border-radius:12px; margin-bottom:10px; gap:15px;">
+                                    <input type="radio" name="skipCustomerRadio" value="${ss.id}" onchange="document.getElementById('skipSelectedBtn').disabled = false" style="width:20px; height:20px;">
+                                    <div style="flex:1;">
+                                        <div style="font-weight:600; font-size:16px;">${ss.name} ${ss.dynamicSr ? `(Sr. ${ss.dynamicSr})` : ''}</div>
+                                        <div style="font-size:14px; color:var(--text-secondary); margin-top:4px;">${ss.address}</div>
+                                        <div style="font-size:10px; font-weight:700; margin-top:6px; color:${brd};">${txt}</div>
                                     </div>
                                 </label>
-                            `).join('')}
+                            `;
+                            }).join('')}
                         </div>
-                        <div style="display: flex; flex-direction: column; gap: 10px; margin-top: 18px;">
-                            <button id="skipSelectedBtn" class="btn-control btn-danger" disabled onclick="skipSelectedCustomer(event)">Skip Selected</button>
-                            <button class="btn-control btn-secondary" onclick="closeGroupSkipModal()">Cancel</button>
-                            <a href="#" onclick="skipAllRemainingCustomers(event)" style="text-align:center; color:var(--text-muted); margin-top:6px; font-size:13px; text-decoration:underline;">Skip all remaining at this location</a>
+                        
+                        <div style="display:flex; flex-direction:column; gap:10px; margin-top:20px;">
+                            <button id="skipSelectedBtn" class="btn btn-danger" disabled onclick="skipSelectedCustomer(event)" style="border-radius:12px; padding:15px; font-size:16px;">Skip selected customer</button>
+                            <button class="btn" onclick="closeGroupSkipModal()" style="background:#f3f4f6; color:var(--text-primary); border-radius:12px; padding:15px; font-size:16px;">Cancel</button>
+                            <a href="#" onclick="skipAllRemainingCustomers(event)" style="text-align:center; color:var(--text-secondary); margin-top:10px; font-size:14px; text-decoration:underline;">Skip all remaining at this location</a>
                         </div>
                     </div>
                 </div>
             `;
+            
+            // Remove existing modal if any
             closeGroupSkipModal();
             document.body.insertAdjacentHTML('beforeend', modalHtml);
         };
-
+        
         window.closeGroupSkipModal = function() {
-            let el = document.getElementById('groupSkipModalOverlay');
-            if (el) el.remove();
+            let existing = document.getElementById('groupSkipModalOverlay');
+            if (existing) existing.remove();
         };
-
+        
         window.skipSelectedCustomer = function(e) {
             e.preventDefault();
+            if (e.target.disabled) return;
+            e.target.disabled = true;
+            
             let selected = document.querySelector('input[name="skipCustomerRadio"]:checked');
             if (!selected) return;
+            
+            let customerId = selected.value;
             let updates = {};
-            updates[selected.value + "/status"] = 'SKIPPED';
+            updates[customerId + "/status"] = 'SKIPPED';
+            
             db.ref(`routes/route_${truckId}/stops`).update(updates).then(() => {
                 closeGroupSkipModal();
+            }).catch(err => {
+                console.error("Firebase write failed:", err);
+                alert("Failed to update stop status.");
+                e.target.disabled = false;
             });
         };
-
+        
         window.skipAllRemainingCustomers = function(e) {
-            if (e && e.preventDefault) e.preventDefault();
+            e.preventDefault();
             const stop = stops[currentIndex];
-            if (!stop || !stop.subStops) return;
             let updates = {};
             stop.subStops.forEach(ss => {
                 if (ss.status === 'PENDING' && ss.confirmation !== 'CANCELLED') {
@@ -1092,11 +1035,62 @@
             
             db.ref(`routes/route_${truckId}/stops`).update(updates).then(() => {
                 closeGroupSkipModal();
-                if (typeof snapSheet === 'function' && window.snapPoints) snapSheet(snapPoints.peek);
+                snapSheet(snapPoints.peek);
             }).catch(err => {
                 console.error("Firebase write failed:", err);
                 alert("Failed to update stop status.");
             });
+        };
+
+        window.startBackgroundTracking = async function() {
+            if (window.Capacitor && window.Capacitor.Plugins && window.Capacitor.Plugins.BackgroundLocation) {
+                try {
+                    if (window.Capacitor.Plugins.Geolocation) {
+                        await window.Capacitor.Plugins.Geolocation.requestPermissions().catch(e=>{});
+                    }
+                    let token = window.currentToken || '';
+                    if (!token && firebase.auth().currentUser) {
+                        try { token = await firebase.auth().currentUser.getIdToken(); } catch(e){}
+                    }
+                    let effectiveDriverId = (driverId || truckId || '').toString();
+                    let effectiveTruckId = (truckId || driverId || '').toString();
+                    await window.Capacitor.Plugins.BackgroundLocation.start({
+                        driverId: effectiveDriverId,
+                        truckId: effectiveTruckId,
+                        idToken: token
+                    });
+                    console.log("[BACKGROUND] Foreground Service active for truck " + effectiveTruckId);
+                } catch(err) {
+                    console.warn("[BACKGROUND] Could not start BackgroundLocation service:", err);
+                }
+            }
+        };
+
+        window.openNavigation = function() {
+            console.log("[NAVIGATE] Clicked | Current Index:", currentIndex);
+            window.startBackgroundTracking();
+            if (currentIndex < stops.length) {
+                const stop = stops[currentIndex];
+                const mapUrl = `https://www.google.com/maps/dir/?api=1&destination=${stop.lat},${stop.lng}&travelmode=driving`;
+                window.open(mapUrl, '_blank');
+            }
+        };
+
+        window.resetRoute = function() {
+            if (confirm("Reset route progress?")) {
+                let updates = {};
+                stops.forEach(s => { 
+                    if (s.subStops) {
+                        s.subStops.forEach(ss => { updates[ss.id + "/status"] = 'PENDING'; });
+                    } else {
+                        updates[s.id + "/status"] = 'PENDING'; 
+                    }
+                });
+                db.ref(`routes/route_${truckId}/stops`).update(updates).catch(err => {
+                    console.error("Firebase write failed (resetRoute):", err);
+                    alert("Failed to reset route. Check connection.");
+                });
+            }
         };
 
         window.endShift = async function() {
@@ -1140,130 +1134,36 @@
             } catch(e) {}
             
             // 4. Update UI
-            const container = document.getElementById('current-stop-container');
-            if (container) {
-                container.innerHTML = `
-                    <div style="text-align:center; padding: 20px;">
-                        <i class="fa-solid fa-power-off" style="font-size:48px; color:var(--text-muted); margin-bottom:16px;"></i>
-                        <h2 style="margin:0 0 8px 0;">Shift Ended</h2>
-                        <p style="color:var(--text-muted); margin:0;">You are now offline. You can safely close the app.</p>
-                    </div>
-                `;
-            }
-            const tTitle = document.getElementById('truck-title');
-            if (tTitle) tTitle.innerText = "Offline";
-        };
-
-        window.toggleTracking = async function() {
-            if (window.isTrackingActive) {
-                // Stop tracking
-                if (window.gpsInterval) {
-                    clearInterval(window.gpsInterval);
-                    window.gpsInterval = null;
-                }
-                if (window.geoWatchId && navigator.geolocation && navigator.geolocation.clearWatch) {
-                    navigator.geolocation.clearWatch(window.geoWatchId);
-                    window.geoWatchId = null;
-                }
-                if (window.capWatchId && window.Capacitor && window.Capacitor.Plugins && window.Capacitor.Plugins.Geolocation) {
-                    window.Capacitor.Plugins.Geolocation.clearWatch({ id: window.capWatchId }).catch(e=>{});
-                    window.capWatchId = null;
-                }
-                if (window.Capacitor && window.Capacitor.Plugins && window.Capacitor.Plugins.BackgroundLocation) {
-                    await window.Capacitor.Plugins.BackgroundLocation.stop().catch(e=>{});
-                }
-                window.isTrackingActive = false;
-                const dot = document.getElementById('tracking-dot');
-                if (dot) dot.style.background = '#94a3b8';
-                const lbl = document.getElementById('tracking-label');
-                if (lbl) lbl.innerText = '⚪ LOCATION NOT ACTIVE';
-                const btn = document.getElementById('btn-tracking');
-                if (btn) {
-                    btn.innerText = 'Start Route';
-                    btn.style.background = 'var(--primary)';
-                }
-                
-                let tid = (window.currentTruckId || truckId || '').toString();
-                let did = (window.currentDriverId || driverId || tid || '').toString();
-                const offlinePayload = {
-                    status: 'offline',
-                    currentLat: null,
-                    currentLng: null,
-                    speed: 0,
-                    lastUpdated: firebase.database.ServerValue.TIMESTAMP
-                };
-                if (tid) db.ref(`trucks/${tid}`).update(offlinePayload).catch(e=>{});
-                if (did) db.ref(`driver_locations/${did}`).update(offlinePayload).catch(e=>{});
-            } else {
-                // Start tracking
-                window.isTrackingActive = true;
-                await window.startBackgroundTracking();
-                const dot = document.getElementById('tracking-dot');
-                if (dot) dot.style.background = '#10b981';
-                const lbl = document.getElementById('tracking-label');
-                if (lbl) lbl.innerText = '🟢 LIVE LOCATION ACTIVE';
-                const btn = document.getElementById('btn-tracking');
-                if (btn) {
-                    btn.innerText = 'Stop';
-                    btn.style.background = 'var(--red, #ef4444)';
-                }
-                
-                let tid = (window.currentTruckId || truckId || '').toString();
-                let did = (window.currentDriverId || driverId || tid || '').toString();
-                if (tid) db.ref(`trucks/${tid}`).update({ status: 'online' }).catch(e=>{});
-                if (did) db.ref(`driver_locations/${did}`).update({ status: 'online' }).catch(e=>{});
-                if (typeof startGpsPolling === 'function') startGpsPolling();
-            }
-        };
-
-        window.startBackgroundTracking = async function() {
-            if (window.Capacitor && window.Capacitor.Plugins && window.Capacitor.Plugins.BackgroundLocation) {
-                try {
-                    if (window.Capacitor.Plugins.Geolocation) {
-                        await window.Capacitor.Plugins.Geolocation.requestPermissions().catch(e=>{});
-                    }
-                    let token = window.currentToken || '';
-                    if (!token && firebase.auth().currentUser) {
-                        try { token = await firebase.auth().currentUser.getIdToken(); } catch(e){}
-                    }
-                    let effectiveDriverId = (driverId || truckId || '').toString();
-                    let effectiveTruckId = (truckId || driverId || '').toString();
-                    await window.Capacitor.Plugins.BackgroundLocation.start({
-                        driverId: effectiveDriverId,
-                        truckId: effectiveTruckId,
-                        idToken: token
-                    });
-                } catch(err) {
-                    console.warn("BackgroundLocation start error:", err);
-                }
-            }
-        };
-
-        window.openNavigation = function() {
-            window.startBackgroundTracking();
-            if (currentIndex < stops.length) {
-                const stop = stops[currentIndex];
-                const mapUrl = `https://www.google.com/maps/dir/?api=1&destination=${stop.lat},${stop.lng}&travelmode=driving`;
-                window.open(mapUrl, '_blank');
-            }
-        };
-
-        window.resetRoute = function() {
-            showConfirm(
-                "Reset Route",
-                "Reset all stops back to pending status?",
-                () => {
-                    let updates = {};
-                    stops.forEach(s => { 
-                        if (s.subStops) {
-                            s.subStops.forEach(ss => { updates[ss.id + "/status"] = 'PENDING'; });
-                        } else {
-                            updates[s.id + "/status"] = 'PENDING'; 
+            document.getElementById('current-stop-container').innerHTML = `
+                <div style="text-align:center; padding: 20px;">
+                    <i class="fa-solid fa-power-off" style="font-size:48px; color:var(--text-muted); margin-bottom:16px;"></i>
+                    <h2 style="margin:0 0 8px 0;">Shift Ended</h2>
+                    <p style="color:var(--text-muted); margin:0;">You are now offline. You can safely close the app.</p>
+                </div>
+            `;
+            document.getElementById('truck-title').innerText = "Offline";
+            
+            // Restore scroll and modal
+            let newGroupListEl = document.getElementById('group-customer-list');
+            if (newGroupListEl && savedScrollTop > 0) newGroupListEl.scrollTop = savedScrollTop;
+            
+            if (skipModal && currentIndex < stops.length) {
+                let stop = stops[currentIndex];
+                if (stop.subStops && stop.subStops.length > 1) {
+                    openGroupSkipModal(stop);
+                    if (savedSkipModalVal) {
+                        let radio = document.querySelector(`input[name="skipCustomerRadio"][value="${savedSkipModalVal}"]`);
+                        if (radio) {
+                            radio.checked = true;
+                            document.getElementById('skipSelectedBtn').disabled = false;
                         }
-                    });
-                    db.ref(`routes/route_${truckId}/stops`).update(updates);
+                    }
+                } else {
+                    closeGroupSkipModal();
                 }
-            );
+            } else if (skipModal) {
+                closeGroupSkipModal();
+            }
         };
 
         async function startGpsPolling() {
@@ -1271,6 +1171,8 @@
             if (window.Capacitor && window.Capacitor.Plugins && window.Capacitor.Plugins.Geolocation) {
                 try { await window.Capacitor.Plugins.Geolocation.requestPermissions(); } catch(e){}
             }
+
+            // Automatically launch native Android foreground service so tracking continues in Google Maps
             window.startBackgroundTracking();
 
             const sendGpsData = (pos) => {
@@ -1290,8 +1192,15 @@
                     status: 'online'
                 };
 
-                if (driverId) db.ref(`driver_locations/${driverId}`).update(gpsPayload).catch(e=>{});
-                if (truckId) db.ref(`trucks/${truckId}`).update(gpsPayload).catch(e=>{});
+                // 1. Write to driver_locations node
+                if (driverId) {
+                    db.ref(`driver_locations/${driverId}`).update(gpsPayload).catch(err => console.error("GPS write (driver_locations):", err));
+                }
+                // 2. Also write to trucks node for instant backward compatibility & live tracker visibility
+                if (truckId) {
+                    db.ref(`trucks/${truckId}`).update(gpsPayload).catch(err => console.error("GPS write (trucks):", err));
+                }
+                console.log("[GPS] Broadcasted coordinates:", lat, lng, "for truck", truckId);
             };
 
             const updateGps = async () => {
@@ -1314,12 +1223,13 @@
                 } catch (err) { console.warn("GPS poll error:", err); }
             };
 
+            // Start watch position for real-time streaming if supported
             try {
                 if (window.Capacitor && window.Capacitor.Plugins && window.Capacitor.Plugins.Geolocation) {
                     window.Capacitor.Plugins.Geolocation.watchPosition({ enableHighAccuracy: true }, (position) => {
                         if (position) sendGpsData(position);
                     }).then(id => { window.capWatchId = id; }).catch(e=>{});
-                } else if (navigator.geolocation) {
+                } else if (navigator.geolocation && navigator.geolocation.watchPosition) {
                     window.geoWatchId = navigator.geolocation.watchPosition(sendGpsData, e=>{}, { enableHighAccuracy: true });
                 }
             } catch(e){}
@@ -1327,6 +1237,7 @@
             updateGps();
             window.gpsInterval = setInterval(updateGps, 8000);
             
+            // Manage Online Presence robustly without premature onDisconnect drops
             const truckRef = db.ref(`trucks/${truckId}`);
             truckRef.child('status').set('online').catch(e=>{});
             truckRef.child('name').set('Truck ' + truckId).catch(e=>{});
@@ -1341,9 +1252,50 @@
                 db.ref(`driver_locations/${driverId}/lastUpdated`).set(firebase.database.ServerValue.TIMESTAMP).catch(e=>{});
                 db.ref(`driver_locations/${driverId}/status`).onDisconnect().cancel().catch(e=>{});
             }
+
+            db.ref('.info/connected').on('value', (snap) => {
+                if (snap.val() === true) {
+                    if (driverId) {
+                        db.ref(`driver_locations/${driverId}/status`).set('online').catch(e=>{});
+                        db.ref(`driver_locations/${driverId}/lastUpdated`).set(firebase.database.ServerValue.TIMESTAMP).catch(e=>{});
+                    }
+                    truckRef.child('status').set('online').catch(e=>{});
+                    truckRef.child('name').set('Truck ' + truckId).catch(e=>{});
+                    truckRef.child('lastUpdated').set(firebase.database.ServerValue.TIMESTAMP).catch(e=>{});
+                }
+            });
+            
+            // Force resume if Capacitor pauses the webview
+            if (window.Capacitor && window.Capacitor.Plugins && window.Capacitor.Plugins.App) {
+                window.Capacitor.Plugins.App.addListener('appStateChange', ({ isActive }) => {
+                    if (isActive) {
+                        truckRef.child('status').set('online').catch(e=>{});
+                        if (driverId) db.ref(`driver_locations/${driverId}/status`).set('online').catch(e=>{});
+                        updateGps();
+                        window.startBackgroundTracking();
+                        if (map) {
+                            setTimeout(() => map.invalidateSize(), 100);
+                        }
+                    }
+                });
+            }
+            
+            // Web fallback visibility safeguard for fast recovery
+            document.addEventListener('visibilitychange', () => {
+                if (document.visibilityState === 'visible') {
+                    truckRef.child('status').set('online').catch(e=>{});
+                    if (driverId) db.ref(`driver_locations/${driverId}/status`).set('online').catch(e=>{});
+                    updateGps();
+                    if (map) {
+                        setTimeout(() => map.invalidateSize(), 100);
+                    }
+                }
+            });
         }
 
-        // Bottom Sheet Logic
+        /* -----------------------------------------------------
+           BOTTOM SHEET GESTURE ENGINE
+           ----------------------------------------------------- */
         const sheet = document.getElementById('bottom-sheet');
         const handleArea = document.getElementById('drag-handle');
         const stopList = document.getElementById('stop-list-container');
@@ -1353,18 +1305,45 @@
         let snapPoints = { peek: 0, half: 0, full: 0 };
         let currentTranslate = 0;
         let isDragging = false;
-        let startY = 0, startTranslate = 0, lastY = 0, lastTime = 0, velocity = 0;
+        let startY = 0;
+        let startTranslate = 0;
+        let lastY = 0;
+        let lastTime = 0;
+        let velocity = 0;
 
         function calculateSnapPoints() {
             const wHeight = window.innerHeight;
             const handleHeight = 29;
+            
             sheetHeight = wHeight * 0.9;
-            const currentCard = document.getElementById('current-stop-container');
-            const peekContentHeight = Math.min((currentCard ? currentCard.offsetHeight : 140) + handleHeight + 40, wHeight * 0.85);
+            
+            const headerEl = document.getElementById('group-card-header');
+            const listEl = document.getElementById('group-customer-list');
+            const actionEl = document.querySelector('.action-buttons');
+            const progressEl = document.querySelector('.progress-text');
+            
+            let peekContentHeight;
+            if (headerEl && listEl && actionEl) {
+                // Grouped: fixed header + capped list + buttons
+                const headerH = (progressEl ? progressEl.offsetHeight : 0) + headerEl.offsetHeight + 16;
+                const listH = listEl.offsetHeight;
+                const buttonsH = actionEl ? actionEl.offsetHeight + 8 : 64;
+                peekContentHeight = handleHeight + headerH + listH + buttonsH + 32;
+            } else {
+                const currentCard = document.getElementById('current-stop-container');
+                peekContentHeight = (currentCard ? currentCard.offsetHeight : 120) + handleHeight;
+            }
+            
+            // Cap at 85% of viewport
+            peekContentHeight = Math.min(peekContentHeight, wHeight * 0.85);
             
             snapPoints.full = 0;
             snapPoints.peek = Math.max(handleHeight + 20, sheetHeight - peekContentHeight);
-            snapPoints.half = snapPoints.peek * 0.45;
+            snapPoints.half = snapPoints.peek * 0.45; // Between full(0) and peek
+            
+            // Ensure ordering: 0 = full < half < peek
+            if (snapPoints.half >= snapPoints.peek) snapPoints.half = Math.floor(snapPoints.peek / 2);
+            if (snapPoints.half <= 0) snapPoints.half = Math.max(20, Math.floor(snapPoints.peek / 3));
             
             if (!isDragging) snapSheet(snapPoints.peek, false);
         }
@@ -1374,30 +1353,37 @@
             const navbarEl = document.getElementById('navbar');
             const navbarBottom = navbarEl ? (navbarEl.getBoundingClientRect().bottom + 12) : 80;
             const desiredBottom = sheetTopDistanceFromBottom + 16;
-            const maxBottom = window.innerHeight - navbarBottom - 60 - 12;
+            const maxBottom = window.innerHeight - navbarBottom - 56 - 12;
             fab.style.bottom = Math.min(desiredBottom, maxBottom) + 'px';
         }
 
         function snapSheet(y, animate = true) {
             if (y > snapPoints.peek) y = snapPoints.peek;
             if (y < snapPoints.full) y = snapPoints.full;
+            
             currentTranslate = y;
+            
             sheet.style.transition = animate ? 'transform 0.3s cubic-bezier(0.25, 0.8, 0.25, 1)' : 'none';
             fab.style.transition = animate ? 'bottom 0.3s cubic-bezier(0.25, 0.8, 0.25, 1)' : 'none';
+            
             sheet.style.transform = `translateY(${y}px)`;
             updateFabPosition(y);
             
+            // Lock map interaction when full
             if (y === snapPoints.full) {
                 if (map && map.dragging) map.dragging.disable();
-                stopList.style.overflowY = 'auto';
+                stopList.style.overflowY = 'auto'; // Enable internal scrolling
             } else {
                 if (map && map.dragging) map.dragging.enable();
                 stopList.style.overflowY = 'hidden';
             }
         }
 
+        // Dragging Logic
         function onDragStart(e) {
-            if (e.target.closest('button') || e.target.closest('.swipe-slider-track')) return;
+            // Don't start drag if clicking a button inside current stop
+            if (e.target.closest('button')) return;
+
             isDragging = true;
             startY = e.touches ? e.touches[0].clientY : e.clientY;
             startTranslate = currentTranslate;
@@ -1411,27 +1397,46 @@
             if (!isDragging) return;
             const currentY = e.touches ? e.touches[0].clientY : e.clientY;
             const deltaY = currentY - startY;
-            velocity = (currentY - lastY) / (Date.now() - lastTime || 1);
+            
+            // Velocity calculation
+            const currentTime = Date.now();
+            const timeDiff = currentTime - lastTime;
+            if (timeDiff > 0) {
+                velocity = (currentY - lastY) / timeDiff;
+            }
             lastY = currentY;
-            lastTime = Date.now();
+            lastTime = currentTime;
 
             let newTranslate = startTranslate + deltaY;
-            if (newTranslate < snapPoints.full) newTranslate = snapPoints.full + (newTranslate - snapPoints.full) * 0.2;
+            
+            // Resistance at boundaries
+            if (newTranslate < snapPoints.full) {
+                newTranslate = snapPoints.full + (newTranslate - snapPoints.full) * 0.2; // Rubber band effect
+            }
+            
             currentTranslate = newTranslate;
             sheet.style.transform = `translateY(${newTranslate}px)`;
             updateFabPosition(Math.max(snapPoints.full, Math.min(newTranslate, snapPoints.peek)));
+            
+            e.preventDefault(); // Prevent native scroll while dragging sheet
         }
 
-        function onDragEnd() {
+        function onDragEnd(e) {
             if (!isDragging) return;
             isDragging = false;
+            
             let targetSnap;
             if (Math.abs(velocity) > 0.5) {
-                targetSnap = velocity < 0 ? ((startTranslate === snapPoints.peek) ? snapPoints.half : snapPoints.full) : ((startTranslate === snapPoints.full) ? snapPoints.half : snapPoints.peek);
-            } else {
+                if (velocity < 0) { // Flicked up
+                    targetSnap = (startTranslate === snapPoints.peek) ? snapPoints.half : snapPoints.full;
+                } else { // Flicked down
+                    targetSnap = (startTranslate === snapPoints.full) ? snapPoints.half : snapPoints.peek;
+                }
+            } else { // Slow drag
                 const distToFull = Math.abs(currentTranslate - snapPoints.full);
                 const distToHalf = Math.abs(currentTranslate - snapPoints.half);
                 const distToPeek = Math.abs(currentTranslate - snapPoints.peek);
+                
                 if (distToFull < distToHalf && distToFull < distToPeek) targetSnap = snapPoints.full;
                 else if (distToHalf < distToFull && distToHalf < distToPeek) targetSnap = snapPoints.half;
                 else targetSnap = snapPoints.peek;
@@ -1439,16 +1444,44 @@
             snapSheet(targetSnap);
         }
 
-        handleArea.addEventListener('touchstart', onDragStart, { passive: false });
-        document.getElementById('current-stop-container').addEventListener('touchstart', onDragStart, { passive: false });
-        window.addEventListener('touchmove', onDragMove, { passive: false });
+        // Attach listeners - handle area always starts drag
+        // Current card: only drag from header, not from scrollable list
+        const currentCardEl = document.getElementById('current-stop-container');
+        handleArea.addEventListener('touchstart', onDragStart, {passive: false});
+        currentCardEl.addEventListener('touchstart', function(e) {
+            if (e.target.closest('button') || e.target.closest('a')) return;
+            const listEl = document.getElementById('group-customer-list');
+            if (listEl && listEl.contains(e.target)) {
+                // Start sheet drag only if list is at top and touch moves downward
+                if (listEl.scrollTop <= 0) {
+                    const startTouchY = e.touches[0].clientY;
+                    let decided = false;
+                    const handleFirstMove = function(ev) {
+                        if (decided) return;
+                        decided = true;
+                        currentCardEl.removeEventListener('touchmove', handleFirstMove);
+                        const dy = ev.touches[0].clientY - startTouchY;
+                        if (dy > 8) onDragStart(e); // Dragging down -> sheet drag
+                    };
+                    currentCardEl.addEventListener('touchmove', handleFirstMove, {passive: true});
+                }
+                return;
+            }
+            onDragStart(e);
+        }, {passive: false});
+        
+        window.addEventListener('touchmove', onDragMove, {passive: false});
         window.addEventListener('touchend', onDragEnd);
+        
+        window.addEventListener('resize', () => setTimeout(calculateSnapPoints, 100));
+        window.addEventListener('orientationchange', () => setTimeout(calculateSnapPoints, 200));
 
         async function initApp() {
             const urlParams = new URLSearchParams(window.location.search);
             let token = urlParams.get('token');
             
             if (!token) {
+                // Try recovery from storage
                 if (window.Capacitor && window.Capacitor.Plugins && window.Capacitor.Plugins.Preferences) {
                     const saved = await window.Capacitor.Plugins.Preferences.get({ key: 'driver_token' });
                     token = saved.value;
@@ -1469,6 +1502,7 @@
                 let data = await res.json();
                 if (data.error || !data.truck_id) throw new Error(data.error || "Route not found");
                 
+                // Save it persistently for future cold launches
                 if (window.Capacitor && window.Capacitor.Plugins && window.Capacitor.Plugins.Preferences) {
                     window.Capacitor.Plugins.Preferences.set({ key: 'driver_token', value: token }).catch(e=>{});
                 } else {
@@ -1483,12 +1517,35 @@
                 document.getElementById('login-overlay').style.display = 'none';
                 document.getElementById('truck-title').innerText = "Truck " + truckId;
                 
+                // Periodically check if token is still valid (e.g. driver not deleted by admin)
+                setInterval(async () => {
+                    try {
+                        let backendUrl = window.location.origin.includes('localhost') || window.location.origin.includes('capacitor://') ? 'https://waste-route-optimizer-robn.onrender.com' : window.location.origin;
+                        let res = await fetch(backendUrl + '/api/resolve_token?token=' + encodeURIComponent(token));
+                        if (res.status === 404 || res.status === 401) {
+                            console.warn("Token became invalid. Forcing logout.");
+                            window.driverLogout();
+                        }
+                    } catch(e) {
+                        // ignore network errors
+                    }
+                }, 60000);
+
+                // Start normal app logic
                 initMap();
                 init();
                 initDriverMessaging(truckId);
                 checkAndPromptOverlayPermission();
             } catch (err) {
                 console.error(err);
+                
+                // Clear the dead token so we don't try it again
+                if (window.Capacitor && window.Capacitor.Plugins && window.Capacitor.Plugins.Preferences) {
+                    window.Capacitor.Plugins.Preferences.remove({ key: 'driver_token' }).catch(e=>{});
+                } else {
+                    localStorage.removeItem('driver_token');
+                }
+                
                 document.getElementById('login-overlay').style.display = 'flex';
                 let loginErr = document.getElementById('login-error');
                 loginErr.innerText = "No route assigned yet. Please check back later.";
@@ -1496,31 +1553,55 @@
             }
         }
 
-        // Realtime Dispatch Chime & Audio Preserved
+        // ==========================================
+        // DRIVER TO ADMIN REALTIME MESSAGING & AUDIO
+        // ==========================================
         let driverAudioCtx = null;
         function getDriverAudioContext() {
             if (!driverAudioCtx) {
                 const AudioContext = window.AudioContext || window.webkitAudioContext;
                 if (AudioContext) driverAudioCtx = new AudioContext();
             }
-            if (driverAudioCtx && driverAudioCtx.state === 'suspended') driverAudioCtx.resume();
+            if (driverAudioCtx && driverAudioCtx.state === 'suspended') {
+                driverAudioCtx.resume();
+            }
             return driverAudioCtx;
         }
+        document.addEventListener('click', () => getDriverAudioContext(), { once: false });
+        document.addEventListener('touchstart', () => getDriverAudioContext(), { once: false });
 
         function playDriverNotificationSound() {
             try {
                 const ctx = getDriverAudioContext();
                 if (!ctx) return;
                 const now = ctx.currentTime;
+                
+                // Prominent 3.6-second repeating dispatch alert chime (3 ascending phrases with resonant bell sustain)
                 const notes = [
-                    { f: 587.33, start: now + 0.00, dur: 0.18, gain: 0.35 },
-                    { f: 739.99, start: now + 0.16, dur: 0.18, gain: 0.40 },
-                    { f: 880.00, start: now + 0.32, dur: 0.20, gain: 0.45 },
-                    { f: 1174.66, start: now + 0.48, dur: 0.35, gain: 0.50 }
+                    // Phrase 1 (0.00s - 0.70s)
+                    { f: 587.33, start: now + 0.00, dur: 0.18, gain: 0.35, type: 'triangle' }, // D5
+                    { f: 739.99, start: now + 0.16, dur: 0.18, gain: 0.40, type: 'triangle' }, // F#5
+                    { f: 880.00, start: now + 0.32, dur: 0.20, gain: 0.45, type: 'triangle' }, // A5
+                    { f: 1174.66, start: now + 0.48, dur: 0.35, gain: 0.50, type: 'sine' },    // D6
+
+                    // Phrase 2 (1.05s - 1.75s)
+                    { f: 587.33, start: now + 1.05, dur: 0.18, gain: 0.35, type: 'triangle' }, // D5
+                    { f: 739.99, start: now + 1.21, dur: 0.18, gain: 0.40, type: 'triangle' }, // F#5
+                    { f: 880.00, start: now + 1.37, dur: 0.20, gain: 0.45, type: 'triangle' }, // A5
+                    { f: 1174.66, start: now + 1.53, dur: 0.35, gain: 0.50, type: 'sine' },    // D6
+
+                    // Phrase 3 - Urgent Finale Chime (2.10s - 3.60s)
+                    { f: 587.33, start: now + 2.10, dur: 0.18, gain: 0.40, type: 'triangle' }, // D5
+                    { f: 739.99, start: now + 2.26, dur: 0.18, gain: 0.45, type: 'triangle' }, // F#5
+                    { f: 880.00, start: now + 2.42, dur: 0.20, gain: 0.50, type: 'triangle' }, // A5
+                    { f: 1174.66, start: now + 2.58, dur: 0.35, gain: 0.55, type: 'sine' },    // D6
+                    { f: 1479.98, start: now + 2.80, dur: 0.80, gain: 0.60, type: 'sine' }     // F#6 (long ringing bell decay to ~3.6s)
                 ];
+                
                 notes.forEach(n => {
                     const osc = ctx.createOscillator();
                     const gainNode = ctx.createGain();
+                    osc.type = n.type || 'sine';
                     osc.frequency.setValueAtTime(n.f, n.start);
                     gainNode.gain.setValueAtTime(0.001, n.start);
                     gainNode.gain.linearRampToValueAtTime(n.gain, n.start + 0.02);
@@ -1530,25 +1611,62 @@
                     osc.start(n.start);
                     osc.stop(n.start + n.dur);
                 });
-                if (navigator.vibrate) navigator.vibrate([400, 150, 400, 150, 600]);
-            } catch(e) {}
+                
+                // Rhythmic multi-pulse vibration over 3.15 seconds
+                if (navigator.vibrate) {
+                    navigator.vibrate([400, 150, 400, 150, 400, 150, 800, 200, 900]);
+                }
+            } catch(e) {
+                console.warn("Audio chime error:", e);
+            }
         }
 
         let driverMessages = {};
         let driverChatOpen = false;
         let driverMessagesInitialLoad = true;
         let driverAlertTimeout = null;
+        let driverMessagingAttached = false;
 
         function initDriverMessaging(tId) {
+            if (!tId || driverMessagingAttached) return;
+            driverMessagingAttached = true;
             const msgRef = db.ref(`trucks/${tId}/messages`);
+            
             msgRef.on('child_added', snapshot => {
                 const msg = snapshot.val();
                 if (!msg) return;
                 driverMessages[snapshot.key] = msg;
+                
                 if (!driverMessagesInitialLoad && msg.sender === 'admin' && !msg.read) {
+                    // 1. Play 3.5s alert chime
                     playDriverNotificationSound();
+
+                    // 2. Show floating alert banner
                     showDriverAlertBanner(msg.text || '');
+
+                    // 3. Automatically open the driver chat sheet so driver immediately sees notification & full chat
                     openDriverChat(true);
+
+                    // 4. If running inside native Android APK, wake screen and bring app to front
+                    if (window.Capacitor && window.Capacitor.Plugins && window.Capacitor.Plugins.BackgroundLocation && typeof window.Capacitor.Plugins.BackgroundLocation.bringToFront === 'function') {
+                        try {
+                            window.Capacitor.Plugins.BackgroundLocation.bringToFront({
+                                title: "🚨 Message from Dispatch",
+                                text: msg.text || "New message received"
+                            });
+                        } catch(e) {
+                            console.warn("Capacitor bringToFront error:", e);
+                        }
+                    }
+
+                    // 5. Browser notification if supported
+                    if (window.Notification && Notification.permission === 'granted') {
+                        try {
+                            new Notification("🚨 Message from Dispatch", {
+                                body: msg.text || "New message received"
+                            });
+                        } catch(e) {}
+                    }
                 }
                 updateDriverUnreadBadge();
                 if (driverChatOpen) {
@@ -1560,23 +1678,78 @@
             msgRef.on('value', snapshot => {
                 driverMessages = snapshot.val() || {};
                 updateDriverUnreadBadge();
-                if (driverChatOpen) renderDriverChatMessages();
+                if (driverChatOpen) {
+                    renderDriverChatMessages();
+                }
             });
             
             msgRef.once('value').then(() => {
-                setTimeout(() => { driverMessagesInitialLoad = false; }, 1000);
+                setTimeout(() => {
+                    driverMessagesInitialLoad = false;
+                }, 1000);
             });
+
+            // Listen to latest_alert node for instant background/foreground trigger
+            let lastDriverAlertTs = Date.now();
+            const alertRef = db.ref(`trucks/${tId}/latest_alert`);
+            alertRef.on('value', snapshot => {
+                const alertData = snapshot.val();
+                if (!alertData || alertData.read || alertData.sender !== 'admin') return;
+                
+                if (alertData.timestamp > lastDriverAlertTs) {
+                    lastDriverAlertTs = alertData.timestamp;
+                    alertRef.update({ read: true }).catch(e=>{});
+
+                    playDriverNotificationSound();
+                    showDriverAlertBanner(alertData.text || '');
+                    openDriverChat(true);
+
+                    if (window.Capacitor && window.Capacitor.Plugins && window.Capacitor.Plugins.BackgroundLocation && typeof window.Capacitor.Plugins.BackgroundLocation.bringToFront === 'function') {
+                        try {
+                            window.Capacitor.Plugins.BackgroundLocation.bringToFront({
+                                title: "🚨 Message from Dispatch",
+                                text: alertData.text || "New message received"
+                            });
+                        } catch(e) {}
+                    }
+                }
+            });
+        }
+
+        function checkAndPromptOverlayPermission() {
+            if (window.Capacitor && window.Capacitor.Plugins && window.Capacitor.Plugins.BackgroundLocation && typeof window.Capacitor.Plugins.BackgroundLocation.checkOverlayPermission === 'function') {
+                window.Capacitor.Plugins.BackgroundLocation.checkOverlayPermission().then(res => {
+                    const promptEl = document.getElementById('overlay-perm-prompt');
+                    if (promptEl) {
+                        if (res && res.hasPermission === false) {
+                            promptEl.style.display = 'flex';
+                        } else {
+                            promptEl.style.display = 'none';
+                        }
+                    }
+                }).catch(e=>{});
+            }
+        }
+
+        function requestOverlay() {
+            if (window.Capacitor && window.Capacitor.Plugins && window.Capacitor.Plugins.BackgroundLocation && typeof window.Capacitor.Plugins.BackgroundLocation.requestOverlayPermission === 'function') {
+                window.Capacitor.Plugins.BackgroundLocation.requestOverlayPermission();
+                const promptEl = document.getElementById('overlay-perm-prompt');
+                if (promptEl) promptEl.style.display = 'none';
+            }
         }
 
         function updateDriverUnreadBadge() {
             let count = 0;
             for (let k in driverMessages) {
-                if (driverMessages[k]?.sender === 'admin' && !driverMessages[k]?.read) count++;
+                if (driverMessages[k] && driverMessages[k].sender === 'admin' && !driverMessages[k].read) {
+                    count++;
+                }
             }
             const badge = document.getElementById('driver-unread-badge');
             if (badge) {
                 if (count > 0) {
-                    badge.innerText = count;
+                    badge.innerText = count > 9 ? '9+' : count;
                     badge.style.display = 'flex';
                 } else {
                     badge.style.display = 'none';
@@ -1588,15 +1761,20 @@
             const banner = document.getElementById('driver-alert-banner');
             const alertText = document.getElementById('driver-alert-text');
             if (!banner || !alertText) return;
+            
             alertText.innerText = text;
             banner.style.display = 'block';
+            
             if (driverAlertTimeout) clearTimeout(driverAlertTimeout);
-            driverAlertTimeout = setTimeout(dismissDriverAlert, 10000);
+            driverAlertTimeout = setTimeout(() => {
+                dismissDriverAlert();
+            }, 10000);
         }
 
         function dismissDriverAlert() {
             const banner = document.getElementById('driver-alert-banner');
             if (banner) banner.style.display = 'none';
+            if (driverAlertTimeout) clearTimeout(driverAlertTimeout);
         }
 
         function openDriverChat(keepBanner = false) {
@@ -1606,7 +1784,12 @@
             if (modal) modal.style.display = 'flex';
             renderDriverChatMessages();
             markAdminMessagesRead(window.currentTruckId);
-            if (window.lucide) lucide.createIcons();
+            setTimeout(() => {
+                const box = document.getElementById('driver-chat-messages');
+                if (box) box.scrollTop = box.scrollHeight;
+                const input = document.getElementById('driver-chat-input');
+                if (input) input.focus();
+            }, 100);
         }
 
         function closeDriverChat() {
@@ -1618,24 +1801,38 @@
         function renderDriverChatMessages() {
             const container = document.getElementById('driver-chat-messages');
             if (!container) return;
-            const keys = Object.keys(driverMessages).sort((a, b) => (driverMessages[a].timestamp || 0) - (driverMessages[b].timestamp || 0));
+            
+            const keys = Object.keys(driverMessages).sort((a, b) => {
+                return (driverMessages[a].timestamp || 0) - (driverMessages[b].timestamp || 0);
+            });
+            
             if (keys.length === 0) {
-                container.innerHTML = `<div style="text-align: center; color: var(--text-muted); padding: 40px 20px; font-size: 13px;">No messages exchanged yet with Dispatch.</div>`;
+                container.innerHTML = `
+                    <div style="text-align:center; color:#94a3b8; padding:40px 20px; font-size:14px;">
+                        <i class="fa-solid fa-comments" style="font-size:32px; margin-bottom:12px; color:#cbd5e1;"></i><br>
+                        No messages yet with Dispatch.<br>Send a message below or use quick replies!
+                    </div>
+                `;
                 return;
             }
+            
             let html = '';
             keys.forEach(k => {
                 const m = driverMessages[k];
                 if (!m) return;
                 const isAdmin = m.sender === 'admin';
                 const timeStr = m.timestamp ? new Date(m.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : '';
+                
                 html += `
                     <div class="driver-chat-bubble ${isAdmin ? 'admin' : 'driver'}">
-                        <div style="font-size: 11px; font-weight: 700; margin-bottom: 2px; ${isAdmin ? 'color: var(--accent-primary);' : 'color: rgba(255,255,255,0.7);'}">
-                            ${isAdmin ? 'Dispatch' : 'You'}
+                        <div style="font-size:11px; font-weight:700; margin-bottom:2px; ${isAdmin ? 'color:#2563eb;' : 'color:#93c5fd;'}">
+                            ${isAdmin ? '<i class="fa-solid fa-headset"></i> Dispatch' : 'You'}
                         </div>
                         <div>${escapeDriverHtml(m.text || '')}</div>
-                        <div style="font-size: 10px; opacity: 0.7; margin-top: 4px; text-align: right;">${timeStr}</div>
+                        <div class="chat-meta">
+                            <span>${timeStr}</span>
+                            ${!isAdmin ? `<i class="fa-solid ${m.read ? 'fa-check-double' : 'fa-check'}" style="font-size:10px;"></i>` : ''}
+                        </div>
                     </div>
                 `;
             });
@@ -1645,7 +1842,7 @@
 
         function escapeDriverHtml(str) {
             if (!str) return '';
-            return String(str).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+            return String(str).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#39;');
         }
 
         function markAdminMessagesRead(tId) {
@@ -1653,13 +1850,13 @@
             if (!tId) return;
             const updates = {};
             for (let k in driverMessages) {
-                if (driverMessages[k]?.sender === 'admin' && !driverMessages[k]?.read) {
+                if (driverMessages[k] && driverMessages[k].sender === 'admin' && !driverMessages[k].read) {
                     updates[`trucks/${tId}/messages/${k}/read`] = true;
                     driverMessages[k].read = true;
                 }
             }
             updates[`trucks/${tId}/latest_alert/read`] = true;
-            db.ref().update(updates).catch(e=>{});
+            db.ref().update(updates).catch(e => console.warn(e));
             updateDriverUnreadBadge();
         }
 
@@ -1671,7 +1868,12 @@
             input.value = '';
             
             const tId = window.currentTruckId || truckId;
-            const dName = window.currentDriverName || ('Driver ' + tId);
+            if (!tId) {
+                alert("Truck not identified.");
+                return;
+            }
+            
+            const dName = window.currentDriverName || ('Driver (Truck ' + tId + ')');
             const newMsg = {
                 sender: 'driver',
                 senderName: dName,
@@ -1679,7 +1881,15 @@
                 timestamp: Date.now(),
                 read: false
             };
-            db.ref(`trucks/${tId}/messages`).push(newMsg);
+            
+            db.ref(`trucks/${tId}/messages`).push(newMsg).catch(err => {
+                console.error("Failed to send message:", err);
+            });
+            
+            setTimeout(() => {
+                const box = document.getElementById('driver-chat-messages');
+                if (box) box.scrollTop = box.scrollHeight;
+            }, 80);
         }
 
         function sendQuickReply(text) {
@@ -1688,33 +1898,117 @@
             sendDriverChat();
         }
 
+
+
         window.driverLogout = async function() {
-            if (window.gpsInterval) clearInterval(window.gpsInterval);
-            if (window.geoWatchId) navigator.geolocation.clearWatch(window.geoWatchId);
-            if (window.Capacitor && window.Capacitor.Plugins && window.Capacitor.Plugins.BackgroundLocation) {
-                await window.Capacitor.Plugins.BackgroundLocation.stop().catch(e=>{});
+            try {
+                // 1. Stop all JS GPS intervals and watchers
+                if (window.gpsInterval) {
+                    clearInterval(window.gpsInterval);
+                    window.gpsInterval = null;
+                }
+                if (window.geoWatchId && navigator.geolocation && navigator.geolocation.clearWatch) {
+                    navigator.geolocation.clearWatch(window.geoWatchId);
+                    window.geoWatchId = null;
+                }
+                if (window.capWatchId && window.Capacitor && window.Capacitor.Plugins && window.Capacitor.Plugins.Geolocation) {
+                    window.Capacitor.Plugins.Geolocation.clearWatch({ id: window.capWatchId }).catch(e=>{});
+                    window.capWatchId = null;
+                }
+                window.isTrackingActive = false;
+
+                // 2. Stop native Android background service if present
+                if (window.Capacitor && window.Capacitor.Plugins && window.Capacitor.Plugins.BackgroundLocation) {
+                    await window.Capacitor.Plugins.BackgroundLocation.stop().catch(e=>{});
+                }
+
+                // 3. Mark offline in Firebase immediately and clear live coordinates
+                let effectiveTruckId = (window.currentTruckId || truckId || '').toString();
+                let effectiveDriverId = (window.currentDriverId || driverId || effectiveTruckId || '').toString();
+
+                const offlinePayload = {
+                    status: 'offline',
+                    currentLat: null,
+                    currentLng: null,
+                    speed: 0,
+                    heading: 0,
+                    lastUpdated: firebase.database.ServerValue.TIMESTAMP
+                };
+
+                let promises = [];
+                if (effectiveTruckId) {
+                    promises.push(db.ref(`trucks/${effectiveTruckId}`).update(offlinePayload).catch(e=>{}));
+                }
+                if (effectiveDriverId) {
+                    promises.push(db.ref(`driver_locations/${effectiveDriverId}`).update(offlinePayload).catch(e=>{}));
+                }
+                await Promise.all(promises);
+            } catch(e) {
+                console.warn("[LOGOUT] Cleanup error:", e);
             }
 
-            let effectiveTruckId = (window.currentTruckId || truckId || '').toString();
-            let effectiveDriverId = (window.currentDriverId || driverId || effectiveTruckId || '').toString();
-
-            const offlinePayload = {
-                status: 'offline',
-                currentLat: null,
-                currentLng: null,
-                speed: 0,
-                lastUpdated: firebase.database.ServerValue.TIMESTAMP
-            };
-
-            if (effectiveTruckId) db.ref(`trucks/${effectiveTruckId}`).update(offlinePayload).catch(e=>{});
-            if (effectiveDriverId) db.ref(`driver_locations/${effectiveDriverId}`).update(offlinePayload).catch(e=>{});
-
+            // 4. Remove stored credentials
             if (window.Capacitor && window.Capacitor.Plugins && window.Capacitor.Plugins.Preferences) {
                 await window.Capacitor.Plugins.Preferences.remove({ key: 'driver_token' }).catch(e=>{});
             }
             try { localStorage.removeItem('driver_token'); } catch(e){}
+            try { sessionStorage.clear(); } catch(e){}
+
+            // 5. Navigate to clean base URL without query parameters (strips ?token=...)
             const cleanUrl = window.location.origin + window.location.pathname;
             window.location.replace(cleanUrl);
+        };
+
+        window.toggleTracking = async function() {
+            if (window.isTrackingActive) {
+                // Stop tracking
+                if (window.gpsInterval) {
+                    clearInterval(window.gpsInterval);
+                    window.gpsInterval = null;
+                }
+                if (window.geoWatchId && navigator.geolocation && navigator.geolocation.clearWatch) {
+                    navigator.geolocation.clearWatch(window.geoWatchId);
+                    window.geoWatchId = null;
+                }
+                if (window.capWatchId && window.Capacitor && window.Capacitor.Plugins && window.Capacitor.Plugins.Geolocation) {
+                    window.Capacitor.Plugins.Geolocation.clearWatch({ id: window.capWatchId }).catch(e=>{});
+                    window.capWatchId = null;
+                }
+                if (window.Capacitor && window.Capacitor.Plugins && window.Capacitor.Plugins.BackgroundLocation) {
+                    await window.Capacitor.Plugins.BackgroundLocation.stop().catch(e=>{});
+                }
+                window.isTrackingActive = false;
+                document.getElementById('tracking-dot').style.background = '#94a3b8';
+                document.getElementById('tracking-label').innerText = '⚪ LOCATION NOT ACTIVE';
+                document.getElementById('btn-tracking').innerText = 'Start Route';
+                document.getElementById('btn-tracking').style.background = 'var(--primary)';
+                
+                let tid = (window.currentTruckId || truckId || '').toString();
+                let did = (window.currentDriverId || driverId || tid || '').toString();
+                const offlinePayload = {
+                    status: 'offline',
+                    currentLat: null,
+                    currentLng: null,
+                    speed: 0,
+                    lastUpdated: firebase.database.ServerValue.TIMESTAMP
+                };
+                if (tid) db.ref(`trucks/${tid}`).update(offlinePayload).catch(e=>{});
+                if (did) db.ref(`driver_locations/${did}`).update(offlinePayload).catch(e=>{});
+            } else {
+                // Start tracking
+                window.isTrackingActive = true;
+                await window.startBackgroundTracking();
+                document.getElementById('tracking-dot').style.background = '#10b981';
+                document.getElementById('tracking-label').innerText = '🟢 LIVE LOCATION ACTIVE';
+                document.getElementById('btn-tracking').innerText = 'Stop';
+                document.getElementById('btn-tracking').style.background = 'var(--red)';
+                
+                let tid = (window.currentTruckId || truckId || '').toString();
+                let did = (window.currentDriverId || driverId || tid || '').toString();
+                if (tid) db.ref(`trucks/${tid}`).update({ status: 'online' }).catch(e=>{});
+                if (did) db.ref(`driver_locations/${did}`).update({ status: 'online' }).catch(e=>{});
+                if (typeof startGpsPolling === 'function') startGpsPolling();
+            }
         };
 
         window.handleDriverLogin = async function() {
@@ -1724,7 +2018,7 @@
             const err = document.getElementById('login-error');
             
             if(!u || !p) return;
-            btn.innerHTML = 'Signing In...';
+            btn.innerHTML = '<i class="fa-solid fa-circle-notch fa-spin"></i>';
             err.style.display = 'none';
             
             try {
@@ -1732,11 +2026,11 @@
                 let res = await fetch(backendUrl + '/api/driver_login', {
                     method: 'POST',
                     headers: {'Content-Type': 'application/json'},
-                    body: JSON.stringify({ username: u, password: p })
+                    body: JSON.stringify({username: u, password: p})
                 });
                 let data = await res.json();
                 
-                if (data.success) {
+                if(data.success) {
                     if (window.Capacitor && window.Capacitor.Plugins && window.Capacitor.Plugins.Preferences) {
                         await window.Capacitor.Plugins.Preferences.set({ key: 'driver_token', value: data.token });
                     } else {
@@ -1747,54 +2041,46 @@
                 } else {
                     err.innerText = data.error;
                     err.style.display = 'block';
-                    btn.innerText = 'Sign In to Route';
+                    btn.innerText = 'Sign In';
                 }
             } catch (e) {
-                err.innerText = 'Network Connection Error';
+                err.innerText = 'Network Error';
                 err.style.display = 'block';
-                btn.innerText = 'Sign In to Route';
+                btn.innerText = 'Sign In';
             }
         };
 
-        function checkAndPromptOverlayPermission() {
-            if (window.Capacitor && window.Capacitor.Plugins && window.Capacitor.Plugins.BackgroundLocation?.checkOverlayPermission) {
-                window.Capacitor.Plugins.BackgroundLocation.checkOverlayPermission().then(res => {
-                    const promptEl = document.getElementById('overlay-perm-prompt');
-                    if (promptEl) promptEl.style.display = res?.hasPermission === false ? 'flex' : 'none';
-                }).catch(e=>{});
-            }
-        }
-
-        function requestOverlay() {
-            if (window.Capacitor && window.Capacitor.Plugins && window.Capacitor.Plugins.BackgroundLocation?.requestOverlayPermission) {
-                window.Capacitor.Plugins.BackgroundLocation.requestOverlayPermission();
-                const promptEl = document.getElementById('overlay-perm-prompt');
-                if (promptEl) promptEl.style.display = 'none';
-            }
-        }
-
+        // 2. Wrap app startup in Firebase Auth to guarantee permissions
         firebase.auth().onIdTokenChanged(async (user) => {
             if (user) {
-                try { window.currentToken = await user.getIdToken(); } catch(e){}
+                try {
+                    window.currentToken = await user.getIdToken();
+                } catch(e) {}
             }
         });
 
         firebase.auth().signInAnonymously().then(async (userCredential) => {
-            if (userCredential?.user) {
-                try { window.currentToken = await userCredential.user.getIdToken(); } catch(e){}
+            if (userCredential && userCredential.user) {
+                try {
+                    window.currentToken = await userCredential.user.getIdToken();
+                } catch(e) {}
             }
             initApp();
         }).catch(err => {
-            console.error("Firebase auth error:", err);
+            console.error("Firebase auth failed:", err);
+            document.getElementById('truck-title').innerText = "Auth Error";
+            document.getElementById('current-stop-container').innerHTML = `<div style="text-align:center; color:#e11d48; padding:20px;"><b>Connection issue:</b><br>Try refreshing the page.</div>`;
         });
 
+    
+        // Hide splash screen after animation completes (run immediately on script load)
         setTimeout(() => {
             let splash = document.getElementById('splash-screen');
             if (splash) {
                 splash.style.opacity = '0';
                 setTimeout(() => splash.remove(), 400);
             }
-        }, 1800);
-    </script>
+        }, 2500);
+</script>
 </body>
 </html>

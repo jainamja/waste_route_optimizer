@@ -1472,21 +1472,6 @@ def get_data():
                 query = query.filter(Customer.truck_id.in_(ws_trucks))
         except:
             pass
-
-    # Auto-cleanup finished routes: if a truck has stops in Customer, but 0 pending stops remain,
-    # remove them so finished routes disappear from live_dashboard
-    if not template_id and not req_truck_id:
-        all_truck_ids = [t[0] for t in db.session.query(Customer.truck_id).distinct().all() if t[0] is not None]
-        cleaned_any = False
-        for tid in all_truck_ids:
-            total_c = Customer.query.filter_by(truck_id=tid).count()
-            pending_c = Customer.query.filter(Customer.truck_id == tid, Customer.status == 'PENDING', Customer.confirmation != 'CANCELLED').count()
-            if total_c > 0 and pending_c == 0:
-                Customer.query.filter_by(truck_id=tid).delete()
-                cleaned_any = True
-        if cleaned_any:
-            db.session.commit()
-            recompute_route_metrics()
         
     customers_db = query.order_by(Customer.truck_id.asc(), Customer.stop_number.asc()).all()
     
@@ -2408,10 +2393,6 @@ def save_template():
         'confirmation': c.confirmation if c.confirmation else 'NOT_CONFIRMED',
         'customer_status': getattr(c, 'customer_status', 'ACTIVE') or 'ACTIVE'
     } for c in cust_rows]
-
-    real_stops = [c for c in cust_list if int(c.get('id', 0)) > -1000 and c.get('name') != 'End Location / Depot']
-    if not cust_list or len(real_stops) == 0:
-        return jsonify({'error': 'Cannot save an empty template. Please ensure active customer stops are present on the route deck before saving.'}), 400
     
     if not t and not target_is_assigned:
         t = SavedTemplate.query.filter(
@@ -2542,19 +2523,9 @@ def get_templates():
                 templates = []
     res = []
     for t in templates:
-        cust_list = []
-        if t.customers_json:
-            try:
-                cust_list = json.loads(t.customers_json)
-            except:
-                cust_list = []
-        real_stops = [c for c in cust_list if int(c.get('id', 0)) > -1000 and c.get('name') != 'End Location / Depot']
-        truck_ids = set(c.get('truck_id') for c in real_stops if c.get('truck_id'))
         res.append({
             'id': t.id,
             'name': t.name,
-            'stops_count': len(real_stops),
-            'truck_count': len(truck_ids) if truck_ids else (1 if len(cust_list) > 0 else 0),
             'created_at': t.created_at.strftime('%Y-%m-%d %H:%M:%S') if t.created_at else ''
         })
     return jsonify({'success': True, 'templates': res})
@@ -2609,22 +2580,12 @@ def get_assigned_routes():
 
         # If all stops on the route are completed or skipped (0 pending left):
         # The route is finished! Automatically clear the driver's assignment so it disappears from Assigned Routes!
-        if (total_stops > 0 and pending_stops == 0) or total_stops == 0:
+        if total_stops > 0 and pending_stops == 0:
             if d.assigned_template_id:
                 old_inst = db.session.get(SavedTemplate, d.assigned_template_id)
                 if old_inst and getattr(old_inst, 'is_assigned_instance', False):
                     db.session.delete(old_inst)
             d.assigned_template_id = None
-            if d.truck_id:
-                Customer.query.filter_by(truck_id=d.truck_id).delete()
-                try:
-                    import requests
-                    firebase_url = "https://wasteroutelive-default-rtdb.firebaseio.com"
-                    id_token = get_firebase_token()
-                    if id_token:
-                        requests.delete(f"{firebase_url}/routes/route_{d.truck_id}.json?auth={id_token}", timeout=4)
-                except:
-                    pass
             continue
 
         res.append({
@@ -2699,30 +2660,12 @@ def driver_finish_route():
         except: pass
         
     if driver:
-        eff_truck_id = driver.truck_id or (int(truck_id) if truck_id else None)
         if driver.assigned_template_id:
             old_inst = db.session.get(SavedTemplate, driver.assigned_template_id)
             if old_inst and getattr(old_inst, 'is_assigned_instance', False):
                 db.session.delete(old_inst)
         driver.assigned_template_id = None
-        if eff_truck_id:
-            Customer.query.filter_by(truck_id=eff_truck_id).delete()
         db.session.commit()
-        
-        try:
-            import requests
-            firebase_url = "https://wasteroutelive-default-rtdb.firebaseio.com"
-            id_token = get_firebase_token()
-            if id_token and eff_truck_id:
-                requests.delete(f"{firebase_url}/routes/route_{eff_truck_id}.json?auth={id_token}", timeout=4)
-                requests.patch(f"{firebase_url}/trucks/{eff_truck_id}.json?auth={id_token}", json={
-                    "status": "offline",
-                    "routeCompleted": True
-                }, timeout=4)
-        except Exception as e:
-            print("Firebase finish route cleanup error:", e)
-
-        recompute_route_metrics()
         return jsonify({'success': True})
     return jsonify({'error': 'Driver not found'}), 404
 
@@ -2746,10 +2689,6 @@ def deploy_template(t_id):
     import json
     meta_dict = json.loads(t.metadata_json or '{}')
     cust_list = json.loads(t.customers_json or '[]')
-    
-    real_stops = [c for c in cust_list if int(c.get('id', 0)) > -1000 and c.get('name') != 'End Location / Depot']
-    if not cust_list or len(real_stops) == 0:
-        return jsonify({'error': f'Template "{t.name}" contains 0 customer stops. Please generate and save a valid route first.'}), 400
     
     # Protect trucks that are currently assigned to active drivers
     protected_trucks = get_active_assigned_trucks()
