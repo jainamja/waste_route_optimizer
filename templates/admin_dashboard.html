@@ -738,6 +738,10 @@
                         html = '<div style="padding: 28px; text-align: center; color: var(--text-muted); font-size: 14px;">No saved templates yet. Go to Route Dashboard to save one.</div>';
                     } else {
                         data.templates.forEach(t => {
+                            let stopsBadge = (t.stops_count > 0)
+                                ? `<span style="display: inline-flex; align-items: center; gap: 4px; padding: 2px 8px; border-radius: 9999px; background: rgba(16, 185, 129, 0.12); color: #10b981; font-size: 11px; font-weight: 600;">${t.stops_count} stops • ${t.truck_count} trucks</span>`
+                                : `<span style="display: inline-flex; align-items: center; gap: 4px; padding: 2px 8px; border-radius: 9999px; background: rgba(239, 68, 68, 0.12); color: #ef4444; font-size: 11px; font-weight: 600;"><i data-lucide="alert-triangle" style="width: 12px; height: 12px;"></i> 0 stops (Empty)</span>`;
+
                             html += `
                                 <div class="data-row">
                                     <div style="display: flex; align-items: center; gap: 14px;">
@@ -745,7 +749,10 @@
                                             <i data-lucide="bookmark" style="width: 20px; height: 20px;"></i>
                                         </div>
                                         <div>
-                                            <div style="font-weight: 700; font-size: 15px; color: var(--text-primary); margin-bottom: 2px;">${t.name}</div>
+                                            <div style="display: flex; align-items: center; gap: 8px; margin-bottom: 3px;">
+                                                <span style="font-weight: 700; font-size: 15px; color: var(--text-primary);">${t.name}</span>
+                                                ${stopsBadge}
+                                            </div>
                                             <div style="font-size: 12px; color: var(--text-muted); font-family: var(--font-mono);">Saved on ${t.created_at}</div>
                                         </div>
                                     </div>
@@ -778,13 +785,13 @@
                 async () => {
                     try {
                         let res = await fetch('/api/deploy_template/' + id + '?mode=deploy', { method: 'POST' });
-                        if (!res.ok) { let text = await res.text(); throw new Error(text); }
-                        let data = await res.json();
-                        if (data.success) {
+                        let data = {};
+                        try { data = await res.json(); } catch(err) {}
+                        if (res.ok && data.success) {
                             showToast("Template deployed successfully!", "success");
                             window.location.href = '/routes';
                         } else {
-                            showToast("Error: " + data.error, "error");
+                            showToast(data.error || "Failed to deploy template", "error");
                         }
                     } catch(e) {
                         showToast("An error occurred: " + e.message, "error");
@@ -800,14 +807,15 @@
                 async () => {
                     try {
                         let res = await fetch('/api/deploy_template/' + id + '?mode=edit', { method: 'POST' });
-                        let data = await res.json();
-                        if (data.success) {
+                        let data = {};
+                        try { data = await res.json(); } catch(err) {}
+                        if (res.ok && data.success) {
                             window.location.href = '/routes';
                         } else {
-                            showToast("Error: " + data.error, "error");
+                            showToast(data.error || "Failed to load template", "error");
                         }
                     } catch(e) {
-                        showToast("An error occurred", "error");
+                        showToast("An error occurred: " + e.message, "error");
                     }
                 }
             );

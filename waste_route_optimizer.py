@@ -2408,6 +2408,10 @@ def save_template():
         'confirmation': c.confirmation if c.confirmation else 'NOT_CONFIRMED',
         'customer_status': getattr(c, 'customer_status', 'ACTIVE') or 'ACTIVE'
     } for c in cust_rows]
+
+    real_stops = [c for c in cust_list if int(c.get('id', 0)) > -1000 and c.get('name') != 'End Location / Depot']
+    if not cust_list or len(real_stops) == 0:
+        return jsonify({'error': 'Cannot save an empty template. Please ensure active customer stops are present on the route deck before saving.'}), 400
     
     if not t and not target_is_assigned:
         t = SavedTemplate.query.filter(
@@ -2538,9 +2542,19 @@ def get_templates():
                 templates = []
     res = []
     for t in templates:
+        cust_list = []
+        if t.customers_json:
+            try:
+                cust_list = json.loads(t.customers_json)
+            except:
+                cust_list = []
+        real_stops = [c for c in cust_list if int(c.get('id', 0)) > -1000 and c.get('name') != 'End Location / Depot']
+        truck_ids = set(c.get('truck_id') for c in real_stops if c.get('truck_id'))
         res.append({
             'id': t.id,
             'name': t.name,
+            'stops_count': len(real_stops),
+            'truck_count': len(truck_ids) if truck_ids else (1 if len(cust_list) > 0 else 0),
             'created_at': t.created_at.strftime('%Y-%m-%d %H:%M:%S') if t.created_at else ''
         })
     return jsonify({'success': True, 'templates': res})
@@ -2732,6 +2746,10 @@ def deploy_template(t_id):
     import json
     meta_dict = json.loads(t.metadata_json or '{}')
     cust_list = json.loads(t.customers_json or '[]')
+    
+    real_stops = [c for c in cust_list if int(c.get('id', 0)) > -1000 and c.get('name') != 'End Location / Depot']
+    if not cust_list or len(real_stops) == 0:
+        return jsonify({'error': f'Template "{t.name}" contains 0 customer stops. Please generate and save a valid route first.'}), 400
     
     # Protect trucks that are currently assigned to active drivers
     protected_trucks = get_active_assigned_trucks()
