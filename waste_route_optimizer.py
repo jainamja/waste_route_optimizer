@@ -56,6 +56,10 @@ if database_url:
         database_url = database_url.replace('postgresql://', 'postgresql+psycopg2://', 1)
 app.config['SQLALCHEMY_DATABASE_URI'] = database_url or 'sqlite:///routes.db'
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
+app.config['SQLALCHEMY_ENGINE_OPTIONS'] = {
+    "pool_pre_ping": True,   # check a pooled connection is alive before using it; replace it if dead
+    "pool_recycle": 280,     # recycle connections before Render's idle timeout closes them
+}
 
 db = SQLAlchemy(app)
 
