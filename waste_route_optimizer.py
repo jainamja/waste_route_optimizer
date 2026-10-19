@@ -194,8 +194,28 @@ with app.app_context():
 @lru_cache(maxsize=100)
 def resolve_gmaps_url(url):
     try:
+        # Fast local extraction if URL already contains coordinates (no network needed)
+        pin_match = re.search(r'!3d(-?\d+\.\d+)!4d(-?\d+\.\d+)', url)
+        if pin_match:
+            clat, clng = float(pin_match.group(1)), float(pin_match.group(2))
+            if (8 <= clat <= 38) and (68 <= clng <= 98):
+                return clat, clng
+        q_match = re.search(r'[?&]q=(-?\d+\.\d+),(-?\d+\.\d+)', url)
+        if q_match:
+            clat, clng = float(q_match.group(1)), float(q_match.group(2))
+            if (8 <= clat <= 38) and (68 <= clng <= 98):
+                return clat, clng
+        vp_match = re.search(r'@(-?\d+\.\d+),(-?\d+\.\d+)', url)
+        if vp_match:
+            clat, clng = float(vp_match.group(1)), float(vp_match.group(2))
+            if (8 <= clat <= 38) and (68 <= clng <= 98):
+                return clat, clng
+        c_lat, c_lng = extract_lat_lng(url)
+        if c_lat and c_lng and (8 <= c_lat <= 38) and (68 <= c_lng <= 98):
+            return c_lat, c_lng
+
         headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)'}
-        res = requests.get(url, allow_redirects=True, headers=headers, timeout=10)
+        res = requests.get(url, allow_redirects=True, headers=headers, timeout=5)
         
         lat, lng = None, None
         pin_match = re.search(r'!3d(-?\d+\.\d+)!4d(-?\d+\.\d+)', res.url)
@@ -1738,6 +1758,21 @@ def add_stop():
         except ValueError: lat, lng = None, None
     else: lat, lng = None, None
     
+    # Auto-detect if user pasted a map link into the address input
+    if not location_url and address and ('http://' in str(address) or 'https://' in str(address) or 'maps.app.goo.gl' in str(address)):
+        location_url = address
+        address = ''
+
+    # 1. Direct coordinate extraction if user typed or pasted raw coordinates
+    if lat is None or lng is None:
+        for candidate in [location_url, address]:
+            if candidate and isinstance(candidate, str):
+                c_lat, c_lng = extract_lat_lng(candidate)
+                if c_lat is not None and c_lng is not None and (8.0 <= c_lat <= 38.0) and (68.0 <= c_lng <= 98.0):
+                    lat, lng = c_lat, c_lng
+                    break
+
+    # 2. Extract from Google Maps URL (or shortlink)
     if lat is None or lng is None:
         if location_url:
             url_match = re.search(r'(https?://[^\s]+)', str(location_url))
