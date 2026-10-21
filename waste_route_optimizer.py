@@ -1665,10 +1665,42 @@ def resolve_token():
         user_id = int(token)
         driver = db.session.get(User, user_id)
         if driver and driver.role == 'DRIVER':
+            # Check if this driver currently has an assigned template/route in SQL
+            has_assigned_route = False
+            assigned_tmpl_name = None
+            if driver.assigned_template_id:
+                tmpl = db.session.get(SavedTemplate, driver.assigned_template_id)
+                if tmpl:
+                    has_assigned_route = True
+                    assigned_tmpl_name = tmpl.name
+            
+            # Verify if customers actually exist in DB for this truck
+            cust_count = 0
+            if driver.truck_id:
+                cust_count = Customer.query.filter(Customer.truck_id == driver.truck_id, Customer.id > -1000).count()
+                if cust_count == 0:
+                    has_assigned_route = False
+            else:
+                has_assigned_route = False
+                
+            # If no route is assigned, actively wipe any stale ghost stops in Firebase for this truck
+            if not has_assigned_route and driver.truck_id:
+                try:
+                    id_token = get_firebase_token()
+                    if id_token:
+                        firebase_url = "https://wasteroutelive-default-rtdb.firebaseio.com"
+                        requests.delete(f"{firebase_url}/routes/route_{driver.truck_id}.json?auth={id_token}", timeout=3)
+                except:
+                    pass
+
             return jsonify({
                 'truck_id': str(driver.truck_id) if driver.truck_id is not None else None,
                 'driver_name': driver.name or driver.username,
-                'driver_id': driver.id
+                'driver_id': driver.id,
+                'has_assigned_route': has_assigned_route,
+                'assigned_template_id': driver.assigned_template_id if has_assigned_route else None,
+                'assigned_template_name': assigned_tmpl_name,
+                'stop_count': cust_count
             })
     except ValueError:
         pass
@@ -2882,6 +2914,14 @@ def unassign_route():
         d.assigned_template_id = None
         if d.truck_id:
             Customer.query.filter_by(truck_id=d.truck_id).delete()
+            
+    # Also explicitly clear Customer records for truck_id if provided directly
+    if truck_id:
+        try:
+            Customer.query.filter_by(truck_id=int(truck_id)).delete()
+        except:
+            pass
+            
     db.session.commit()
     
     try:
@@ -2889,14 +2929,21 @@ def unassign_route():
         firebase_url = "https://wasteroutelive-default-rtdb.firebaseio.com"
         id_token = get_firebase_token()
         if id_token:
+            trucks_to_clear = set()
+            if truck_id:
+                try: trucks_to_clear.add(int(truck_id))
+                except: pass
             for d in drivers:
                 if d.truck_id:
-                    requests.delete(f"{firebase_url}/routes/route_{d.truck_id}.json?auth={id_token}")
-                    requests.patch(f"{firebase_url}/trucks/{d.truck_id}.json?auth={id_token}", json={
-                        "driverName": None,
-                        "driverId": None,
-                        "status": "offline"
-                    })
+                    trucks_to_clear.add(d.truck_id)
+            for tid in trucks_to_clear:
+                requests.delete(f"{firebase_url}/routes/route_{tid}.json?auth={id_token}")
+                requests.patch(f"{firebase_url}/trucks/{tid}.json?auth={id_token}", json={
+                    "driverName": None,
+                    "driverId": None,
+                    "status": "offline",
+                    "routeCompleted": False
+                })
     except Exception as e:
         print("Firebase unassign error:", e)
         
@@ -3000,12 +3047,35 @@ def driver_finish_route():
         except: pass
         
     if driver:
+        eff_truck_id = driver.truck_id or truck_id
         if driver.assigned_template_id:
             old_inst = db.session.get(SavedTemplate, driver.assigned_template_id)
             if old_inst and getattr(old_inst, 'is_assigned_instance', False):
                 db.session.delete(old_inst)
         driver.assigned_template_id = None
+        
+        # Clean up Customer table for this truck so it doesn't linger
+        if eff_truck_id:
+            try:
+                Customer.query.filter_by(truck_id=int(eff_truck_id)).delete()
+            except:
+                pass
         db.session.commit()
+        
+        # Clean up Firebase route so next login doesn't see old finished route
+        try:
+            if eff_truck_id:
+                id_token = get_firebase_token()
+                if id_token:
+                    firebase_url = "https://wasteroutelive-default-rtdb.firebaseio.com"
+                    requests.delete(f"{firebase_url}/routes/route_{eff_truck_id}.json?auth={id_token}")
+                    requests.patch(f"{firebase_url}/trucks/{eff_truck_id}.json?auth={id_token}", json={
+                        "status": "offline",
+                        "routeCompleted": True
+                    })
+        except Exception as e:
+            print("driver_finish_route Firebase cleanup error:", e)
+            
         return jsonify({'success': True})
     return jsonify({'error': 'Driver not found'}), 404
 
