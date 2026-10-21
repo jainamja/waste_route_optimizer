@@ -2903,6 +2903,88 @@ def unassign_route():
     recompute_route_metrics()
     return jsonify({'success': True})
 
+@app.route('/api/mark_stop_status', methods=['POST'])
+def mark_stop_status():
+    """
+    Direct high-priority endpoint for the driver app to report stop completion / skip.
+    Updates the SQL database and immediately pushes to Firebase Realtime Database
+    over REST, ensuring zero-delay updates even if the driver's WebSocket was idle.
+    """
+    data = request.json or {}
+    truck_id = data.get('truck_id')
+    driver_id = data.get('driver_id')
+    stop_id = data.get('stop_id')
+    status = data.get('status', 'COMPLETED')
+    updates = data.get('updates') or {}
+    
+    stop_ids_to_update = set()
+    if stop_id:
+        try:
+            stop_ids_to_update.add(int(stop_id))
+        except:
+            pass
+            
+    for k, v in updates.items():
+        if '/status' in k:
+            sid_str = k.split('/')[0]
+            try:
+                stop_ids_to_update.add(int(sid_str))
+            except:
+                pass
+                
+    if stop_ids_to_update:
+        Customer.query.filter(Customer.id.in_(list(stop_ids_to_update))).update({'status': status}, synchronize_session=False)
+        db.session.commit()
+        
+    now_ms = int(time.time() * 1000)
+    try:
+        import requests
+        firebase_url = "https://wasteroutelive-default-rtdb.firebaseio.com"
+        id_token = get_firebase_token()
+        if id_token and truck_id:
+            fb_patch = {}
+            for sid in stop_ids_to_update:
+                fb_patch[f"{sid}/status"] = status
+            if fb_patch:
+                requests.patch(
+                    f"{firebase_url}/routes/route_{truck_id}/stops.json?auth={id_token}",
+                    json=fb_patch,
+                    timeout=5
+                )
+            touch = {
+                "lastUpdated": now_ms,
+                "lastStopAction": now_ms
+            }
+            requests.patch(f"{firebase_url}/trucks/{truck_id}.json?auth={id_token}", json=touch, timeout=4)
+            if driver_id:
+                requests.patch(f"{firebase_url}/driver_locations/{driver_id}.json?auth={id_token}", json=touch, timeout=4)
+    except Exception as e:
+        print("mark_stop_status Firebase sync error:", e)
+        
+    return jsonify({'success': True, 'updated': list(stop_ids_to_update), 'status': status})
+
+
+@app.route('/api/live_route_sync')
+def live_route_sync():
+    custs = Customer.query.filter(Customer.truck_id != None, Customer.id > -1000).all()
+    routes = {}
+    for c in custs:
+        rk = f"route_{c.truck_id}"
+        if rk not in routes:
+            routes[rk] = {"stops": {}}
+        routes[rk]["stops"][str(c.id)] = {
+            "id": c.id,
+            "status": c.status or "PENDING",
+            "confirmation": c.confirmation or "NOT_CONFIRMED",
+            "sequence": c.stop_number,
+            "name": c.name,
+            "customer_status": c.customer_status or "ACTIVE",
+            "lat": c.lat,
+            "lng": c.lng
+        }
+    return jsonify({'success': True, 'routes': routes})
+
+
 @app.route('/api/driver_finish_route', methods=['POST'])
 def driver_finish_route():
     data = request.json or {}

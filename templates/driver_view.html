@@ -914,6 +914,52 @@
             } catch(e) {}
         }
 
+        window.submitStopStatusUpdate = function(updates, primaryStopId, status, onFinished) {
+            // 1. Force Firebase WebSocket to awaken if dormant
+            try {
+                if (typeof firebase !== 'undefined' && firebase.database) {
+                    firebase.database().goOnline();
+                }
+            } catch(e) {}
+
+            const now = Date.now();
+
+            // 2. Primary Path: Firebase WebSocket write
+            db.ref(`routes/route_${truckId}/stops`).update(updates).then(() => {
+                if (onFinished) onFinished(true);
+            }).catch(err => {
+                console.warn("[FB SYNC] WebSocket update error/delayed:", err);
+                if (onFinished) onFinished(false);
+            });
+
+            // 3. Touch truck and driver timestamps in Firebase
+            try {
+                let touch = { lastUpdated: now, lastStopAction: now };
+                if (truckId) db.ref(`trucks/${truckId}`).update(touch).catch(e=>{});
+                if (driverId) db.ref(`driver_locations/${driverId}`).update(touch).catch(e=>{});
+            } catch(e) {}
+
+            // 4. Secondary Direct Path: REST POST directly to server backend
+            try {
+                let backendUrl = (window.location.origin.includes('localhost') || window.location.origin.includes('capacitor://'))
+                    ? 'https://waste-route-optimizer-robn.onrender.com'
+                    : window.location.origin;
+                fetch(backendUrl + '/api/mark_stop_status', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        truck_id: truckId,
+                        driver_id: driverId,
+                        stop_id: primaryStopId,
+                        status: status,
+                        updates: updates
+                    })
+                }).catch(err => {
+                    console.warn("[REST SYNC] Mark stop status fallback failed:", err);
+                });
+            } catch(e) {}
+        };
+
         window.markStop = function(status) {
             console.log("[MARK STOP] Tapped:", status, "| Current Index:", currentIndex);
             if (currentIndex < stops.length) {
@@ -942,16 +988,13 @@
                     }
                 }
                 
-                db.ref(`routes/route_${truckId}/stops`).update(updates).then(() => {
+                snapSheet(snapPoints.peek);
+
+                submitStopStatusUpdate(updates, stop.id, status, () => {
                     if (isLastStop) {
                         triggerImmediateAutoOffline();
                     }
-                }).catch(err => {
-                    console.error("Firebase write failed (markStop):", err);
-                    alert("Failed to update stop status. Check connection.");
                 });
-                
-                snapSheet(snapPoints.peek);
             }
         };
         
@@ -1014,13 +1057,8 @@
             let updates = {};
             updates[customerId + "/status"] = 'SKIPPED';
             
-            db.ref(`routes/route_${truckId}/stops`).update(updates).then(() => {
-                closeGroupSkipModal();
-            }).catch(err => {
-                console.error("Firebase write failed:", err);
-                alert("Failed to update stop status.");
-                e.target.disabled = false;
-            });
+            closeGroupSkipModal();
+            submitStopStatusUpdate(updates, customerId, 'SKIPPED');
         };
         
         window.skipAllRemainingCustomers = function(e) {
@@ -1033,13 +1071,9 @@
                 }
             });
             
-            db.ref(`routes/route_${truckId}/stops`).update(updates).then(() => {
-                closeGroupSkipModal();
-                snapSheet(snapPoints.peek);
-            }).catch(err => {
-                console.error("Firebase write failed:", err);
-                alert("Failed to update stop status.");
-            });
+            closeGroupSkipModal();
+            snapSheet(snapPoints.peek);
+            submitStopStatusUpdate(updates, stop.id, 'SKIPPED');
         };
 
         window.startBackgroundTracking = async function() {
@@ -1086,10 +1120,7 @@
                         updates[s.id + "/status"] = 'PENDING'; 
                     }
                 });
-                db.ref(`routes/route_${truckId}/stops`).update(updates).catch(err => {
-                    console.error("Firebase write failed (resetRoute):", err);
-                    alert("Failed to reset route. Check connection.");
-                });
+                submitStopStatusUpdate(updates, null, 'PENDING');
             }
         };
 

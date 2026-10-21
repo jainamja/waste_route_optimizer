@@ -479,6 +479,7 @@
                         truckToDriver[d.truck_id] = d.id;
                         driverAssignedRoutes[d.truck_id] = d.assigned_template_id || null;
                         driverAssignedTemplateNames[d.truck_id] = d.assigned_template_name || null;
+                        ensureTruckRouteListener(d.truck_id);
                     }
                 });
                 driversLoaded = true;
@@ -548,9 +549,76 @@
             return null;
         }
 
+        let routeListeners = {};
+        function ensureTruckRouteListener(tId) {
+            if (!tId || isNaN(parseInt(tId))) return;
+            let strId = String(tId);
+            if (routeListeners['route_' + strId]) return;
+            routeListeners['route_' + strId] = true;
+            
+            // Direct listener to the truck's stops node for instant zero-delay updates
+            db.ref('routes/route_' + strId + '/stops').on('value', snap => {
+                let val = snap.val();
+                if (val) {
+                    if (!routesData['route_' + strId]) routesData['route_' + strId] = {};
+                    routesData['route_' + strId].stops = val;
+                    scheduleRender();
+                }
+            }, err => {
+                console.warn("Direct stops listener warning for truck", strId, err);
+            });
+        }
+
+        function syncRoutesHttp() {
+            fetch('/api/live_route_sync')
+                .then(r => r.json())
+                .then(data => {
+                    if (data && data.success && data.routes) {
+                        let changed = false;
+                        for (let rk in data.routes) {
+                            if (!routesData[rk]) routesData[rk] = { stops: {} };
+                            if (!routesData[rk].stops) routesData[rk].stops = {};
+                            let sMap = data.routes[rk].stops || {};
+                            for (let sId in sMap) {
+                                let existing = routesData[rk].stops[sId];
+                                let fresh = sMap[sId];
+                                if (!existing || existing.status !== fresh.status) {
+                                    routesData[rk].stops[sId] = Object.assign(existing || {}, fresh);
+                                    changed = true;
+                                }
+                            }
+                        }
+                        if (changed) {
+                            scheduleRender();
+                        }
+                    }
+                })
+                .catch(e => console.warn("[HTTP ROUTE SYNC] warning:", e));
+        }
+        setInterval(syncRoutesHttp, 6000);
+        setTimeout(syncRoutesHttp, 1500);
+
         function attachRoutesListener() {
+            // Watchdog for connection status to auto-reconnect if socket was suspended/idle
+            db.ref('.info/connected').on('value', snap => {
+                if (snap.val() === true) {
+                    console.log("[FIREBASE] Connected to Realtime Database");
+                } else {
+                    console.warn("[FIREBASE] Disconnected from Realtime Database - scheduling reconnect");
+                    setTimeout(() => {
+                        try { firebase.database().goOnline(); } catch(e){}
+                    }, 2000);
+                }
+            });
+
             db.ref('routes').on('value', snap => {
-                routesData = snap.val() || {};
+                let val = snap.val() || {};
+                routesData = Object.assign(routesData || {}, val);
+                for (let rk in val) {
+                    if (rk.startsWith('route_')) {
+                        ensureTruckRouteListener(rk.replace('route_', ''));
+                    }
+                }
                 scheduleRender();
             }, err => {
                 console.warn("Permission denied reading 'routes'. Falling back to individual trucks.", err);
@@ -559,7 +627,6 @@
             });
         }
 
-        let routeListeners = {};
         function fallbackToIndividualListeners() {
             if (!window.liveTrucks) window.liveTrucks = {};
             let keys = Object.keys(driverMap);
@@ -572,20 +639,12 @@
                 if (!tId || isNaN(parseInt(tId))) return;
                 let driverId = truckToDriver[tId];
 
+                ensureTruckRouteListener(tId);
+
                 if (!routeListeners[tId]) {
                     routeListeners[tId] = true;
                     
-                    // 1. Listen to route stops
-                    db.ref('routes/route_' + tId + '/stops').on('value', snap => {
-                        let val = snap.val();
-                        if (!routesData['route_' + tId]) routesData['route_' + tId] = {};
-                        routesData['route_' + tId].stops = val || {};
-                        scheduleRender();
-                    }, err => {
-                        console.error("Fallback stops listener failed for truck", tId, err);
-                    });
-                    
-                    // 2. Listen to individual trucks/{tId} directly!
+                    // Listen to individual trucks/{tId} directly!
                     db.ref('trucks/' + tId).on('value', snap => {
                         let tData = snap.val();
                         if (tData) {
@@ -599,7 +658,7 @@
                     });
                 }
 
-                // 3. Listen to individual driver_locations/{driverId}
+                // Listen to individual driver_locations/{driverId}
                 if (driverId && !routeListeners['drv_' + driverId]) {
                     routeListeners['drv_' + driverId] = true;
                     db.ref('driver_locations/' + driverId).on('value', snap => {
@@ -620,7 +679,7 @@
             renderTimer = setTimeout(() => {
                 renderTimer = null;
                 renderProgress();
-            }, 200);
+            }, 50);
         }
         
         let truckStats = {};
