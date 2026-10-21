@@ -447,6 +447,66 @@
         </div>
     </div>
     
+    <!-- Modal for Edit Customer Details -->
+    <div id="edit-customer-modal" style="display:none; position:fixed; top:0; left:0; right:0; bottom:0; background:rgba(0,0,0,0.5); z-index:9999; align-items:center; justify-content:center;">
+        <div style="background:white; padding:28px; border-radius:20px; max-width:480px; width:92%; max-height:90vh; overflow-y:auto; box-shadow:0 20px 25px -5px rgba(0,0,0,0.1), 0 10px 10px -5px rgba(0,0,0,0.04);">
+            <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:16px;">
+                <h3 style="margin:0; font-family:'Manrope', sans-serif; font-size:18px; color:var(--text-main);">
+                    <i class="fa-solid fa-pen-to-square" style="color:var(--primary); margin-right:8px;"></i>Edit Customer Details
+                </h3>
+                <button onclick="closeEditCustomerModal()" style="background:none; border:none; color:var(--text-muted); cursor:pointer; font-size:18px; padding:4px;"><i class="fa-solid fa-xmark"></i></button>
+            </div>
+            
+            <input type="hidden" id="edit-cust-id">
+            
+            <div style="display:flex; flex-direction:column; gap:14px;">
+                <div>
+                    <label style="font-size:12px; font-weight:600; color:var(--text-muted); display:block; margin-bottom:4px;">Customer Name <span style="color:#ef4444;">*</span></label>
+                    <input type="text" id="edit-cust-name" placeholder="Customer Name" style="width:100%; box-sizing:border-box; padding:10px 12px; border:1px solid var(--border); border-radius:10px; font-family:'Inter', sans-serif; font-size:14px;">
+                </div>
+                
+                <div>
+                    <label style="font-size:12px; font-weight:600; color:var(--text-muted); display:block; margin-bottom:4px;">Phone Number</label>
+                    <input type="text" id="edit-cust-phone" placeholder="Phone Number" style="width:100%; box-sizing:border-box; padding:10px 12px; border:1px solid var(--border); border-radius:10px; font-family:'Inter', sans-serif; font-size:14px;">
+                </div>
+                
+                <div>
+                    <label style="font-size:12px; font-weight:600; color:var(--text-muted); display:block; margin-bottom:4px;">Address</label>
+                    <textarea id="edit-cust-address" rows="3" placeholder="Full Address" style="width:100%; box-sizing:border-box; padding:10px 12px; border:1px solid var(--border); border-radius:10px; font-family:'Inter', sans-serif; font-size:14px; resize:vertical;"></textarea>
+                </div>
+                
+                <div>
+                    <label style="font-size:12px; font-weight:600; color:var(--text-muted); display:block; margin-bottom:4px;">Google Maps Link or Coordinates</label>
+                    <input type="text" id="edit-cust-url" placeholder="https://maps.app.goo.gl/... or 23.0123, 72.5678" style="width:100%; box-sizing:border-box; padding:10px 12px; border:1px solid var(--border); border-radius:10px; font-family:'Inter', sans-serif; font-size:14px;">
+                    <span style="font-size:11px; color:var(--text-muted); margin-top:3px; display:block;">Pasting a new link will update the GPS pin location for this stop.</span>
+                </div>
+                
+                <div style="display:grid; grid-template-columns:1fr 1fr; gap:12px;">
+                    <div>
+                        <label style="font-size:12px; font-weight:600; color:var(--text-muted); display:block; margin-bottom:4px;">Customer Status</label>
+                        <select id="edit-cust-status" style="width:100%; box-sizing:border-box; padding:10px 12px; border:1px solid var(--border); border-radius:10px; font-family:'Inter', sans-serif; font-size:13px; font-weight:600; background:#f8fafc;">
+                            <option value="ACTIVE">Active</option>
+                            <option value="INACTIVE">Inactive (Skip)</option>
+                        </select>
+                    </div>
+                    <div>
+                        <label style="font-size:12px; font-weight:600; color:var(--text-muted); display:block; margin-bottom:4px;">Confirmation</label>
+                        <select id="edit-cust-conf" style="width:100%; box-sizing:border-box; padding:10px 12px; border:1px solid var(--border); border-radius:10px; font-family:'Inter', sans-serif; font-size:13px; font-weight:600; background:#f8fafc;">
+                            <option value="NOT_CONFIRMED">Not Confirmed</option>
+                            <option value="CONFIRMED">Confirmed</option>
+                            <option value="CANCELLED">Cancelled</option>
+                        </select>
+                    </div>
+                </div>
+            </div>
+            
+            <div style="margin-top:24px; display:flex; gap:12px;">
+                <button class="btn btn-primary" id="btn-save-cust-details" onclick="saveCustomerDetails()" style="flex:1; padding:12px; font-weight:700; border-radius:10px; cursor:pointer;"><i class="fa-solid fa-check"></i> Save Changes</button>
+                <button class="btn btn-outline" onclick="closeEditCustomerModal()" style="flex:1; padding:12px; border-radius:10px; cursor:pointer;">Cancel</button>
+            </div>
+        </div>
+    </div>
+
     <!-- Modal for Add Stop -->
     <div id="add-stop-modal" style="display:none; position:fixed; top:0; left:0; right:0; bottom:0; background:rgba(0,0,0,0.5); z-index:9999; align-items:center; justify-content:center;">
         <div style="background:white; padding:32px; border-radius:24px; max-width:450px; width:90%;">
@@ -1005,8 +1065,14 @@
                                     <div class="stop-info" style="flex:1;">
                                         <div style="display:flex; justify-content:space-between; align-items:flex-start;">
                                             <div class="stop-name" style="display:flex; align-items:center; ${nameDec}">${displayName}${confHtml}</div>
-                                            ${!isDone && !isDepot ? `<button onclick="removeStop(${customer.id}, ${customer.truck})" style="background:none; border:none; color:#ef4444; cursor:pointer; padding:4px; margin-left:8px;" title="Remove Stop"><i class="fa-solid fa-trash"></i></button>` : ''}
+                                            ${!isDone && !isDepot ? `
+                                                <div style="display:flex; align-items:center; gap:2px; margin-left:8px;">
+                                                    <button onclick="openEditCustomerModal(${customer.id})" style="background:none; border:none; color:#4f46e5; cursor:pointer; padding:4px 6px; border-radius:6px; font-size:13px;" title="Edit Customer Details"><i class="fa-solid fa-pen-to-square"></i></button>
+                                                    <button onclick="removeStop(${customer.id}, ${customer.truck})" style="background:none; border:none; color:#ef4444; cursor:pointer; padding:4px 6px; border-radius:6px; font-size:13px;" title="Remove Stop"><i class="fa-solid fa-trash"></i></button>
+                                                </div>
+                                            ` : ''}
                                         </div>
+                                        ${customer.phone ? `<div style="color:var(--text-muted); font-size:12px; margin-top:2px;"><i class="fa-solid fa-phone"></i> ${customer.phone}</div>` : ''}
                                         ${customer.address ? `<div style="color:var(--text-muted); font-size:13px; margin-top:2px;"><i class="fa-solid fa-location-dot"></i> ${customer.address}</div>` : ''}
                                         ${toggleHtml}
                                     </div>
@@ -1527,6 +1593,76 @@
 
         
         
+        window.openEditCustomerModal = function(id) {
+            if (!data || !data.customers) return;
+            const c = data.customers.find(x => x.id === id || String(x.id) === String(id));
+            if (!c) {
+                alert("Customer not found");
+                return;
+            }
+            document.getElementById('edit-cust-id').value = c.id;
+            document.getElementById('edit-cust-name').value = c.name || '';
+            document.getElementById('edit-cust-phone').value = c.phone || '';
+            document.getElementById('edit-cust-address').value = c.address || '';
+            document.getElementById('edit-cust-url').value = c.location_url || (c.lat && c.lng ? `${c.lat}, ${c.lng}` : '');
+            document.getElementById('edit-cust-status').value = (c.customer_status || 'ACTIVE').toUpperCase() === 'INACTIVE' ? 'INACTIVE' : 'ACTIVE';
+            document.getElementById('edit-cust-conf').value = c.confirmation || 'NOT_CONFIRMED';
+            
+            document.getElementById('edit-customer-modal').style.display = 'flex';
+        };
+
+        window.closeEditCustomerModal = function() {
+            document.getElementById('edit-customer-modal').style.display = 'none';
+        };
+
+        window.saveCustomerDetails = async function() {
+            const id = document.getElementById('edit-cust-id').value;
+            const name = document.getElementById('edit-cust-name').value.trim();
+            const phone = document.getElementById('edit-cust-phone').value.trim();
+            const address = document.getElementById('edit-cust-address').value.trim();
+            const location_url = document.getElementById('edit-cust-url').value.trim();
+            const customer_status = document.getElementById('edit-cust-status').value;
+            const confirmation = document.getElementById('edit-cust-conf').value;
+            
+            if (!name) {
+                alert("Customer name is required.");
+                return;
+            }
+            
+            const btn = document.getElementById('btn-save-cust-details');
+            const originalText = btn.innerHTML;
+            btn.disabled = true;
+            btn.innerHTML = '<i class="fa-solid fa-circle-notch fa-spin"></i> Saving...';
+            
+            try {
+                let res = await fetch('/api/update_customer_details', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({
+                        id: id,
+                        name: name,
+                        phone: phone,
+                        address: address,
+                        location_url: location_url,
+                        customer_status: customer_status,
+                        confirmation: confirmation
+                    })
+                });
+                let result = await res.json();
+                if (result.success) {
+                    closeEditCustomerModal();
+                    loadData();
+                } else {
+                    alert("Error updating customer: " + (result.error || "Unknown error"));
+                }
+            } catch(err) {
+                alert("Network error: " + err.message);
+            } finally {
+                btn.disabled = false;
+                btn.innerHTML = originalText;
+            }
+        };
+
         window.updateCustomerStatus = async function(customerId, status) {
             try {
                 let res = await fetch('/api/update_customer_status', {
