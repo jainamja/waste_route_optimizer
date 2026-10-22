@@ -245,6 +245,28 @@
             box-shadow: 0 2px 8px rgba(47, 95, 255, 0.25);
         }
 
+        /* Uber / Ola Smooth Live Fleet Tracking Styles */
+        @keyframes vehiclePulse {
+            0% { transform: scale(0.9); opacity: 0.8; }
+            70% { transform: scale(1.6); opacity: 0; }
+            100% { transform: scale(1.6); opacity: 0; }
+        }
+        .live-pulse-ring {
+            animation: vehiclePulse 2s cubic-bezier(0.24, 0, 0.38, 1) infinite;
+        }
+        .uber-marker-container {
+            transition: filter 0.2s ease;
+        }
+        .uber-marker-container:hover {
+            filter: brightness(1.15) scale(1.08);
+        }
+        .truck-rotator {
+            will-change: transform;
+        }
+        .live-truck-marker-wrap {
+            transition: none !important;
+        }
+
         /* Admin Messenger and Notification Styles */
         .admin-quick-chip {
             padding: 5px 11px;
@@ -787,6 +809,221 @@
             return diff < 60000;
         }
 
+        function calculateBearing(lat1, lng1, lat2, lng2) {
+            const toRad = deg => deg * Math.PI / 180;
+            const toDeg = rad => rad * 180 / Math.PI;
+            const φ1 = toRad(lat1), φ2 = toRad(lat2);
+            const Δλ = toRad(lng2 - lng1);
+            const y = Math.sin(Δλ) * Math.cos(φ2);
+            const x = Math.cos(φ1) * Math.sin(φ2) - Math.sin(φ1) * Math.cos(φ2) * Math.cos(Δλ);
+            const θ = Math.atan2(y, x);
+            return (toDeg(θ) + 360) % 360;
+        }
+
+        function getTruckRoadSegments(strId) {
+            const state = activeRouteLayers[strId];
+            const coords = [];
+            if (state) {
+                if (state.approachRoadCoords && state.approachRoadCoords.length) {
+                    coords.push(...state.approachRoadCoords);
+                }
+                if (state.stopsRoadCoords && state.stopsRoadCoords.length) {
+                    coords.push(...state.stopsRoadCoords);
+                }
+            }
+            if (coords.length < 2 && routesData && routesData['route_' + strId]) {
+                const sObj = routesData['route_' + strId].stops;
+                if (sObj) {
+                    const parsed = parseStops(sObj);
+                    parsed.forEach(s => {
+                        if (s.lat && s.lng) coords.push([s.lat, s.lng]);
+                    });
+                }
+            }
+            return coords;
+        }
+
+        function snapToRoad(rawLat, rawLng, strId, thresholdMeters) {
+            const maxMeters = thresholdMeters || 38;
+            const segments = getTruckRoadSegments(strId);
+            if (!segments || segments.length < 2) {
+                return { lat: rawLat, lng: rawLng, heading: null, snapped: false };
+            }
+            
+            let minDistance = Infinity;
+            let bestSnapLat = rawLat;
+            let bestSnapLng = rawLng;
+            let bestBearing = null;
+            
+            const cosLat = Math.cos(rawLat * Math.PI / 180);
+            
+            for (let i = 0; i < segments.length - 1; i++) {
+                const a = segments[i];
+                const b = segments[i + 1];
+                
+                // Fast bounding-box check (~100m)
+                const minLat = Math.min(a[0], b[0]) - 0.001;
+                const maxLat = Math.max(a[0], b[0]) + 0.001;
+                const minLng = Math.min(a[1], b[1]) - 0.001;
+                const maxLng = Math.max(a[1], b[1]) + 0.001;
+                if (rawLat < minLat || rawLat > maxLat || rawLng < minLng || rawLng > maxLng) {
+                    continue;
+                }
+                
+                const dLat = b[0] - a[0];
+                const dLng = b[1] - a[1];
+                if (dLat === 0 && dLng === 0) continue;
+                
+                const vx = dLng * cosLat;
+                const vy = dLat;
+                const px = (rawLng - a[1]) * cosLat;
+                const py = rawLat - a[0];
+                const vLenSq = vx * vx + vy * vy;
+                
+                let t = (px * vx + py * vy) / vLenSq;
+                if (t < 0) t = 0;
+                else if (t > 1) t = 1;
+                
+                const snapLat = a[0] + t * dLat;
+                const snapLng = a[1] + t * dLng;
+                const dist = haversineMeters([rawLat, rawLng], [snapLat, snapLng]);
+                
+                if (dist < minDistance) {
+                    minDistance = dist;
+                    bestSnapLat = snapLat;
+                    bestSnapLng = snapLng;
+                    bestBearing = calculateBearing(a[0], a[1], b[0], b[1]);
+                }
+            }
+            
+            if (minDistance <= maxMeters) {
+                return {
+                    lat: bestSnapLat,
+                    lng: bestSnapLng,
+                    heading: bestBearing,
+                    dist: minDistance,
+                    snapped: true
+                };
+            }
+            
+            return { lat: rawLat, lng: rawLng, heading: null, snapped: false };
+        }
+
+        function updateMarkerRotation(marker, heading) {
+            if (!marker || heading === undefined || heading === null) return;
+            marker._currentBearing = heading;
+            const el = marker.getElement();
+            if (el) {
+                const rotator = el.querySelector('.truck-rotator');
+                if (rotator) {
+                    rotator.style.transform = `rotate(${Math.round(heading)}deg)`;
+                }
+            }
+        }
+
+        function animateTruckMarker(marker, targetLat, targetLng, targetHeading, durationMs) {
+            if (!marker) return;
+            const startLatLng = marker.getLatLng();
+            const startLat = startLatLng.lat;
+            const startLng = startLatLng.lng;
+            
+            const dist = haversineMeters([startLat, startLng], [targetLat, targetLng]);
+            if (dist < 0.3) {
+                if (targetHeading !== undefined && targetHeading !== null) {
+                    updateMarkerRotation(marker, targetHeading);
+                }
+                return;
+            }
+            
+            if (dist > 500) {
+                marker.setLatLng([targetLat, targetLng]);
+                if (targetHeading !== undefined && targetHeading !== null) {
+                    updateMarkerRotation(marker, targetHeading);
+                }
+                return;
+            }
+            
+            if (marker._animFrameId) {
+                cancelAnimationFrame(marker._animFrameId);
+                marker._animFrameId = null;
+            }
+            
+            const startTime = performance.now();
+            const startBearing = marker._currentBearing !== undefined ? marker._currentBearing : (targetHeading || 0);
+            
+            let diffHeading = 0;
+            if (targetHeading !== undefined && targetHeading !== null) {
+                diffHeading = ((targetHeading - startBearing + 540) % 360) - 180;
+            }
+            
+            const animDuration = Math.min(Math.max(durationMs || 1500, 800), 2500);
+            
+            function step(now) {
+                const elapsed = now - startTime;
+                const progress = Math.min(1, elapsed / animDuration);
+                
+                const curLat = startLat + (targetLat - startLat) * progress;
+                const curLng = startLng + (targetLng - startLng) * progress;
+                
+                marker.setLatLng([curLat, curLng]);
+                
+                if (diffHeading !== 0) {
+                    const curBearing = (startBearing + diffHeading * progress + 360) % 360;
+                    updateMarkerRotation(marker, curBearing);
+                }
+                
+                if (progress < 1) {
+                    marker._animFrameId = requestAnimationFrame(step);
+                } else {
+                    marker._animFrameId = null;
+                    marker._currentBearing = targetHeading;
+                    if (targetHeading !== undefined && targetHeading !== null) {
+                        updateMarkerRotation(marker, targetHeading);
+                    }
+                }
+            }
+            
+            marker._animFrameId = requestAnimationFrame(step);
+        }
+
+        function createMarkerIcon(tId, isOnline, heading, dName) {
+            let tColor = getTruckColor(tId);
+            let iconColor = isOnline ? tColor : '#64748b';
+            let rot = heading || 0;
+            
+            return L.divIcon({
+                className: 'live-truck-marker-wrap live-truck-marker-' + tId,
+                html: `
+                    <div class="uber-marker-container" style="position:relative; width:44px; height:44px; cursor:pointer;" title="Truck ${tId} (${dName})">
+                        <!-- Floating Truck ID Pill -->
+                        <div style="position:absolute; top:-12px; left:50%; transform:translateX(-50%); background:#0f172a; color:#ffffff; font-size:10px; font-weight:800; padding:1px 6px; border-radius:10px; white-space:nowrap; box-shadow:0 2px 6px rgba(0,0,0,0.35); border:1.5px solid white; z-index:5; pointer-events:none; letter-spacing:0.5px;">
+                            T${tId}
+                        </div>
+                        
+                        <!-- Live Radar Pulse Ring -->
+                        ${isOnline ? `<div class="live-pulse-ring" style="position:absolute; top:0; left:0; width:44px; height:44px; border-radius:50%; background:${iconColor}33; pointer-events:none;"></div>` : ''}
+                        
+                        <!-- Smooth Directional Rotator that turns with heading -->
+                        <div class="truck-rotator" style="position:absolute; top:0; left:0; width:44px; height:44px; display:flex; align-items:center; justify-content:center; transform:rotate(${Math.round(rot)}deg); transform-origin:50% 50%; transition:transform 0.25s cubic-bezier(0.4, 0, 0.2, 1); z-index:3;">
+                            <!-- Forward Direction Pointer Arrowhead -->
+                            <div style="position:absolute; top:-5px; left:50%; transform:translateX(-50%); width:0; height:0; border-left:6px solid transparent; border-right:6px solid transparent; border-bottom:8px solid ${iconColor}; filter:drop-shadow(0 -1px 2px rgba(0,0,0,0.35));"></div>
+                            
+                            <!-- Vehicle Icon Circle -->
+                            <div style="background-color:${iconColor}; width:34px; height:34px; border-radius:50%; border:2.5px solid #ffffff; box-shadow:0 3px 10px rgba(0,0,0,0.35); display:flex; align-items:center; justify-content:center; color:#ffffff; font-size:14px;">
+                                <i class="fa-solid fa-truck" style="transform:rotate(-90deg); font-size:13px;"></i>
+                            </div>
+                        </div>
+                        
+                        <!-- Online Status Green Badge -->
+                        ${isOnline ? '<span style="position:absolute; bottom:2px; right:2px; width:10px; height:10px; background:#10b981; border:2px solid white; border-radius:50%; z-index:6; box-shadow:0 1px 4px rgba(0,0,0,0.25);"></span>' : ''}
+                    </div>
+                `,
+                iconSize: [44, 44],
+                iconAnchor: [22, 22],
+                popupAnchor: [0, -22]
+            });
+        }
+
         function renderProgress() {
             if (!driversLoaded) return;
             let trucks = window.liveTrucks || {};
@@ -1067,6 +1304,10 @@
                 // If truck is offline, has no GPS, has no assigned route, or is finished & offline: remove marker from map
                 if (!coords || !isOnline || !hasAssigned || (isFinished && !isOnline)) {
                     if (liveTruckMarkers[tId]) {
+                        if (liveTruckMarkers[tId]._animFrameId) {
+                            cancelAnimationFrame(liveTruckMarkers[tId]._animFrameId);
+                            liveTruckMarkers[tId]._animFrameId = null;
+                        }
                         map.removeLayer(liveTruckMarkers[tId]);
                         delete liveTruckMarkers[tId];
                     }
@@ -1075,37 +1316,39 @@
                 
                 let [lat, lng] = coords;
                 let dName = driverMap[tId] || driverMap[strId] || (tData && tData.driverName) || 'Unassigned';
-                
                 let tColor = getTruckColor(tId);
-                let iconColor = isOnline ? tColor : '#64748b';
-                
-                function createMarkerIcon() {
-                    return L.divIcon({
-                        className: 'live-truck-marker-' + tId,
-                        html: `<div style="background-color:${iconColor}; width:38px; height:38px; border-radius:50%; border:3px solid #ffffff; box-shadow:0 3px 12px rgba(0,0,0,0.35); display:flex; align-items:center; justify-content:center; color:#ffffff; font-size:16px; position:relative; cursor:pointer;" title="Truck ${tId} (${dName})">
-                            <i class="fa-solid fa-truck"></i>
-                            ${isOnline ? '<span style="position:absolute; top:-2px; right:-2px; width:10px; height:10px; background:#10b981; border:2px solid white; border-radius:50%;"></span>' : ''}
-                        </div>`,
-                        iconSize: [38, 38],
-                        iconAnchor: [19, 19],
-                        popupAnchor: [0, -20]
-                    });
+
+                // Smart Road-Snapping to keep vehicle on street and out of buildings
+                let snap = snapToRoad(lat, lng, strId, 38);
+                let finalLat = snap.lat;
+                let finalLng = snap.lng;
+
+                // Determine directional heading (GPS hardware -> road bearing -> motion vector)
+                let heading = (tData.heading !== undefined && tData.heading !== null && !isNaN(tData.heading) && Number(tData.heading) > 0) ? Number(tData.heading) : null;
+                if (heading === null) {
+                    if (snap.snapped && snap.heading !== null) {
+                        heading = snap.heading;
+                    } else if (liveTruckMarkers[tId]) {
+                        let prev = liveTruckMarkers[tId].getLatLng();
+                        if (haversineMeters([prev.lat, prev.lng], [finalLat, finalLng]) > 2) {
+                            heading = calculateBearing(prev.lat, prev.lng, finalLat, finalLng);
+                        }
+                    }
                 }
+                if (heading === null) heading = 0;
                 
                 if (liveTruckMarkers[tId]) {
-                    let currentLatLng = liveTruckMarkers[tId].getLatLng();
-                    // Smoothly update position only when moving more than ~1 meter to avoid GPS micro-jitter
-                    if (Math.abs(currentLatLng.lat - lat) > 0.00001 || Math.abs(currentLatLng.lng - lng) > 0.00001) {
-                        liveTruckMarkers[tId].setLatLng([lat, lng]);
-                    }
                     // Only re-create icon if online/offline status actually changed
                     if (liveTruckMarkers[tId]._lastOnlineState !== isOnline) {
-                        liveTruckMarkers[tId].setIcon(createMarkerIcon());
+                        liveTruckMarkers[tId].setIcon(createMarkerIcon(tId, isOnline, heading, dName));
                         liveTruckMarkers[tId]._lastOnlineState = isOnline;
                     }
+                    // 60 FPS Uber-style smooth glide animation
+                    animateTruckMarker(liveTruckMarkers[tId], finalLat, finalLng, heading, 1500);
                 } else {
-                    liveTruckMarkers[tId] = L.marker([lat, lng], { icon: createMarkerIcon() }).addTo(map);
+                    liveTruckMarkers[tId] = L.marker([finalLat, finalLng], { icon: createMarkerIcon(tId, isOnline, heading, dName) }).addTo(map);
                     liveTruckMarkers[tId]._lastOnlineState = isOnline;
+                    liveTruckMarkers[tId]._currentBearing = heading;
                     liveTruckMarkers[tId].bindPopup(`<b>Truck ${tId}</b>`);
                     liveTruckMarkers[tId].on('click', () => {
                         if (!hasAssigned) return;
@@ -1174,6 +1417,10 @@
             // Remove markers for trucks that are no longer in active fleet
             for (let tId in liveTruckMarkers) {
                 if (!allTrackableTruckIds.has(String(tId))) {
+                    if (liveTruckMarkers[tId]._animFrameId) {
+                        cancelAnimationFrame(liveTruckMarkers[tId]._animFrameId);
+                        liveTruckMarkers[tId]._animFrameId = null;
+                    }
                     map.removeLayer(liveTruckMarkers[tId]);
                     delete liveTruckMarkers[tId];
                 }
@@ -1518,6 +1765,8 @@
                     stopsLine: null,
                     approachLine: null,
                     prelimLine: null,
+                    stopsRoadCoords: [],
+                    approachRoadCoords: [],
                     hasEverHadRoadGeo: !!everHadRoadGeoByTruck[strId],
                     stopMarkers: {},
                     depotMarker: null,
@@ -1675,6 +1924,8 @@
             let strId = String(tId);
             let state = activeRouteLayers[strId];
             if (state) {
+                state.stopsRoadCoords = [];
+                state.approachRoadCoords = [];
                 if (state.retryTimer) clearTimeout(state.retryTimer);
                 if (state.approachRetryTimer) clearTimeout(state.approachRetryTimer);
                 if (state.approachCooldownTimer) clearTimeout(state.approachCooldownTimer);
@@ -1920,6 +2171,7 @@
                 map.removeLayer(state.stopsLine);
             }
             state.stopsLine = newLayer;
+            state.stopsRoadCoords = (geometry && Array.isArray(geometry.coordinates)) ? geometry.coordinates.map(c => [c[1], c[0]]) : [];
             state.renderedStopsSig = sig;
             state.inFlightStopsSig = null;
             state.hasEverHadRoadGeo = true;
@@ -1943,6 +2195,7 @@
                 map.removeLayer(state.approachLine);
             }
             state.approachLine = newLayer;
+            state.approachRoadCoords = (geometry && Array.isArray(geometry.coordinates)) ? geometry.coordinates.map(c => [c[1], c[0]]) : [];
             state.renderedApproachSig = sig;
             state.inFlightApproachSig = null;
             state.hasEverHadRoadGeo = true;

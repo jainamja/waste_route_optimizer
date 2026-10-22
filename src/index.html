@@ -1025,7 +1025,7 @@
                 if (driverId) db.ref(`driver_locations/${driverId}`).update(touch).catch(e=>{});
             } catch(e) {}
 
-            // 4. Secondary Direct Path: REST POST directly to server backend
+            // 4. Secondary Direct Path: REST POST directly to server backend with keepalive
             try {
                 let backendUrl = (window.location.origin.includes('localhost') || window.location.origin.includes('capacitor://'))
                     ? 'https://waste-route-optimizer-robn.onrender.com'
@@ -1033,6 +1033,7 @@
                 fetch(backendUrl + '/api/mark_stop_status', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
+                    keepalive: true,
                     body: JSON.stringify({
                         truck_id: truckId,
                         driver_id: driverId,
@@ -1292,15 +1293,44 @@
             // Automatically launch native Android foreground service so tracking continues in Google Maps
             window.startBackgroundTracking();
 
+            function computeBearing(lat1, lon1, lat2, lon2) {
+                const toRad = d => d * Math.PI / 180;
+                const toDeg = r => r * 180 / Math.PI;
+                const φ1 = toRad(lat1), φ2 = toRad(lat2);
+                const Δλ = toRad(lon2 - lon1);
+                const y = Math.sin(Δλ) * Math.cos(φ2);
+                const x = Math.cos(φ1) * Math.sin(φ2) - Math.sin(φ1) * Math.cos(φ2) * Math.cos(Δλ);
+                return (toDeg(Math.atan2(y, x)) + 360) % 360;
+            }
+
             const sendGpsData = (pos) => {
                 if (!pos || !pos.coords) return;
                 const lat = pos.coords.latitude;
                 const lng = pos.coords.longitude;
                 if (!lat || !lng) return;
 
+                let heading = (pos.coords.heading !== null && !isNaN(pos.coords.heading) && pos.coords.heading >= 0) ? pos.coords.heading : null;
+                let speed = (pos.coords.speed !== null && !isNaN(pos.coords.speed) && pos.coords.speed >= 0) ? pos.coords.speed : 0;
+
+                // If heading was not reported by GPS hardware, compute from previous position if moved >= 2 meters
+                if (heading === null && window.lastGpsCoords) {
+                    const distApprox = Math.hypot(lat - window.lastGpsCoords.lat, lng - window.lastGpsCoords.lng) * 111000;
+                    if (distApprox >= 2) {
+                        heading = computeBearing(window.lastGpsCoords.lat, window.lastGpsCoords.lng, lat, lng);
+                        window.lastGpsHeading = heading;
+                    } else if (window.lastGpsHeading !== undefined) {
+                        heading = window.lastGpsHeading;
+                    }
+                } else if (heading !== null) {
+                    window.lastGpsHeading = heading;
+                }
+                window.lastGpsCoords = { lat, lng };
+
                 const gpsPayload = {
                     currentLat: lat,
                     currentLng: lng,
+                    heading: heading !== null ? Math.round(heading) : 0,
+                    speed: Math.round(speed * 3.6 * 10) / 10,
                     accuracy: pos.coords.accuracy || 0,
                     lastUpdated: firebase.database.ServerValue.TIMESTAMP,
                     timestamp: firebase.database.ServerValue.TIMESTAMP,
@@ -1309,15 +1339,11 @@
                     status: 'online'
                 };
 
-                // 1. Write to driver_locations node
-                if (driverId) {
-                    db.ref(`driver_locations/${driverId}`).update(gpsPayload).catch(err => console.error("GPS write (driver_locations):", err));
-                }
-                // 2. Also write to trucks node for instant backward compatibility & live tracker visibility
-                if (truckId) {
-                    db.ref(`trucks/${truckId}`).update(gpsPayload).catch(err => console.error("GPS write (trucks):", err));
-                }
-                console.log("[GPS] Broadcasted coordinates:", lat, lng, "for truck", truckId);
+                // Atomic multi-node write updating both driver_locations and trucks simultaneously
+                const multiUpdates = {};
+                if (driverId) multiUpdates[`driver_locations/${driverId}`] = gpsPayload;
+                if (truckId) multiUpdates[`trucks/${truckId}`] = gpsPayload;
+                db.ref().update(multiUpdates).catch(err => console.error("GPS write multi-node error:", err));
             };
 
             const updateGps = async () => {
@@ -1325,19 +1351,19 @@
                     let pos;
                     if (window.Capacitor && window.Capacitor.Plugins && window.Capacitor.Plugins.Geolocation) {
                         try {
-                            pos = await window.Capacitor.Plugins.Geolocation.getCurrentPosition({ enableHighAccuracy: true, timeout: 8000 });
+                            pos = await window.Capacitor.Plugins.Geolocation.getCurrentPosition({ enableHighAccuracy: true, timeout: 3500 });
                         } catch(e) {
-                            pos = await window.Capacitor.Plugins.Geolocation.getCurrentPosition({ enableHighAccuracy: false, timeout: 10000 });
+                            pos = await window.Capacitor.Plugins.Geolocation.getCurrentPosition({ enableHighAccuracy: false, timeout: 5000 });
                         }
                     } else if (navigator.geolocation) {
                         pos = await new Promise((res, rej) => {
                             navigator.geolocation.getCurrentPosition(res, () => {
-                                navigator.geolocation.getCurrentPosition(res, rej, { enableHighAccuracy: false, timeout: 10000 });
-                            }, { enableHighAccuracy: true, timeout: 8000 });
+                                navigator.geolocation.getCurrentPosition(res, rej, { enableHighAccuracy: false, timeout: 5000 });
+                            }, { enableHighAccuracy: true, timeout: 3500 });
                         });
                     }
                     sendGpsData(pos);
-                } catch (err) { console.warn("GPS poll error:", err); }
+                } catch (err) { /* silent poll catch */ }
             };
 
             // Start watch position for real-time streaming if supported
@@ -1352,7 +1378,7 @@
             } catch(e){}
 
             updateGps();
-            window.gpsInterval = setInterval(updateGps, 8000);
+            window.gpsInterval = setInterval(updateGps, 1500);
             
             // Manage Online Presence robustly without premature onDisconnect drops
             const truckRef = db.ref(`trucks/${truckId}`);

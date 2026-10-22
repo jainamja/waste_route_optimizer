@@ -40,6 +40,8 @@ import java.net.HttpURLConnection;
 import java.net.URL;
 import java.util.Locale;
 import java.util.Scanner;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
 
 public class LocationService extends Service {
     private static final String TAG = "LocationService";
@@ -48,6 +50,8 @@ public class LocationService extends Service {
     private String driverId;
     private String truckId;
     private String idToken;
+    private long tokenExpiresAt = 0;
+    private final ExecutorService locationExecutor = Executors.newSingleThreadExecutor();
     private final String CHANNEL_ID = "RouteTrackingChannel";
     private final String ALERT_CHANNEL_ID = "DispatchAlertChannel";
 
@@ -291,8 +295,10 @@ public class LocationService extends Service {
             return;
         }
 
-        LocationRequest locationRequest = new LocationRequest.Builder(Priority.PRIORITY_HIGH_ACCURACY, 4000)
-                .setMinUpdateIntervalMillis(2000)
+        // High-frequency real-time GPS streaming (1.5s interval with 1.0s fastest rate)
+        LocationRequest locationRequest = new LocationRequest.Builder(Priority.PRIORITY_HIGH_ACCURACY, 1500)
+                .setMinUpdateIntervalMillis(1000)
+                .setMinUpdateDistanceMeters(0.5f)
                 .build();
 
         locationCallback = new LocationCallback() {
@@ -314,7 +320,7 @@ public class LocationService extends Service {
         final String effectiveDriverId = driverId != null ? driverId : truckId;
         final String effectiveTruckId = truckId != null ? truckId : driverId;
 
-        new Thread(() -> {
+        locationExecutor.execute(() -> {
             try {
                 ensureIdToken();
                 if (idToken == null || idToken.isEmpty()) {
@@ -322,21 +328,24 @@ public class LocationService extends Service {
                     return;
                 }
 
-                String jsonInputString = String.format(Locale.US,
+                long now = System.currentTimeMillis();
+                String singlePayload = String.format(Locale.US,
                         "{\"currentLat\": %.6f, \"currentLng\": %.6f, \"speed\": %.2f, \"heading\": %.2f, \"accuracy\": %.1f, \"lastUpdated\": %d, \"timestamp\": %d, \"status\": \"online\", \"truckId\": \"%s\", \"driverId\": \"%s\"}",
                         loc.getLatitude(), loc.getLongitude(), loc.getSpeed(), loc.getBearing(), loc.getAccuracy(),
-                        System.currentTimeMillis(), System.currentTimeMillis(), effectiveTruckId, effectiveDriverId);
+                        now, now, effectiveTruckId, effectiveDriverId);
 
-                // 1. Write to driver_locations node
-                patchToFirebase("https://wasteroutelive-default-rtdb.firebaseio.com/driver_locations/" + effectiveDriverId + ".json?auth=" + idToken, jsonInputString);
+                // Single atomic root PATCH updating both driver_locations and trucks in 1 HTTP roundtrip
+                String multiPathJson = String.format(Locale.US,
+                        "{\"driver_locations/%s\": %s, \"trucks/%s\": %s}",
+                        effectiveDriverId, singlePayload,
+                        effectiveTruckId, singlePayload);
 
-                // 2. Write to trucks node
-                patchToFirebase("https://wasteroutelive-default-rtdb.firebaseio.com/trucks/" + effectiveTruckId + ".json?auth=" + idToken, jsonInputString);
+                patchToFirebase("https://wasteroutelive-default-rtdb.firebaseio.com/.json?auth=" + idToken, multiPathJson);
 
             } catch (Exception e) {
                 Log.e(TAG, "sendLocationToFirebase error", e);
             }
-        }).start();
+        });
     }
 
     private void patchToFirebase(String urlStr, String jsonPayload) {
@@ -345,8 +354,9 @@ public class LocationService extends Service {
             HttpURLConnection conn = (HttpURLConnection) url.openConnection();
             conn.setRequestMethod("PATCH");
             conn.setRequestProperty("Content-Type", "application/json");
-            conn.setConnectTimeout(5000);
-            conn.setReadTimeout(5000);
+            conn.setRequestProperty("Connection", "keep-alive");
+            conn.setConnectTimeout(4000);
+            conn.setReadTimeout(4000);
             conn.setDoOutput(true);
 
             try (OutputStream os = conn.getOutputStream()) {
@@ -358,6 +368,7 @@ public class LocationService extends Service {
             if (code == 401) {
                 Log.w(TAG, "Firebase 401 Unauthorized - clearing token to refresh");
                 idToken = null;
+                tokenExpiresAt = 0;
             } else if (code >= 200 && code < 300) {
                 Log.d(TAG, "Firebase PATCH success: " + code);
             } else {
@@ -370,7 +381,7 @@ public class LocationService extends Service {
     }
 
     private synchronized void ensureIdToken() {
-        if (idToken != null && !idToken.isEmpty()) {
+        if (idToken != null && !idToken.isEmpty() && System.currentTimeMillis() < tokenExpiresAt) {
             return;
         }
         try {
@@ -378,6 +389,7 @@ public class LocationService extends Service {
             HttpURLConnection conn = (HttpURLConnection) url.openConnection();
             conn.setRequestMethod("POST");
             conn.setRequestProperty("Content-Type", "application/json");
+            conn.setRequestProperty("Connection", "keep-alive");
             conn.setConnectTimeout(5000);
             conn.setReadTimeout(5000);
             conn.setDoOutput(true);
@@ -394,7 +406,9 @@ public class LocationService extends Service {
                     String respStr = scanner.hasNext() ? scanner.next() : "";
                     JSONObject jsonObj = new JSONObject(respStr);
                     idToken = jsonObj.getString("idToken");
-                    Log.i(TAG, "Acquired fresh Firebase anonymous token");
+                    long expiresInSec = jsonObj.optLong("expiresIn", 3600);
+                    tokenExpiresAt = System.currentTimeMillis() + (expiresInSec - 120) * 1000;
+                    Log.i(TAG, "Acquired fresh Firebase anonymous token, expires in " + expiresInSec + "s");
                 }
             } else {
                 Log.w(TAG, "Identity toolkit returned: " + respCode);
@@ -437,6 +451,10 @@ public class LocationService extends Service {
     public void onDestroy() {
         super.onDestroy();
         isRunning = false;
+
+        try {
+            locationExecutor.shutdownNow();
+        } catch (Exception ignored) {}
 
         if (fusedLocationClient != null && locationCallback != null) {
             fusedLocationClient.removeLocationUpdates(locationCallback);
