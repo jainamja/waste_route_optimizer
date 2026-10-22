@@ -308,49 +308,12 @@
     </div>
 
     <!-- Admin Control Panel Container -->
-    <div id="admin-view-wrapper" style="display:none; position:fixed; top:0; left:0; right:0; bottom:0; z-index:9000; background:#f8fafc; flex-direction:column;">
-        <!-- In-App Admin Top Bar -->
-        <div id="admin-top-bar" style="background:#ffffff; border-bottom:1px solid #e2e8f0; padding:calc(max(env(safe-area-inset-top, 0px), 8px)) 12px 10px 12px; display:flex; align-items:center; justify-content:space-between; gap:8px; box-shadow:0 1px 4px rgba(0,0,0,0.06); flex-shrink:0;">
-            <div style="display:flex; align-items:center; gap:8px; font-weight:800; font-family:'Manrope', sans-serif; font-size:15px; color:#0f172a; flex-shrink:0;">
-                <div style="width:30px; height:30px; border-radius:8px; background:#eff6ff; color:#2F5FFF; display:flex; align-items:center; justify-content:center; font-size:14px;">
-                    <i class="fa-solid fa-shield-halved"></i>
-                </div>
-                <span>Admin</span>
-            </div>
-            
-            <div style="display:flex; align-items:center; gap:6px; overflow-x:auto; -webkit-overflow-scrolling:touch; padding-bottom:2px;">
-                <button id="admin-tab-dashboard" onclick="navAdminFrame('/dashboard')" class="admin-tab-btn active" style="background:#2F5FFF; color:#ffffff; border:none; border-radius:20px; padding:6px 12px; font-size:12px; font-weight:700; cursor:pointer; display:flex; align-items:center; gap:5px; white-space:nowrap; transition:all 0.2s;">
-                    <i class="fa-solid fa-gauge-high"></i> Dashboard
-                </button>
-                <button id="admin-tab-routes" onclick="navAdminFrame('/routes')" class="admin-tab-btn" style="background:#f1f5f9; color:#475569; border:none; border-radius:20px; padding:6px 12px; font-size:12px; font-weight:700; cursor:pointer; display:flex; align-items:center; gap:5px; white-space:nowrap; transition:all 0.2s;">
-                    <i class="fa-solid fa-truck-fast"></i> Routes
-                </button>
-                <button id="admin-tab-live" onclick="navAdminFrame('/live')" class="admin-tab-btn" style="background:#f1f5f9; color:#475569; border:none; border-radius:20px; padding:6px 12px; font-size:12px; font-weight:700; cursor:pointer; display:flex; align-items:center; gap:5px; white-space:nowrap; transition:all 0.2s;">
-                    <i class="fa-solid fa-satellite-dish"></i> Live
-                </button>
-                <button id="admin-tab-driver" onclick="previewDriverView()" class="admin-tab-btn" style="background:#f1f5f9; color:#475569; border:none; border-radius:20px; padding:6px 12px; font-size:12px; font-weight:700; cursor:pointer; display:flex; align-items:center; gap:5px; white-space:nowrap; transition:all 0.2s;" title="Preview Driver Screen">
-                    <i class="fa-solid fa-mobile-screen"></i> Driver View
-                </button>
-            </div>
-            
-            <div style="display:flex; align-items:center; gap:6px; flex-shrink:0;">
-                <button onclick="reloadAdminFrame()" style="background:#f1f5f9; border:none; color:#64748b; font-size:13px; width:30px; height:30px; border-radius:8px; display:flex; align-items:center; justify-content:center; cursor:pointer;" title="Refresh Page">
-                    <i class="fa-solid fa-rotate-right"></i>
-                </button>
-                <button onclick="adminLogout()" style="background:#fee2e2; color:#ef4444; border:none; border-radius:8px; height:30px; padding:0 10px; font-size:12px; font-weight:700; cursor:pointer; display:flex; align-items:center; gap:5px;" title="Logout Admin">
-                    <i class="fa-solid fa-power-off"></i> <span>Logout</span>
-                </button>
-            </div>
+    <div id="admin-view-wrapper" style="display:none; position:fixed; top:0; left:0; right:0; bottom:0; z-index:9000; background:#f8fafc; padding-top:env(safe-area-inset-top, 0px);">
+        <div id="admin-frame-loader" style="position:absolute; top:0; left:0; right:0; bottom:0; display:flex; flex-direction:column; align-items:center; justify-content:center; background:#f8fafc; z-index:10; gap:12px; color:#64748b; font-size:14px; font-weight:600;">
+            <i class="fa-solid fa-circle-notch fa-spin" style="font-size:32px; color:#2F5FFF;"></i>
+            <span>Loading Admin Control Panel...</span>
         </div>
-
-        <!-- Admin Frame Wrapper -->
-        <div style="position:relative; flex:1; width:100%; height:100%; overflow:hidden;">
-            <div id="admin-frame-loader" style="position:absolute; top:0; left:0; right:0; bottom:0; display:flex; flex-direction:column; align-items:center; justify-content:center; background:#f8fafc; z-index:10; gap:12px; color:#64748b; font-size:14px; font-weight:600;">
-                <i class="fa-solid fa-circle-notch fa-spin" style="font-size:32px; color:#2F5FFF;"></i>
-                <span>Loading Admin Control Panel...</span>
-            </div>
-            <iframe id="admin-frame" src="about:blank" style="width:100%; height:100%; border:none; display:block;" allow="geolocation; clipboard-write"></iframe>
-        </div>
+        <iframe id="admin-frame" src="about:blank" style="width:100%; height:100%; border:none; display:block;" allow="geolocation; clipboard-write"></iframe>
     </div>
 
     <!-- Admin Driver Preview Sticky Banner -->
