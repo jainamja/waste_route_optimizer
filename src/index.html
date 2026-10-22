@@ -298,13 +298,70 @@
             <path d="M20 8h-3V4c0-1.1-.9-2-2-2H5C3.9 2 3 2.9 3 4v11h2c0 1.66 1.34 3 3 3s3-1.34 3-3h6c0 1.66 1.34 3 3 3s3-1.34 3-3h2v-5l-3-4zM8 16c-.55 0-1-.45-1-1s.45-1 1-1 1 .45 1 1-.45 1-1 1zm10 0c-.55 0-1-.45-1-1s.45-1 1-1 1 .45 1 1-.45 1-1 1zm-3-11v6H5V5h10zm3.5 3l1.5 2h-3V8h1.5z"/>
         </svg>
         <div class="login-box">
-            <h3 style="margin:0 0 8px 0;text-align:center;">Driver Login</h3>
-            <p style="text-align:center;color:var(--text-muted);font-size:14px;margin-bottom:24px;">Enter your assigned mobile number to view your route</p>
-            <input type="tel" id="username" placeholder="Mobile Number" autocomplete="tel">
+            <h3 style="margin:0 0 8px 0;text-align:center;">Sign In</h3>
+            <p style="text-align:center;color:var(--text-muted);font-size:14px;margin-bottom:24px;">Enter your driver mobile number or admin username</p>
+            <input type="text" id="username" placeholder="Mobile Number or Admin Username" autocomplete="username" inputmode="text">
             <input type="password" id="password" placeholder="Password">
             <div id="login-error" style="color:var(--red);font-size:13px;margin-bottom:12px;text-align:center;display:none;font-weight:600;"></div>
             <button id="login-btn" onclick="handleDriverLogin()">Sign In</button>
         </div>
+    </div>
+
+    <!-- Admin Control Panel Container -->
+    <div id="admin-view-wrapper" style="display:none; position:fixed; top:0; left:0; right:0; bottom:0; z-index:9000; background:#f8fafc; flex-direction:column;">
+        <!-- In-App Admin Top Bar -->
+        <div id="admin-top-bar" style="background:#ffffff; border-bottom:1px solid #e2e8f0; padding:calc(max(env(safe-area-inset-top, 0px), 8px)) 12px 10px 12px; display:flex; align-items:center; justify-content:space-between; gap:8px; box-shadow:0 1px 4px rgba(0,0,0,0.06); flex-shrink:0;">
+            <div style="display:flex; align-items:center; gap:8px; font-weight:800; font-family:'Manrope', sans-serif; font-size:15px; color:#0f172a; flex-shrink:0;">
+                <div style="width:30px; height:30px; border-radius:8px; background:#eff6ff; color:#2F5FFF; display:flex; align-items:center; justify-content:center; font-size:14px;">
+                    <i class="fa-solid fa-shield-halved"></i>
+                </div>
+                <span>Admin</span>
+            </div>
+            
+            <div style="display:flex; align-items:center; gap:6px; overflow-x:auto; -webkit-overflow-scrolling:touch; padding-bottom:2px;">
+                <button id="admin-tab-dashboard" onclick="navAdminFrame('/dashboard')" class="admin-tab-btn active" style="background:#2F5FFF; color:#ffffff; border:none; border-radius:20px; padding:6px 12px; font-size:12px; font-weight:700; cursor:pointer; display:flex; align-items:center; gap:5px; white-space:nowrap; transition:all 0.2s;">
+                    <i class="fa-solid fa-gauge-high"></i> Dashboard
+                </button>
+                <button id="admin-tab-routes" onclick="navAdminFrame('/routes')" class="admin-tab-btn" style="background:#f1f5f9; color:#475569; border:none; border-radius:20px; padding:6px 12px; font-size:12px; font-weight:700; cursor:pointer; display:flex; align-items:center; gap:5px; white-space:nowrap; transition:all 0.2s;">
+                    <i class="fa-solid fa-truck-fast"></i> Routes
+                </button>
+                <button id="admin-tab-live" onclick="navAdminFrame('/live')" class="admin-tab-btn" style="background:#f1f5f9; color:#475569; border:none; border-radius:20px; padding:6px 12px; font-size:12px; font-weight:700; cursor:pointer; display:flex; align-items:center; gap:5px; white-space:nowrap; transition:all 0.2s;">
+                    <i class="fa-solid fa-satellite-dish"></i> Live
+                </button>
+                <button id="admin-tab-driver" onclick="previewDriverView()" class="admin-tab-btn" style="background:#f1f5f9; color:#475569; border:none; border-radius:20px; padding:6px 12px; font-size:12px; font-weight:700; cursor:pointer; display:flex; align-items:center; gap:5px; white-space:nowrap; transition:all 0.2s;" title="Preview Driver Screen">
+                    <i class="fa-solid fa-mobile-screen"></i> Driver View
+                </button>
+            </div>
+            
+            <div style="display:flex; align-items:center; gap:6px; flex-shrink:0;">
+                <button onclick="reloadAdminFrame()" style="background:#f1f5f9; border:none; color:#64748b; font-size:13px; width:30px; height:30px; border-radius:8px; display:flex; align-items:center; justify-content:center; cursor:pointer;" title="Refresh Page">
+                    <i class="fa-solid fa-rotate-right"></i>
+                </button>
+                <button onclick="adminLogout()" style="background:#fee2e2; color:#ef4444; border:none; border-radius:8px; height:30px; padding:0 10px; font-size:12px; font-weight:700; cursor:pointer; display:flex; align-items:center; gap:5px;" title="Logout Admin">
+                    <i class="fa-solid fa-power-off"></i> <span>Logout</span>
+                </button>
+            </div>
+        </div>
+
+        <!-- Admin Frame Wrapper -->
+        <div style="position:relative; flex:1; width:100%; height:100%; overflow:hidden;">
+            <div id="admin-frame-loader" style="position:absolute; top:0; left:0; right:0; bottom:0; display:flex; flex-direction:column; align-items:center; justify-content:center; background:#f8fafc; z-index:10; gap:12px; color:#64748b; font-size:14px; font-weight:600;">
+                <i class="fa-solid fa-circle-notch fa-spin" style="font-size:32px; color:#2F5FFF;"></i>
+                <span>Loading Admin Control Panel...</span>
+            </div>
+            <iframe id="admin-frame" src="about:blank" style="width:100%; height:100%; border:none; display:block;" allow="geolocation; clipboard-write"></iframe>
+        </div>
+    </div>
+
+    <!-- Admin Driver Preview Sticky Banner -->
+    <div id="admin-preview-banner" style="display:none; position:fixed; top:calc(max(env(safe-area-inset-top, 0px), 8px) + 6px); left:12px; right:12px; z-index:99999; background:linear-gradient(135deg, #1e293b, #0f172a); color:white; padding:8px 14px; border-radius:12px; box-shadow:0 6px 20px rgba(0,0,0,0.35); align-items:center; justify-content:space-between; font-size:12px; font-weight:700;">
+        <span style="display:flex; align-items:center; gap:8px;">
+            <i class="fa-solid fa-eye" style="color:#60a5fa; font-size:14px;"></i>
+            <span>Previewing as Driver</span>
+        </span>
+        <button onclick="exitDriverPreview()" style="background:#2563eb; color:white; border:none; border-radius:8px; padding:5px 12px; font-size:11px; font-weight:800; cursor:pointer; box-shadow:0 2px 6px rgba(37,99,235,0.4);">
+            <i class="fa-solid fa-arrow-left"></i> Return to Admin
+        </button>
     </div>
 
 
@@ -1575,6 +1632,21 @@
 
         async function initApp() {
             const urlParams = new URLSearchParams(window.location.search);
+            let adminToken = urlParams.get('admin_token');
+            if (!adminToken) {
+                if (window.Capacitor && window.Capacitor.Plugins && window.Capacitor.Plugins.Preferences) {
+                    const savedAdmin = await window.Capacitor.Plugins.Preferences.get({ key: 'admin_token' });
+                    adminToken = savedAdmin ? savedAdmin.value : null;
+                } else {
+                    adminToken = localStorage.getItem('admin_token');
+                }
+            }
+
+            if (adminToken) {
+                showAdminView(adminToken);
+                return;
+            }
+
             let token = urlParams.get('token');
             
             if (!token) {
@@ -2124,8 +2196,206 @@
             }
         };
 
+        window.currentAdminToken = null;
+        window.isAdminViewActive = false;
+        window.currentAdminPath = '/dashboard';
+
+        window.showAdminView = function(token, authUrl) {
+            window.currentAdminToken = token;
+            window.isAdminViewActive = true;
+
+            // Stop driver GPS tracking/polling if running
+            if (window.gpsInterval) {
+                clearInterval(window.gpsInterval);
+                window.gpsInterval = null;
+            }
+            if (window.geoWatchId && navigator.geolocation && navigator.geolocation.clearWatch) {
+                navigator.geolocation.clearWatch(window.geoWatchId);
+                window.geoWatchId = null;
+            }
+            if (window.capWatchId && window.Capacitor && window.Capacitor.Plugins && window.Capacitor.Plugins.Geolocation) {
+                window.Capacitor.Plugins.Geolocation.clearWatch({ id: window.capWatchId }).catch(e=>{});
+                window.capWatchId = null;
+            }
+
+            // Hide driver elements & splash
+            const loginEl = document.getElementById('login-overlay');
+            if (loginEl) loginEl.style.display = 'none';
+            const splash = document.getElementById('splash-screen');
+            if (splash) splash.style.display = 'none';
+            const mapEl = document.getElementById('map');
+            if (mapEl) mapEl.style.display = 'none';
+            const navEl = document.getElementById('navbar');
+            if (navEl) navEl.style.display = 'none';
+            const fabEl = document.getElementById('fab');
+            if (fabEl) fabEl.style.display = 'none';
+            const sheetEl = document.getElementById('bottom-sheet');
+            if (sheetEl) sheetEl.style.display = 'none';
+
+            // Show admin wrapper
+            const wrapper = document.getElementById('admin-view-wrapper');
+            if (wrapper) wrapper.style.display = 'flex';
+
+            const frame = document.getElementById('admin-frame');
+            const loader = document.getElementById('admin-frame-loader');
+            if (loader) loader.style.display = 'flex';
+
+            if (frame) {
+                frame.onload = function() {
+                    if (loader) loader.style.display = 'none';
+                };
+
+                let backendUrl = window.location.origin.includes('localhost') || window.location.origin.includes('capacitor://') ? 'https://waste-route-optimizer-robn.onrender.com' : window.location.origin;
+                let targetUrl = authUrl ? (backendUrl + authUrl) : (backendUrl + '/api/admin_token_auth?token=' + encodeURIComponent(token) + '&next=' + encodeURIComponent('/dashboard?admin_token=' + token));
+                frame.src = targetUrl;
+            }
+            updateAdminTabActive('/dashboard');
+        };
+
+        window.updateAdminTabActive = function(path) {
+            window.currentAdminPath = path;
+            const tabs = ['dashboard', 'routes', 'live', 'driver'];
+            tabs.forEach(t => {
+                const btn = document.getElementById('admin-tab-' + t);
+                if (btn) {
+                    if ((t === 'dashboard' && path.includes('/dashboard')) ||
+                        (t === 'routes' && path.includes('/routes')) ||
+                        (t === 'live' && path.includes('/live'))) {
+                        btn.style.background = '#2F5FFF';
+                        btn.style.color = '#ffffff';
+                    } else {
+                        btn.style.background = '#f1f5f9';
+                        btn.style.color = '#475569';
+                    }
+                }
+            });
+        };
+
+        window.navAdminFrame = function(path) {
+            if (!window.currentAdminToken) return;
+            const frame = document.getElementById('admin-frame');
+            const loader = document.getElementById('admin-frame-loader');
+            if (loader) loader.style.display = 'flex';
+
+            let backendUrl = window.location.origin.includes('localhost') || window.location.origin.includes('capacitor://') ? 'https://waste-route-optimizer-robn.onrender.com' : window.location.origin;
+            let sep = path.includes('?') ? '&' : '?';
+            if (frame) frame.src = backendUrl + path + sep + 'admin_token=' + encodeURIComponent(window.currentAdminToken);
+            updateAdminTabActive(path);
+        };
+
+        window.reloadAdminFrame = function() {
+            const frame = document.getElementById('admin-frame');
+            const loader = document.getElementById('admin-frame-loader');
+            if (loader) loader.style.display = 'flex';
+            if (frame) {
+                try {
+                    frame.contentWindow.location.reload();
+                } catch(e) {
+                    frame.src = frame.src;
+                }
+            }
+        };
+
+        window.previewDriverView = function() {
+            const wrapper = document.getElementById('admin-view-wrapper');
+            if (wrapper) wrapper.style.display = 'none';
+
+            // Show driver view elements
+            const mapEl = document.getElementById('map');
+            if (mapEl) mapEl.style.display = 'block';
+            const navEl = document.getElementById('navbar');
+            if (navEl) navEl.style.display = 'flex';
+            const fabEl = document.getElementById('fab');
+            if (fabEl) fabEl.style.display = 'flex';
+            const sheetEl = document.getElementById('bottom-sheet');
+            if (sheetEl) sheetEl.style.display = 'block';
+
+            // Show floating return banner
+            const banner = document.getElementById('admin-preview-banner');
+            if (banner) banner.style.display = 'flex';
+
+            // Trigger map resize if leaflet map exists
+            if (window.map && window.map.invalidateSize) {
+                setTimeout(() => window.map.invalidateSize(), 200);
+            }
+        };
+
+        window.exitDriverPreview = function() {
+            const banner = document.getElementById('admin-preview-banner');
+            if (banner) banner.style.display = 'none';
+
+            // Re-show admin wrapper
+            const wrapper = document.getElementById('admin-view-wrapper');
+            if (wrapper) wrapper.style.display = 'flex';
+
+            // Hide driver elements
+            const mapEl = document.getElementById('map');
+            if (mapEl) mapEl.style.display = 'none';
+            const navEl = document.getElementById('navbar');
+            if (navEl) navEl.style.display = 'none';
+            const fabEl = document.getElementById('fab');
+            if (fabEl) fabEl.style.display = 'none';
+            const sheetEl = document.getElementById('bottom-sheet');
+            if (sheetEl) sheetEl.style.display = 'none';
+        };
+
+        window.adminLogout = async function() {
+            if (window.Capacitor && window.Capacitor.Plugins && window.Capacitor.Plugins.Preferences) {
+                await window.Capacitor.Plugins.Preferences.remove({ key: 'admin_token' });
+            } else {
+                localStorage.removeItem('admin_token');
+            }
+            window.currentAdminToken = null;
+            window.isAdminViewActive = false;
+
+            const banner = document.getElementById('admin-preview-banner');
+            if (banner) banner.style.display = 'none';
+
+            const frame = document.getElementById('admin-frame');
+            if (frame) frame.src = 'about:blank';
+
+            const wrapper = document.getElementById('admin-view-wrapper');
+            if (wrapper) wrapper.style.display = 'none';
+
+            const loginEl = document.getElementById('login-overlay');
+            if (loginEl) loginEl.style.display = 'flex';
+            const uInput = document.getElementById('username');
+            if (uInput) uInput.value = '';
+            const pInput = document.getElementById('password');
+            if (pInput) pInput.value = '';
+            const btn = document.getElementById('login-btn');
+            if (btn) btn.innerText = 'Sign In';
+        };
+
+        // Listen for logout messages from embedded iframe
+        window.addEventListener('message', (event) => {
+            if (event.data && event.data.type === 'ADMIN_LOGOUT') {
+                window.adminLogout();
+            }
+        });
+
+        // Capacitor back button handler for iframe history
+        if (window.Capacitor && window.Capacitor.Plugins && window.Capacitor.Plugins.App) {
+            window.Capacitor.Plugins.App.addListener('backButton', () => {
+                if (window.isAdminViewActive) {
+                    const banner = document.getElementById('admin-preview-banner');
+                    if (banner && banner.style.display !== 'none') {
+                        exitDriverPreview();
+                        return;
+                    }
+                    const frame = document.getElementById('admin-frame');
+                    try {
+                        if (frame && frame.contentWindow && frame.contentWindow.history.length > 1) {
+                            frame.contentWindow.history.back();
+                            return;
+                        }
+                    } catch(e) {}
+                }
+            });
+        }
+
         window.handleDriverLogin = async function() {
-            const u = document.getElementById('username').value;
+            const u = (document.getElementById('username').value || '').trim();
             const p = document.getElementById('password').value;
             const btn = document.getElementById('login-btn');
             const err = document.getElementById('login-error');
@@ -2144,20 +2414,36 @@
                 let data = await res.json();
                 
                 if(data.success) {
-                    if (window.Capacitor && window.Capacitor.Plugins && window.Capacitor.Plugins.Preferences) {
-                        await window.Capacitor.Plugins.Preferences.set({ key: 'driver_token', value: data.token });
+                    if (data.role === 'ADMIN') {
+                        if (window.Capacitor && window.Capacitor.Plugins && window.Capacitor.Plugins.Preferences) {
+                            await window.Capacitor.Plugins.Preferences.remove({ key: 'driver_token' });
+                            await window.Capacitor.Plugins.Preferences.set({ key: 'admin_token', value: data.token });
+                        } else {
+                            localStorage.removeItem('driver_token');
+                            localStorage.setItem('admin_token', data.token);
+                        }
+                        const loginEl = document.getElementById('login-overlay');
+                        if (loginEl) loginEl.style.display = 'none';
+                        showAdminView(data.token, data.auth_url || `/dashboard?admin_token=${data.token}`);
                     } else {
-                        localStorage.setItem('driver_token', data.token);
+                        if (window.Capacitor && window.Capacitor.Plugins && window.Capacitor.Plugins.Preferences) {
+                            await window.Capacitor.Plugins.Preferences.remove({ key: 'admin_token' });
+                            await window.Capacitor.Plugins.Preferences.set({ key: 'driver_token', value: data.token });
+                        } else {
+                            localStorage.removeItem('admin_token');
+                            localStorage.setItem('driver_token', data.token);
+                        }
+                        const loginEl = document.getElementById('login-overlay');
+                        if (loginEl) loginEl.style.display = 'none';
+                        initApp();
                     }
-                    document.getElementById('login-overlay').style.display = 'none';
-                    initApp();
                 } else {
-                    err.innerText = data.error;
+                    err.innerText = data.error || 'Invalid credentials';
                     err.style.display = 'block';
                     btn.innerText = 'Sign In';
                 }
             } catch (e) {
-                err.innerText = 'Network Error';
+                err.innerText = 'Network Error: ' + (e.message || 'Please check connection');
                 err.style.display = 'block';
                 btn.innerText = 'Sign In';
             }

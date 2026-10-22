@@ -320,6 +320,46 @@
             }
         }
 </style>
+<script>
+(function() {
+    try {
+        const p = new URLSearchParams(window.location.search);
+        let t = p.get('admin_token');
+        if (t) {
+            sessionStorage.setItem('admin_token', t);
+        } else {
+            t = sessionStorage.getItem('admin_token');
+        }
+        
+        if (t) {
+            const origFetch = window.fetch;
+            window.fetch = function(url, opts) {
+                opts = opts || {};
+                if (typeof url === 'string' && (url.startsWith('/') || url.includes(window.location.origin))) {
+                    opts.headers = opts.headers || {};
+                    if (opts.headers instanceof Headers) {
+                        if (!opts.headers.has('X-Admin-Token')) opts.headers.append('X-Admin-Token', t);
+                    } else if (Array.isArray(opts.headers)) {
+                        opts.headers.push(['X-Admin-Token', t]);
+                    } else {
+                        opts.headers['X-Admin-Token'] = t;
+                    }
+                }
+                return origFetch.call(this, url, opts);
+            };
+
+            document.addEventListener('DOMContentLoaded', function() {
+                document.querySelectorAll('a').forEach(function(el) {
+                    const href = el.getAttribute('href');
+                    if (href && href.startsWith('/') && !href.startsWith('/logout') && !href.includes('admin_token=')) {
+                        el.setAttribute('href', href + (href.includes('?') ? '&' : '?') + 'admin_token=' + encodeURIComponent(t));
+                    }
+                });
+            });
+        }
+    } catch(e) {}
+})();
+</script>
 </head>
 <body>
     <div class="header-bar">

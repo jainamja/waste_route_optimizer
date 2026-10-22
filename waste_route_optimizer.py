@@ -65,6 +65,17 @@ db = SQLAlchemy(app)
 
 
 app.secret_key = 'super_secret_waste_route_key_123'
+if os.environ.get('RENDER') or os.environ.get('DATABASE_URL'):
+    app.config.update(
+        SESSION_COOKIE_SECURE=True,
+        SESSION_COOKIE_SAMESITE='None'
+    )
+
+@app.after_request
+def add_security_headers(response):
+    response.headers.pop('X-Frame-Options', None)
+    return response
+
 os.makedirs(app.config['UPLOAD_FOLDER'], exist_ok=True)
 
 # Models
@@ -566,7 +577,18 @@ from flask import session, redirect, url_for, request
 def login_required(f):
     @wraps(f)
     def decorated_function(*args, **kwargs):
+        admin_token = request.args.get('admin_token') or request.headers.get('X-Admin-Token')
+        if admin_token:
+            try:
+                admin_user = db.session.get(User, int(admin_token))
+                if admin_user and admin_user.role == 'ADMIN':
+                    session['user_id'] = admin_user.id
+                    return f(*args, **kwargs)
+            except Exception:
+                pass
         if 'user_id' not in session:
+            if request.is_json or request.path.startswith('/api/'):
+                return jsonify({'error': 'Unauthorized'}), 401
             return redirect(url_for('login'))
         return f(*args, **kwargs)
     return decorated_function
@@ -1113,24 +1135,77 @@ def upload():
     return redirect(url_for('route_dashboard'))
 
 @app.route('/api/driver_login', methods=['POST'])
+@app.route('/api/app_login', methods=['POST'])
 def driver_login():
-    data = request.json
-    username = data.get('username')
-    password = data.get('password')
+    data = request.json or {}
+    username = (data.get('username') or '').strip()
+    password = data.get('password') or ''
     
     from werkzeug.security import check_password_hash
-    user = User.query.filter_by(username=username, role='DRIVER').first()
+    user = User.query.filter_by(username=username).first()
     
     if user and check_password_hash(user.password_hash, password):
-        return jsonify({
-            'success': True,
-            'token': str(user.id),
-            'name': user.name,
-            'username': user.username,
-            'truck_id': str(user.truck_id) if user.truck_id is not None else None
-        })
-    else:
-        return jsonify({'error': 'Invalid mobile number or password'}), 401
+        if user.role == 'ADMIN':
+            session['user_id'] = user.id
+            return jsonify({
+                'success': True,
+                'role': 'ADMIN',
+                'token': str(user.id),
+                'name': user.name or 'Admin',
+                'username': user.username,
+                'redirect_url': '/dashboard',
+                'auth_url': f"/api/admin_token_auth?token={user.id}&next=/dashboard"
+            })
+        elif user.role == 'DRIVER':
+            return jsonify({
+                'success': True,
+                'role': 'DRIVER',
+                'token': str(user.id),
+                'name': user.name,
+                'username': user.username,
+                'truck_id': str(user.truck_id) if user.truck_id is not None else None
+            })
+    return jsonify({'error': 'Invalid mobile number, username, or password'}), 401
+
+@app.route('/api/admin_token_auth')
+def admin_token_auth():
+    token = request.args.get('token')
+    next_url = request.args.get('next', '/dashboard')
+    if token:
+        try:
+            admin_user = db.session.get(User, int(token))
+            if admin_user and admin_user.role == 'ADMIN':
+                session['user_id'] = admin_user.id
+                sep = '&' if '?' in next_url else '?'
+                if 'admin_token=' not in next_url:
+                    next_url = f"{next_url}{sep}admin_token={admin_user.id}"
+                return redirect(next_url)
+        except Exception:
+            pass
+    return redirect(url_for('login'))
+
+@app.route('/api/app_user_info')
+def app_user_info():
+    user_id = session.get('user_id')
+    admin_token = request.args.get('admin_token') or request.headers.get('X-Admin-Token')
+    if admin_token:
+        try:
+            admin_user = db.session.get(User, int(admin_token))
+            if admin_user and admin_user.role == 'ADMIN':
+                user_id = admin_user.id
+        except Exception:
+            pass
+    if user_id:
+        user = db.session.get(User, int(user_id))
+        if user:
+            return jsonify({
+                'authenticated': True,
+                'id': user.id,
+                'username': user.username,
+                'role': user.role,
+                'name': user.name
+            })
+    return jsonify({'authenticated': False}), 401
 
 @app.route('/api/admin_create_driver', methods=['POST'])
 @login_required

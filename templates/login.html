@@ -109,6 +109,13 @@
             .stat-card { padding: 12px !important; }
         }
 </style>
+<script>
+    if (window.self !== window.top) {
+        try {
+            window.parent.postMessage({ type: 'ADMIN_LOGOUT' }, '*');
+        } catch(e) {}
+    }
+</script>
 </head>
 <body>
     <div class="login-card">

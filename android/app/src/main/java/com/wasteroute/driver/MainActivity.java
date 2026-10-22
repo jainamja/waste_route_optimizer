@@ -8,6 +8,7 @@ import android.os.Bundle;
 import android.os.Handler;
 import android.os.Looper;
 import android.view.WindowManager;
+import android.webkit.CookieManager;
 import com.getcapacitor.BridgeActivity;
 
 public class MainActivity extends BridgeActivity {
@@ -15,6 +16,14 @@ public class MainActivity extends BridgeActivity {
     public void onCreate(Bundle savedInstanceState) {
         registerPlugin(BackgroundLocationPlugin.class);
         super.onCreate(savedInstanceState);
+
+        try {
+            CookieManager cookieManager = CookieManager.getInstance();
+            cookieManager.setAcceptCookie(true);
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP && this.bridge != null && this.bridge.getWebView() != null) {
+                cookieManager.setAcceptThirdPartyCookies(this.bridge.getWebView(), true);
+            }
+        } catch (Exception ignored) {}
 
         configureWakeAndLock();
         handleIntent(getIntent());

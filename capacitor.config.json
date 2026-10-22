@@ -1,5 +1,12 @@
 {
   "appId": "com.wasteroute.driver",
   "appName": "onroute",
-  "webDir": "src"
+  "webDir": "src",
+  "server": {
+    "allowNavigation": [
+      "waste-route-optimizer-robn.onrender.com",
+      "*.onrender.com",
+      "*.firebaseio.com"
+    ]
+  }
 }
