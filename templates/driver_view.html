@@ -300,8 +300,8 @@
         <div class="login-box">
             <h3 style="margin:0 0 8px 0;text-align:center;">Sign In</h3>
             <p style="text-align:center;color:var(--text-muted);font-size:14px;margin-bottom:24px;">Enter your driver mobile number or admin username</p>
-            <input type="text" id="username" placeholder="Mobile Number or Admin Username" autocomplete="username" inputmode="text">
-            <input type="password" id="password" placeholder="Password">
+            <input type="text" id="username" placeholder="Mobile Number or Admin Username" autocomplete="username" inputmode="text" autocapitalize="none" autocorrect="off" spellcheck="false">
+            <input type="password" id="password" placeholder="Password" autocomplete="current-password" autocapitalize="none" autocorrect="off" spellcheck="false">
             <div id="login-error" style="color:var(--red);font-size:13px;margin-bottom:12px;text-align:center;display:none;font-weight:600;"></div>
             <button id="login-btn" onclick="handleDriverLogin()">Sign In</button>
         </div>
@@ -2400,7 +2400,7 @@
             const btn = document.getElementById('login-btn');
             const err = document.getElementById('login-error');
             
-            if(!u || !p) return;
+            if(!u || !p) { err.innerText = "Please enter both username/mobile and password"; err.style.display = "block"; return; }
             btn.innerHTML = '<i class="fa-solid fa-circle-notch fa-spin"></i>';
             err.style.display = 'none';
             

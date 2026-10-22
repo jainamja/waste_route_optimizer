@@ -36,7 +36,10 @@ class TestAdminMobileAuth(unittest.TestCase):
                 truck_id=99
             )
             db.session.add(driver)
-            db.session.commit()
+        else:
+            driver.truck_id = 99
+            driver.password_hash = generate_password_hash('driverpass123')
+        db.session.commit()
         self.driver = driver
 
     def tearDown(self):
@@ -54,6 +57,18 @@ class TestAdminMobileAuth(unittest.TestCase):
         self.assertEqual(data['token'], str(self.admin.id))
         self.assertIn('auth_url', data)
         self.assertIn(str(self.admin.id), data['auth_url'])
+
+    def test_case_insensitive_and_whitespace_admin_login(self):
+        # Capitalized username with leading/trailing spaces and password with accidental space
+        res = self.client.post('/api/driver_login', json={
+            'username': '  Test_Admin  ',
+            'password': 'adminpass123 '
+        })
+        self.assertEqual(res.status_code, 200)
+        data = res.get_json()
+        self.assertTrue(data['success'])
+        self.assertEqual(data['role'], 'ADMIN')
+        self.assertEqual(data['token'], str(self.admin.id))
 
     def test_driver_login_via_mobile_endpoint(self):
         res = self.client.post('/api/driver_login', json={
