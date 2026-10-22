@@ -831,12 +831,15 @@
                     coords.push(...state.stopsRoadCoords);
                 }
             }
-            if (coords.length < 2 && routesData && routesData['route_' + strId]) {
-                const sObj = routesData['route_' + strId].stops;
+            // Also include stop-to-stop waypoint segments so all customer stops have road anchors
+            if (routesData && routesData['route_' + strId]) {
+                const sObj = routesData['route_' + strId].stops || routesData['route_' + strId];
                 if (sObj) {
                     const parsed = parseStops(sObj);
                     parsed.forEach(s => {
-                        if (s.lat && s.lng) coords.push([s.lat, s.lng]);
+                        if (s.lat && s.lng && !isNaN(parseFloat(s.lat)) && !isNaN(parseFloat(s.lng))) {
+                            coords.push([parseFloat(s.lat), parseFloat(s.lng)]);
+                        }
                     });
                 }
             }
@@ -844,7 +847,8 @@
         }
 
         function snapToRoad(rawLat, rawLng, strId, thresholdMeters) {
-            const maxMeters = thresholdMeters || 38;
+            // 65m threshold matches standard Uber/Google Maps urban map-matching for building multipath drift
+            const maxMeters = thresholdMeters || 65;
             const segments = getTruckRoadSegments(strId);
             if (!segments || segments.length < 2) {
                 return { lat: rawLat, lng: rawLng, heading: null, snapped: false };
@@ -1318,8 +1322,8 @@
                 let dName = driverMap[tId] || driverMap[strId] || (tData && tData.driverName) || 'Unassigned';
                 let tColor = getTruckColor(tId);
 
-                // Smart Road-Snapping to keep vehicle on street and out of buildings
-                let snap = snapToRoad(lat, lng, strId, 38);
+                // Smart Road-Snapping to keep vehicle on street and out of buildings (65m urban tolerance)
+                let snap = snapToRoad(lat, lng, strId, 65);
                 let finalLat = snap.lat;
                 let finalLng = snap.lng;
 
@@ -2379,7 +2383,30 @@
                     return;
                 }
 
-                const currentFirstStop = pendingStops.length > 0 ? pendingStops[0] : null;
+                // Find highest completed sequence number to determine where the driver is in the route
+                let lastCompletedSeq = -1;
+                stops.forEach(s => {
+                    if (s.status === 'COMPLETED') {
+                        let sq = Number(s.sequence || 0);
+                        if (sq > lastCompletedSeq) lastCompletedSeq = sq;
+                    }
+                });
+
+                // Pick the next forward pending stop along driver progress (avoid pulling back 15km to missed morning stops)
+                let forwardPending = pendingStops.filter(s => Number(s.sequence || 0) > lastCompletedSeq);
+                let currentFirstStop = null;
+                if (forwardPending.length > 0) {
+                    currentFirstStop = forwardPending[0];
+                } else if (pendingStops.length > 0) {
+                    if (truckCoords) {
+                        currentFirstStop = pendingStops.reduce((best, s) => {
+                            let d = haversineMeters(truckCoords, [parseFloat(s.lat), parseFloat(s.lng)]);
+                            return (!best || d < best.d) ? { stop: s, d: d } : best;
+                        }, null)?.stop || pendingStops[0];
+                    } else {
+                        currentFirstStop = pendingStops[0];
+                    }
+                }
                 const currentFirstStopId = currentFirstStop ? currentFirstStop.id : null;
 
                 // Layer A: Stops path (pendingStops -> depot)
