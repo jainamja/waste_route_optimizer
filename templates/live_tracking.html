@@ -2363,27 +2363,7 @@
                 // 1. Update stop & depot pins in place without rebuilding unchanged markers
                 updateTruckStopPins(strId, pendingStops, depotStop, color);
 
-                // 2. Construct stops-path waypoints (pending stops -> depot)
-                const stopsWaypoints = pendingStops.map(s => [parseFloat(s.lat), parseFloat(s.lng)]);
-                if (depotStop && depotStop.lat !== undefined && depotStop.lng !== undefined && !isNaN(parseFloat(depotStop.lat)) && !isNaN(parseFloat(depotStop.lng))) {
-                    stopsWaypoints.push([parseFloat(depotStop.lat), parseFloat(depotStop.lng)]);
-                }
-
-                const allWaypoints = [];
-                if (truckCoords) allWaypoints.push(truckCoords);
-                stopsWaypoints.forEach(pt => allWaypoints.push(pt));
-
-                if (pendingStops.length === 0 && stopsWaypoints.length < 2) {
-                    if (state.stopsLine) { map.removeLayer(state.stopsLine); state.stopsLine = null; }
-                    if (state.approachLine) { map.removeLayer(state.approachLine); state.approachLine = null; }
-                    if (state.prelimLine) { map.removeLayer(state.prelimLine); state.prelimLine = null; }
-                    state.stopsSig = null;
-                    state.renderedStopsSig = null;
-                    syncTruckLayerArrays(state);
-                    return;
-                }
-
-                // Find highest completed sequence number to determine where the driver is in the route
+                // 2. Identify the driver's forward route progress (active destination)
                 let lastCompletedSeq = -1;
                 stops.forEach(s => {
                     if (s.status === 'COMPLETED') {
@@ -2392,7 +2372,7 @@
                     }
                 });
 
-                // Pick the next forward pending stop along driver progress (avoid pulling back 15km to missed morning stops)
+                // Candidates for forward upcoming stops (ahead of driver's completed progress)
                 let forwardPending = pendingStops.filter(s => Number(s.sequence || 0) > lastCompletedSeq);
                 let currentFirstStop = null;
                 if (forwardPending.length > 0) {
@@ -2407,11 +2387,51 @@
                         currentFirstStop = pendingStops[0];
                     }
                 }
-                const currentFirstStopId = currentFirstStop ? currentFirstStop.id : null;
 
-                // Layer A: Stops path (pendingStops -> depot)
+                // If truck is already at currentFirstStop (<= 45m), the truck is already there!
+                // The forward navigation target becomes the next upcoming stop after it.
+                let nextTargetStop = currentFirstStop;
+                let activeStartSeq = currentFirstStop ? Number(currentFirstStop.sequence || 0) : 0;
+                if (truckCoords && currentFirstStop) {
+                    let distToFirst = haversineMeters(truckCoords, [parseFloat(currentFirstStop.lat), parseFloat(currentFirstStop.lng)]);
+                    if (distToFirst <= 45) {
+                        let nextStops = pendingStops.filter(s => Number(s.sequence || 0) > Number(currentFirstStop.sequence || 0));
+                        if (nextStops.length > 0) {
+                            nextTargetStop = nextStops[0];
+                            activeStartSeq = Number(nextTargetStop.sequence || 0);
+                        }
+                    }
+                }
+
+                // Forward remaining stops ONLY (stops from nextTargetStop onwards to depot).
+                // Never show legs leading into where the driver already came from.
+                const remainingStops = pendingStops.filter(s => Number(s.sequence || 0) >= activeStartSeq);
+
+                // Construct stops-path waypoints (forward remaining stops -> depot)
+                const stopsWaypoints = remainingStops.map(s => [parseFloat(s.lat), parseFloat(s.lng)]);
+                if (depotStop && depotStop.lat !== undefined && depotStop.lng !== undefined && !isNaN(parseFloat(depotStop.lat)) && !isNaN(parseFloat(depotStop.lng))) {
+                    stopsWaypoints.push([parseFloat(depotStop.lat), parseFloat(depotStop.lng)]);
+                }
+
+                const allWaypoints = [];
+                if (truckCoords) allWaypoints.push(truckCoords);
+                stopsWaypoints.forEach(pt => allWaypoints.push(pt));
+
+                if (remainingStops.length === 0 && stopsWaypoints.length < 2) {
+                    if (state.stopsLine) { map.removeLayer(state.stopsLine); state.stopsLine = null; }
+                    if (state.approachLine) { map.removeLayer(state.approachLine); state.approachLine = null; }
+                    if (state.prelimLine) { map.removeLayer(state.prelimLine); state.prelimLine = null; }
+                    state.stopsSig = null;
+                    state.renderedStopsSig = null;
+                    syncTruckLayerArrays(state);
+                    return;
+                }
+
+                const currentFirstStopId = nextTargetStop ? nextTargetStop.id : null;
+
+                // Layer A: Forward Stops path (remainingStops -> depot)
                 if (stopsWaypoints.length >= 2) {
-                    const stopsSig = pendingStops.map(s => `${s.id}:${Number(s.lat).toFixed(5)},${Number(s.lng).toFixed(5)}`).join('|') +
+                    const stopsSig = remainingStops.map(s => `${s.id}:${Number(s.lat).toFixed(5)},${Number(s.lng).toFixed(5)}`).join('|') +
                         (depotStop && depotStop.lat !== undefined && depotStop.lng !== undefined ? `|depot:${Number(depotStop.lat).toFixed(5)},${Number(depotStop.lng).toFixed(5)}` : '');
                     if (state.stopsSig !== stopsSig) {
                         if (state.retryTimer) {
@@ -2452,24 +2472,24 @@
                     state.stopsSig = null;
                 }
 
-                // Layer B: Approach leg (truck's live position -> first pending stop)
-                if (truckCoords && currentFirstStop) {
-                    const firstStopCoords = [parseFloat(currentFirstStop.lat), parseFloat(currentFirstStop.lng)];
-                    const approachSig = `${truckCoords[0].toFixed(4)},${truckCoords[1].toFixed(4)}->${currentFirstStop.id}:${firstStopCoords[0].toFixed(5)},${firstStopCoords[1].toFixed(5)}`;
+                // Layer B: Approach leg (truck's live position -> next forward target stop)
+                if (truckCoords && nextTargetStop) {
+                    const firstStopCoords = [parseFloat(nextTargetStop.lat), parseFloat(nextTargetStop.lng)];
+                    const approachSig = `${truckCoords[0].toFixed(4)},${truckCoords[1].toFixed(4)}->${nextTargetStop.id}:${firstStopCoords[0].toFixed(5)},${firstStopCoords[1].toFixed(5)}`;
 
                     if (!state.initialApproachChecked) {
                         state.initialApproachChecked = true;
                         state.lastRoutedTruckCoords = [truckCoords[0], truckCoords[1]];
                         state.lastApproachFetchCoords = [truckCoords[0], truckCoords[1]];
                         state.lastApproachFetchTime = Date.now();
-                        state.lastApproachStopId = currentFirstStop.id;
+                        state.lastApproachStopId = nextTargetStop.id;
                         state.approachSig = approachSig;
 
                         const cachedApproach = getCachedApproachGeo(approachSig);
                         if (cachedApproach) {
                             applyApproachRoadGeometry(strId, approachSig, cachedApproach, color);
                         } else if (haversineMeters(truckCoords, firstStopCoords) > 30 || stopsWaypoints.length < 2) {
-                            fetchApproachLegForTruck(strId, approachSig, truckCoords, currentFirstStop, allWaypoints, color);
+                            fetchApproachLegForTruck(strId, approachSig, truckCoords, nextTargetStop, allWaypoints, color);
                         }
                     } else {
                         // Ignore GPS jitter <= 25 m for routing
@@ -2485,7 +2505,7 @@
                                         state.approachCooldownTimer = null;
                                     }
                                     state.approachSig = approachSig;
-                                    fetchApproachLegForTruck(strId, approachSig, truckCoords, currentFirstStop, allWaypoints, color);
+                                    fetchApproachLegForTruck(strId, approachSig, truckCoords, nextTargetStop, allWaypoints, color);
                                 } else if (!state.approachCooldownTimer) {
                                     state.approachCooldownTimer = setTimeout(() => {
                                         state.approachCooldownTimer = null;
