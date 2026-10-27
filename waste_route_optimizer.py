@@ -6,7 +6,7 @@ from werkzeug.utils import secure_filename
 from flask import Flask, request, render_template, redirect, url_for, jsonify, send_file, flash, make_response, send_from_directory
 from werkzeug.exceptions import HTTPException
 from docx import Document
-from aco_vrp import ACO_VRP
+from aco_vrp import RouteOptimizer, ACO_VRP
 import requests
 from functools import lru_cache
 import time
@@ -1002,8 +1002,11 @@ def upload():
     customers_data = read_data_file(filepath)
     if not customers_data: return "No valid customer data found", 400
         
-    aco = ACO_VRP(start_coords, end_coords, customers_data, num_trucks=num_trucks)
-    routes, route_times, route_distances = aco.run()
+    try:
+        aco = RouteOptimizer(start_coords, end_coords, customers_data, num_trucks=num_trucks)
+        routes, route_times, route_distances = aco.run()
+    except Exception as opt_err:
+        return f"Route optimization error: {str(opt_err)}", 400
     
     # Filter out empty routes so truck numbering is always sequential (e.g. 1, 2, 3)
     # If the AI determines a truck isn't needed, it will drop the last truck instead of the first one.
@@ -2351,8 +2354,11 @@ def ai_rebalance():
         cancelled_by_truck[tid].append(c)
     
     # 5. Run AI
-    aco = ACO_VRP(start_coords, end_coords, customers_data, num_trucks=num_trucks)
-    routes, route_times, route_distances = aco.run()
+    try:
+        aco = RouteOptimizer(start_coords, end_coords, customers_data, num_trucks=num_trucks)
+        routes, route_times, route_distances = aco.run()
+    except Exception as opt_err:
+        return f"Route optimization error: {str(opt_err)}", 400
     
     active_routes = []
     active_route_times = []
@@ -3567,8 +3573,11 @@ def dynamic_recalculate():
         else:
             end_coords = [truck_starts[0]] * len(truck_starts)
         
-        aco = ACO_VRP(truck_starts, end_coords, real_pending_customers, num_trucks=len(truck_starts))
-        new_routes, _, _ = aco.run()
+        try:
+            aco = RouteOptimizer(truck_starts, end_coords, real_pending_customers, num_trucks=len(truck_starts))
+            new_routes, _, _ = aco.run()
+        except Exception as opt_err:
+            return jsonify({'error': f"Dynamic recalculation optimization failed: {str(opt_err)}"}), 400
         
         # 4. Write back to Firebase
         updates_by_route = {}

@@ -1,97 +1,143 @@
 import math
+import time
+import os
+import requests
+from datetime import datetime, timedelta
 from geopy.distance import geodesic
 from ortools.constraint_solver import routing_enums_pb2
 from ortools.constraint_solver import pywrapcp
 
-class ACO_VRP:
+class RouteOptimizer:
     def __init__(self, start_coords, end_coords, customers, num_trucks=3, **kwargs):
         self.customers = customers
-        self.num_trucks = num_trucks
-        
+        self.warnings = []
+
+        # Cap num_trucks at the number of customers so the problem is never overconstrained
+        num_customers = len(customers)
+        if num_customers > 0 and num_trucks > num_customers:
+            num_trucks = num_customers
+        self.num_trucks = max(1, num_trucks)
+
         # Support both single-depot (backward compatibility) and multi-depot arrays
         if isinstance(start_coords, tuple):
-            self.start_coords = [start_coords] * num_trucks
+            self.start_coords = [start_coords] * self.num_trucks
         else:
-            self.start_coords = start_coords
-            
+            self.start_coords = list(start_coords)[:self.num_trucks]
+            if len(self.start_coords) < self.num_trucks:
+                self.start_coords.extend([self.start_coords[-1]] * (self.num_trucks - len(self.start_coords)))
+
         if isinstance(end_coords, tuple):
-            self.end_coords = [end_coords] * num_trucks
+            self.end_coords = [end_coords] * self.num_trucks
         else:
-            self.end_coords = end_coords
-            
+            self.end_coords = list(end_coords)[:self.num_trucks]
+            if len(self.end_coords) < self.num_trucks:
+                self.end_coords.extend([self.end_coords[-1]] * (self.num_trucks - len(self.end_coords)))
+
         self.nodes = []
         # Inject all start nodes
         for s in self.start_coords:
             self.nodes.append(s)
-            
+
         self.customer_id_map = {}
         # Inject all customers and map their indices
         for idx, c in enumerate(customers):
             self.nodes.append((c['lat'], c['lng']))
             self.customer_id_map[len(self.start_coords) + idx] = c['id']
-            
+
         # Inject all end nodes
         for e in self.end_coords:
             self.nodes.append(e)
-            
+
         self.num_nodes = len(self.nodes)
         self.starts_indices = list(range(self.num_trucks))
         self.ends_indices = list(range(self.num_nodes - self.num_trucks, self.num_nodes))
-        
-        # Calculate matrix using Time/Duration (Traffic-aware)
-        import os
-        import requests
-        from datetime import datetime, timedelta
-        
-        # 1. Fixed departure time: Next 9:00 AM
+
+        # Departure time: Next 9:00 AM
         now = datetime.now()
         target = now.replace(hour=9, minute=0, second=0, microsecond=0)
         if now > target:
             target += timedelta(days=1)
         dt_timestamp = int(target.timestamp())
-        
+
         self.distance_matrix = []
         self.actual_distance_matrix = []
         n = self.num_nodes
         api_key = os.environ.get('GMAPS_API_KEY')
-        
+
+        def _calc_geodesic_leg(c1, c2):
+            if c1 == c2:
+                return 0, 0
+            dist_m = int(geodesic(c1, c2).meters)
+            time_s = max(1, int(dist_m / 10))
+            return time_s, dist_m
+
         if api_key:
-            # Use Google Maps Distance Matrix API (Live/Predictive Traffic)
-            self.distance_matrix = [[0]*n for _ in range(n)]
-            self.actual_distance_matrix = [[0]*n for _ in range(n)]
+            # Use Google Maps Distance Matrix API with retry and fallback
+            self.distance_matrix = [[0] * n for _ in range(n)]
+            self.actual_distance_matrix = [[0] * n for _ in range(n)]
             chunk_size = 10
             for i in range(0, n, chunk_size):
                 origins = "|".join([f"{node[0]},{node[1]}" for node in self.nodes[i:i+chunk_size]])
                 for j in range(0, n, chunk_size):
                     destinations = "|".join([f"{node[0]},{node[1]}" for node in self.nodes[j:j+chunk_size]])
-                    
                     url = f"https://maps.googleapis.com/maps/api/distancematrix/json?origins={origins}&destinations={destinations}&mode=driving&departure_time={dt_timestamp}&traffic_model=best_guess&key={api_key}"
+
+                    success = False
+                    data = None
                     try:
                         res = requests.get(url, timeout=15)
-                        data = res.json()
+                        if res.status_code == 200:
+                            data = res.json()
+                            if data.get('status') == 'OK':
+                                success = True
+                    except Exception as e:
+                        print(f"GMaps Matrix chunk ({i}, {j}) failed: {e}. Retrying once...")
+
+                    if not success:
+                        # Retry once
+                        time.sleep(1)
+                        try:
+                            res = requests.get(url, timeout=15)
+                            if res.status_code == 200:
+                                data = res.json()
+                                if data.get('status') == 'OK':
+                                    success = True
+                        except Exception as retry_err:
+                            print(f"GMaps Matrix retry failed on chunk ({i}, {j}): {retry_err}")
+
+                    if success and data:
                         for r_idx, row in enumerate(data.get('rows', [])):
                             for c_idx, element in enumerate(row.get('elements', [])):
-                                if element.get('status') == 'OK':
-                                    # Optimize for travel time, using traffic estimates
-                                    duration = element.get('duration_in_traffic', element.get('duration'))['value']
-                                    distance = element.get('distance', {}).get('value', 9999999)
-                                    self.distance_matrix[i + r_idx][j + c_idx] = duration
-                                    self.actual_distance_matrix[i + r_idx][j + c_idx] = distance
-                                else:
-                                    self.distance_matrix[i + r_idx][j + c_idx] = 9999999
-                                    self.actual_distance_matrix[i + r_idx][j + c_idx] = 9999999
-                    except Exception as e:
-                        print("GMaps Matrix Error:", e)
+                                row_pos = i + r_idx
+                                col_pos = j + c_idx
+                                if row_pos < n and col_pos < n:
+                                    if element.get('status') == 'OK':
+                                        duration = element.get('duration_in_traffic', element.get('duration'))['value']
+                                        distance = element.get('distance', {}).get('value', 0)
+                                        self.distance_matrix[row_pos][col_pos] = duration
+                                        self.actual_distance_matrix[row_pos][col_pos] = distance
+                                    else:
+                                        dur, dist = _calc_geodesic_leg(self.nodes[row_pos], self.nodes[col_pos])
+                                        self.distance_matrix[row_pos][col_pos] = dur
+                                        self.actual_distance_matrix[row_pos][col_pos] = dist
+                                        warn_msg = f"GMaps element ({row_pos}->{col_pos}) status '{element.get('status')}'; used geodesic fallback."
+                                        self.warnings.append(warn_msg)
+                    else:
+                        warn_msg = f"GMaps Matrix chunk ({i}:{i+chunk_size}, {j}:{j+chunk_size}) failed; used geodesic fallback."
+                        print(f"Warning: {warn_msg}")
+                        self.warnings.append(warn_msg)
                         for r_idx in range(chunk_size):
                             for c_idx in range(chunk_size):
-                                if i + r_idx < n and j + c_idx < n:
-                                    self.distance_matrix[i + r_idx][j + c_idx] = 9999999
-                                    self.actual_distance_matrix[i + r_idx][j + c_idx] = 9999999
+                                row_pos = i + r_idx
+                                col_pos = j + c_idx
+                                if row_pos < n and col_pos < n:
+                                    dur, dist = _calc_geodesic_leg(self.nodes[row_pos], self.nodes[col_pos])
+                                    self.distance_matrix[row_pos][col_pos] = dur
+                                    self.actual_distance_matrix[row_pos][col_pos] = dist
         else:
-            # Fallback: OSRM Estimated Travel Time (Duration)
+            # Fallback: OSRM Estimated Travel Time
             coords_str = ";".join([f"{n[1]},{n[0]}" for n in self.nodes])
             osrm_url = f"https://router.project-osrm.org/table/v1/driving/{coords_str}?annotations=duration,distance"
-            
             osrm_success = False
             try:
                 res = requests.get(osrm_url, timeout=10)
@@ -99,29 +145,25 @@ class ACO_VRP:
                     data = res.json()
                     if data.get('code') == 'Ok' and 'durations' in data and 'distances' in data:
                         for row in data['durations']:
-                            self.distance_matrix.append([int(d) if d is not None else 9999999 for d in row])
+                            self.distance_matrix.append([int(d) if d is not None else 0 for d in row])
                         for row in data['distances']:
-                            self.actual_distance_matrix.append([int(d) if d is not None else 9999999 for d in row])
+                            self.actual_distance_matrix.append([int(d) if d is not None else 0 for d in row])
                         osrm_success = True
             except Exception as e:
                 print("OSRM Matrix Error:", e)
-                
+
             if not osrm_success:
                 print("Falling back to geodesic distance matrix")
-                from geopy.distance import geodesic
                 for i in range(n):
                     time_row = []
                     dist_row = []
                     for j in range(n):
-                        if i == j:
-                            time_row.append(0)
-                            dist_row.append(0)
-                        else:
-                            dist_m = int(geodesic(self.nodes[i], self.nodes[j]).meters)
-                            time_row.append(int(dist_m / 10))
-                            dist_row.append(dist_m)
+                        dur, dist = _calc_geodesic_leg(self.nodes[i], self.nodes[j])
+                        time_row.append(dur)
+                        dist_row.append(dist)
                     self.distance_matrix.append(time_row)
                     self.actual_distance_matrix.append(dist_row)
+
     def run(self):
         manager = pywrapcp.RoutingIndexManager(self.num_nodes, self.num_trucks, self.starts_indices, self.ends_indices)
         routing = pywrapcp.RoutingModel(manager)
@@ -142,35 +184,27 @@ class ACO_VRP:
             3000000,  # vehicle maximum travel distance in meters (3000 km)
             True,  # start cumul to zero
             dimension_name)
-        
+
         # Stops dimension (to balance the workload)
         routing.AddConstantDimension(
-            1, # increment by 1 for every node visited
-            3000, # capacity (max stops)
-            True, # start at zero
+            1,     # increment by 1 for every node visited
+            3000,  # capacity (max stops)
+            True,  # start at zero
             "Stops"
         )
         stops_dimension = routing.GetDimensionOrDie("Stops")
-        
-        # To guarantee we find a solution within 8 seconds, we use extremely relaxed bounds.
-        # We enforce a strict minimum of 1 customer per truck to ensure no truck is left empty.
-        min_stops = 1
-        # Maximum is theoretically all customers, leaving room for the AI to dynamically balance based on Time
+
+        # Set minimum stops to 0 so the problem is never infeasible when num_trucks > customers
+        min_stops = 0
         max_stops = len(self.customers)
-        
+
         for vehicle_id in range(self.num_trucks):
-            # We add +1 because the End node itself increments the CumulVar by 1.
+            # End node itself increments CumulVar by 1
             stops_dimension.CumulVar(routing.End(vehicle_id)).SetRange(min_stops + 1, max_stops + 1)
-            
-        # Optional: Encourage the solver to balance the shift times across all drivers
-        # time_dimension = routing.GetDimensionOrDie('Distance')
-        # time_dimension.SetGlobalSpanCostCoefficient(100)
 
         search_parameters = pywrapcp.DefaultRoutingSearchParameters()
-        # AUTOMATIC strategy is better at handling strict bounds than PATH_CHEAPEST_ARC
         search_parameters.first_solution_strategy = routing_enums_pb2.FirstSolutionStrategy.AUTOMATIC
         search_parameters.local_search_metaheuristic = routing_enums_pb2.LocalSearchMetaheuristic.GUIDED_LOCAL_SEARCH
-        # Time limit of 8s guarantees we beat Gunicorn's 30s timeout on Render cold starts while allowing large routes
         search_parameters.time_limit.FromSeconds(8)
 
         solution = routing.SolveWithParameters(search_parameters)
@@ -181,7 +215,7 @@ class ACO_VRP:
         routes = []
         route_times = []
         route_distances = []
-        
+
         for vehicle_id in range(self.num_trucks):
             route = []
             route_time = 0
@@ -191,39 +225,44 @@ class ACO_VRP:
                 node_index = manager.IndexToNode(index)
                 if node_index not in self.starts_indices and node_index not in self.ends_indices:
                     route.append(self.customer_id_map[node_index])
-                    route_time += 300 # Add 5 minutes (300 seconds) for each stop
+                    route_time += 300  # 5 minutes service time per stop
                 previous_index = index
                 index = solution.Value(routing.NextVar(index))
-                
-                # Time is optimized by OR-Tools, read it from arc cost
+
                 route_time += routing.GetArcCostForVehicle(previous_index, index, vehicle_id)
-                
-                # Distance is calculated by looking up the actual distance matrix
+
                 prev_node_idx = manager.IndexToNode(previous_index)
                 curr_node_idx = manager.IndexToNode(index)
                 route_distance += self.actual_distance_matrix[prev_node_idx][curr_node_idx]
-                
+
             routes.append(route)
             route_times.append(route_time)
             route_distances.append(route_distance)
 
-        # Validation Checks
+        # Validation Checks - raise clean ValueError instead of assert
         assigned_cids = []
-        for r in routes: assigned_cids.extend(r)
-        
+        for r in routes:
+            assigned_cids.extend(r)
+
         all_input_cids = [c['id'] for c in self.customers]
-        
+
         # Check duplicates
         import collections
         dupes = [item for item, count in collections.Counter(assigned_cids).items() if count > 1]
-        assert not dupes, f"VRP output contained duplicate customer IDs: {dupes}"
-        
+        if dupes:
+            raise ValueError(f"Route optimization failed: duplicate customer assignments found for IDs: {dupes}")
+
         # Check missing
         missing = set(all_input_cids) - set(assigned_cids)
-        assert not missing, f"VRP output dropped customer IDs: {missing}"
-        
+        if missing:
+            raise ValueError(f"Route optimization failed: dropped customer IDs: {list(missing)}")
+
         # Check extra
         extra = set(assigned_cids) - set(all_input_cids)
-        assert not extra, f"VRP output generated unknown customer IDs: {extra}"
+        if extra:
+            raise ValueError(f"Route optimization failed: produced unknown customer IDs: {list(extra)}")
 
         return routes, route_times, route_distances
+
+# Backward compatibility alias
+ACO_VRP = RouteOptimizer
