@@ -1131,6 +1131,18 @@
                     distStr = `<span style="display:flex;align-items:center;gap:4px;"><i class="fa-solid fa-road" style="color:var(--text-muted);"></i> ${distanceKm} km</span>`;
                 }
 
+                let timeStr = `<span style="display:flex;align-items:center;gap:4px;"><i class="fa-solid fa-clock" style="color:var(--text-muted);"></i> -</span>`;
+                if (data.route_times && data.route_times.length > i && data.route_times[i] > 0) {
+                    let secs = data.route_times[i];
+                    let hrs = Math.floor(secs / 3600);
+                    let mins = Math.round((secs % 3600) / 60);
+                    let timeFormatted = hrs > 0 ? `${hrs}h ${mins}m` : `${mins}m`;
+                    timeStr = `<span style="display:flex;align-items:center;gap:4px;"><i class="fa-solid fa-clock" style="color:var(--text-muted);"></i> ${timeFormatted}</span>`;
+                }
+
+                let stopsCount = (info.realCount !== undefined && info.realCount !== null) ? info.realCount : (info.total || 0);
+                let stopsStr = `<span style="display:flex;align-items:center;gap:4px;"><i class="fa-solid fa-location-dot" style="color:var(--text-muted);"></i> ${stopsCount} stops</span>`;
+
                 // Check if an active driver is assigned to this truck
                 let assignedDriver = data.drivers ? data.drivers.find(d => String(d.truck_id) === String(t) && d.assigned_template_id) : null;
                 let assignBtnLabel = assignedDriver ? `<i class="fa-solid fa-user-check"></i> Assigned: ${assignedDriver.name || assignedDriver.username}` : `<i class="fa-solid fa-user-check"></i> Assign Driver`;
@@ -1142,8 +1154,10 @@
                             <div style="font-size:13px; font-weight:600;">${info.completed}/${info.total} done</div>
                         </div>
                         
-                        <div class="truck-meta">
+                        <div class="truck-meta" style="display:flex; flex-wrap:wrap; gap:8px; align-items:center;">
                             ${distStr}
+                            ${timeStr}
+                            ${stopsStr}
                             <span style="font-size:12px; font-weight:600; padding:2px 8px; border-radius:12px; background:#f1f5f9; color:var(--text-main);">${info.confirmed} confirmed &middot; ${info.realCount - info.confirmed - info.cancelled} not &middot; ${info.cancelled} cancelled</span>
                         </div>
 

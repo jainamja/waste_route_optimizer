@@ -8,8 +8,11 @@ from ortools.constraint_solver import routing_enums_pb2
 from ortools.constraint_solver import pywrapcp
 
 class RouteOptimizer:
-    def __init__(self, start_coords, end_coords, customers, num_trucks=3, **kwargs):
+    def __init__(self, start_coords, end_coords, customers, num_trucks=3,
+                 truck_capacity=None, service_time_seconds=300, **kwargs):
         self.customers = customers
+        self.truck_capacity = truck_capacity
+        self.service_time_seconds = service_time_seconds if service_time_seconds is not None else 300
         self.warnings = []
 
         # Cap num_trucks at the number of customers so the problem is never overconstrained
@@ -194,6 +197,28 @@ class RouteOptimizer:
         )
         stops_dimension = routing.GetDimensionOrDie("Stops")
 
+        # Optional Capacity dimension (only active if truck_capacity provided and customers have waste data)
+        has_waste_data = any(c.get('waste_kg', 0) > 0 for c in self.customers)
+        if self.truck_capacity and self.truck_capacity > 0 and has_waste_data:
+            def demand_callback(from_index):
+                from_node = manager.IndexToNode(from_index)
+                if from_node in self.starts_indices or from_node in self.ends_indices:
+                    return 0
+                cust_id = self.customer_id_map.get(from_node)
+                cust = next((c for c in self.customers if c['id'] == cust_id), None)
+                if cust:
+                    return int(cust.get('waste_kg', 0))
+                return 0
+
+            demand_callback_index = routing.RegisterUnaryTransitCallback(demand_callback)
+            routing.AddDimensionWithVehicleCapacity(
+                demand_callback_index,
+                0,  # null capacity slack
+                [int(self.truck_capacity)] * self.num_trucks,  # vehicle maximum capacities
+                True,  # start cumul to zero
+                'Capacity'
+            )
+
         # Set minimum stops to 0 so the problem is never infeasible when num_trucks > customers
         min_stops = 0
         max_stops = len(self.customers)
@@ -225,7 +250,7 @@ class RouteOptimizer:
                 node_index = manager.IndexToNode(index)
                 if node_index not in self.starts_indices and node_index not in self.ends_indices:
                     route.append(self.customer_id_map[node_index])
-                    route_time += 300  # 5 minutes service time per stop
+                    route_time += self.service_time_seconds  # Configurable service time per stop (default 300 s / 5 min)
                 previous_index = index
                 index = solution.Value(routing.NextVar(index))
 

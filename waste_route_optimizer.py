@@ -356,6 +356,8 @@ def read_data_file(filepath):
                 if len(clean_val) >= 9 and len(clean_val) <= 15:
                     phone_col = c
                     break
+
+    load_col = next((c for c in cols if any(p in c for p in ['waste', 'load', 'weight', 'kg', 'demand', 'capacity'])), None)
                     
     urls_to_resolve = set()
     for _, row in df.iterrows():
@@ -514,6 +516,14 @@ def read_data_file(filepath):
                     raw_phone = raw_phone[:-2]
                 phone_val = raw_phone
 
+            waste_val = 0
+            if load_col and not pd.isna(row.get(load_col)):
+                try:
+                    val_str = str(row.get(load_col)).strip().lower().replace('kg', '').replace(',', '').strip()
+                    waste_val = float(val_str)
+                except (ValueError, TypeError):
+                    waste_val = 0
+
             lat, lng = float(lat), float(lng)
             if not pd.isna(lat) and not pd.isna(lng):
                 customers.append({
@@ -524,6 +534,7 @@ def read_data_file(filepath):
                     'location_url': loc_url_clean,
                     'lat': lat,
                     'lng': lng,
+                    'waste_kg': waste_val,
                     'status': 'PENDING',
                     'customer_status': 'ACTIVE'
                 })
@@ -986,9 +997,27 @@ def upload():
     
     customers_data = read_data_file(filepath)
     if not customers_data: return "No valid customer data found", 400
+
+    try:
+        raw_cap = request.form.get('truck_capacity')
+        truck_capacity = float(raw_cap) if raw_cap and float(raw_cap) > 0 else None
+    except (ValueError, TypeError):
+        truck_capacity = None
+
+    try:
+        raw_svc = request.form.get('service_time') or request.form.get('service_time_mins')
+        service_time_mins = float(raw_svc) if raw_svc is not None and str(raw_svc).strip() != '' else 5.0
+        service_time_seconds = max(0, int(service_time_mins * 60))
+    except (ValueError, TypeError):
+        service_time_seconds = 300
         
     try:
-        aco = RouteOptimizer(start_coords, end_coords, customers_data, num_trucks=num_trucks)
+        aco = RouteOptimizer(
+            start_coords, end_coords, customers_data,
+            num_trucks=num_trucks,
+            truck_capacity=truck_capacity,
+            service_time_seconds=service_time_seconds
+        )
         routes, route_times, route_distances = aco.run()
     except Exception as opt_err:
         return f"Route optimization error: {str(opt_err)}", 400
