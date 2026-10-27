@@ -12,6 +12,13 @@ from functools import lru_cache
 import time
 from flask_sqlalchemy import SQLAlchemy
 from flask_cors import CORS
+from dotenv import load_dotenv
+
+# Load environment variables from .env file
+load_dotenv()
+
+FIREBASE_API_KEY = os.getenv("FIREBASE_API_KEY", "AIzaSyAhLnjh0gRa2pf29G90zr-6AMcjLjbQpPg")
+FIREBASE_DB_URL = os.getenv("FIREBASE_DB_URL", "https://wasteroutelive-default-rtdb.firebaseio.com").rstrip('/')
 
 
 _firebase_token_cache = {"token": None, "expires": 0}
@@ -21,7 +28,7 @@ def get_firebase_token():
     if _firebase_token_cache["token"] and time.time() < _firebase_token_cache["expires"]:
         return _firebase_token_cache["token"]
         
-    API_KEY = "AIzaSyAhLnjh0gRa2pf29G90zr-6AMcjLjbQpPg"
+    API_KEY = FIREBASE_API_KEY
     auth_url = f"https://identitytoolkit.googleapis.com/v1/accounts:signUp?key={API_KEY}"
     auth_res = requests.post(auth_url, json={"returnSecureToken": True})
     if auth_res.status_code == 200:
@@ -45,7 +52,7 @@ def handle_exception(e):
 
 CORS(app)
 app.config['UPLOAD_FOLDER'] = 'uploads'
-app.secret_key = 'supersecretkey'
+app.secret_key = os.getenv('SECRET_KEY', 'super_secret_waste_route_key_123')
 
 # Automatically use PostgreSQL if DATABASE_URL is set, otherwise fall back to local SQLite
 database_url = os.environ.get('DATABASE_URL')
@@ -64,7 +71,6 @@ app.config['SQLALCHEMY_ENGINE_OPTIONS'] = {
 db = SQLAlchemy(app)
 
 
-app.secret_key = 'super_secret_waste_route_key_123'
 if os.environ.get('RENDER') or os.environ.get('DATABASE_URL'):
     app.config.update(
         SESSION_COOKIE_SECURE=True,
@@ -876,7 +882,7 @@ def ensure_driver_truck_assignments():
             # Sync assigned names to Firebase
             try:
                 import requests
-                firebase_url = "https://wasteroutelive-default-rtdb.firebaseio.com"
+                firebase_url = FIREBASE_DB_URL
                 id_token = get_firebase_token()
                 if id_token:
                     for d in drivers:
@@ -1064,7 +1070,7 @@ def upload():
     # INSERT TO FIREBASE
     try:
         import requests
-        firebase_url = "https://wasteroutelive-default-rtdb.firebaseio.com"
+        firebase_url = FIREBASE_DB_URL
         
         id_token = get_firebase_token()
         if id_token:
@@ -1345,7 +1351,7 @@ def admin_set_driver_truck():
     
     try:
         import requests
-        firebase_url = "https://wasteroutelive-default-rtdb.firebaseio.com"
+        firebase_url = FIREBASE_DB_URL
         id_token = get_firebase_token()
         if id_token:
             if old_truck and old_truck != driver.truck_id:
@@ -1393,7 +1399,7 @@ def admin_delete_driver(driver_id):
     try:
         id_token = get_firebase_token()
         if id_token:
-            firebase_url = "https://wasteroutelive-default-rtdb.firebaseio.com"
+            firebase_url = FIREBASE_DB_URL
             import requests
             requests.delete(f"{firebase_url}/driver_locations/{driver.id}.json?auth={id_token}")
     except:
@@ -1519,7 +1525,7 @@ def assign_driver():
             
     try:
         import requests
-        firebase_url = "https://wasteroutelive-default-rtdb.firebaseio.com"
+        firebase_url = FIREBASE_DB_URL
         id_token = get_firebase_token()
         if id_token:
             if confirmations is not None and firebase_patch_data:
@@ -1549,7 +1555,7 @@ def driver_view():
 def sync_firebase_to_sql(template_id=None):
     try:
         import requests
-        firebase_url = "https://wasteroutelive-default-rtdb.firebaseio.com"
+        firebase_url = FIREBASE_DB_URL
         id_token = get_firebase_token()
         if not id_token:
             return
@@ -1769,7 +1775,7 @@ def mark_completed(customer_id):
         # Sync to Firebase
         try:
             import requests
-            firebase_url = "https://wasteroutelive-default-rtdb.firebaseio.com"
+            firebase_url = FIREBASE_DB_URL
             
             id_token = get_firebase_token()
             if id_token:
@@ -1824,7 +1830,7 @@ def resolve_token():
                 try:
                     id_token = get_firebase_token()
                     if id_token:
-                        firebase_url = "https://wasteroutelive-default-rtdb.firebaseio.com"
+                        firebase_url = FIREBASE_DB_URL
                         requests.delete(f"{firebase_url}/routes/route_{driver.truck_id}.json?auth={id_token}", timeout=3)
                 except:
                     pass
@@ -1901,7 +1907,7 @@ def remove_stop():
         
         # Sync to Firebase
         import requests
-        firebase_url = "https://wasteroutelive-default-rtdb.firebaseio.com"
+        firebase_url = FIREBASE_DB_URL
         id_token = get_firebase_token()
         if id_token:
             route_key = f"route_{truck_id}"
@@ -2064,7 +2070,7 @@ def add_stop():
             
             # Sync to Firebase
             import requests
-            firebase_url = "https://wasteroutelive-default-rtdb.firebaseio.com"
+            firebase_url = FIREBASE_DB_URL
             id_token = get_firebase_token()
             if id_token:
                 route_key = f"route_{target_truck_id}"
@@ -2182,7 +2188,7 @@ def ai_rebalance():
     import json
     
     # 1. Fetch current GPS from Firebase
-    firebase_url = "https://wasteroutelive-default-rtdb.firebaseio.com"
+    firebase_url = FIREBASE_DB_URL
     id_token = get_firebase_token()
     if not id_token:
         return jsonify({'error': 'Firebase auth failed'}), 500
@@ -2430,7 +2436,7 @@ def update_route_manual():
     # Sync with Firebase (only update the modified routes, preserving other drivers' routes)
     try:
         import requests
-        firebase_url = "https://wasteroutelive-default-rtdb.firebaseio.com"
+        firebase_url = FIREBASE_DB_URL
         id_token = get_firebase_token()
         if id_token:
             for route_key, stops in routes_payload.items():
@@ -2474,7 +2480,7 @@ def update_customer_status():
     if c.truck_id and c.stop_number:
         try:
             import requests
-            firebase_url = "https://wasteroutelive-default-rtdb.firebaseio.com"
+            firebase_url = FIREBASE_DB_URL
             id_token = get_firebase_token()
             if id_token:
                 payload = { "customer_status": status }
@@ -2578,7 +2584,7 @@ def update_customer_details():
     if c.truck_id and c.stop_number:
         try:
             import requests
-            firebase_url = "https://wasteroutelive-default-rtdb.firebaseio.com"
+            firebase_url = FIREBASE_DB_URL
             id_token = get_firebase_token()
             if id_token:
                 payload = {
@@ -2648,7 +2654,7 @@ def assign_route():
         
     try:
         import requests
-        firebase_url = "https://wasteroutelive-default-rtdb.firebaseio.com"
+        firebase_url = FIREBASE_DB_URL
         id_token = get_firebase_token()
     except:
         id_token = None
@@ -2860,7 +2866,7 @@ def save_template():
         if affected_drivers:
             try:
                 import requests
-                firebase_url = "https://wasteroutelive-default-rtdb.firebaseio.com"
+                firebase_url = FIREBASE_DB_URL
                 id_token = get_firebase_token()
             except:
                 id_token = None
@@ -3062,7 +3068,7 @@ def unassign_route():
     
     try:
         import requests
-        firebase_url = "https://wasteroutelive-default-rtdb.firebaseio.com"
+        firebase_url = FIREBASE_DB_URL
         id_token = get_firebase_token()
         if id_token:
             trucks_to_clear = set()
@@ -3122,7 +3128,7 @@ def mark_stop_status():
     now_ms = int(time.time() * 1000)
     try:
         import requests
-        firebase_url = "https://wasteroutelive-default-rtdb.firebaseio.com"
+        firebase_url = FIREBASE_DB_URL
         id_token = get_firebase_token()
         if id_token and truck_id:
             fb_patch = {}
@@ -3203,7 +3209,7 @@ def driver_finish_route():
             if eff_truck_id:
                 id_token = get_firebase_token()
                 if id_token:
-                    firebase_url = "https://wasteroutelive-default-rtdb.firebaseio.com"
+                    firebase_url = FIREBASE_DB_URL
                     requests.delete(f"{firebase_url}/routes/route_{eff_truck_id}.json?auth={id_token}")
                     requests.patch(f"{firebase_url}/trucks/{eff_truck_id}.json?auth={id_token}", json={
                         "status": "offline",
@@ -3319,7 +3325,7 @@ def deploy_template(t_id):
     if mode == 'deploy':
         try:
             import requests
-            firebase_url = "https://wasteroutelive-default-rtdb.firebaseio.com"
+            firebase_url = FIREBASE_DB_URL
             id_token = get_firebase_token()
             if id_token:
                 
@@ -3371,7 +3377,7 @@ def deploy_template(t_id):
 @login_required
 def dynamic_recalculate():
     import requests
-    firebase_url = "https://wasteroutelive-default-rtdb.firebaseio.com"
+    firebase_url = FIREBASE_DB_URL
     
     try:
         # Authenticate anonymously as backend
