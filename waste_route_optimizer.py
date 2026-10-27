@@ -200,13 +200,21 @@ with app.app_context():
     except:
         db.session.rollback()
         
-    from werkzeug.security import generate_password_hash
-    admin_user = User.query.filter_by(username='admin').first()
+    from werkzeug.security import generate_password_hash, check_password_hash
+    admin_env_pass = os.getenv('ADMIN_PASSWORD', 'admin')
+    admin_env_user = os.getenv('ADMIN_USERNAME', 'admin')
+    admin_user = User.query.filter_by(username=admin_env_user).first()
     if not admin_user:
-        db.session.add(User(username='admin', password_hash=generate_password_hash('admin'), role='ADMIN'))
+        admin_user = User(username=admin_env_user, password_hash=generate_password_hash(admin_env_pass), role='ADMIN', name='Admin')
+        db.session.add(admin_user)
         for i in range(1, 11):
             db.session.add(User(username='driver'+str(i), password_hash=generate_password_hash('driver'+str(i)), role='DRIVER', truck_id=i))
         db.session.commit()
+    else:
+        # If ADMIN_PASSWORD is set in environment, ensure the hash matches the env password
+        if os.getenv('ADMIN_PASSWORD') and not check_password_hash(admin_user.password_hash, admin_env_pass):
+            admin_user.password_hash = generate_password_hash(admin_env_pass)
+            db.session.commit()
 
 @lru_cache(maxsize=100)
 def resolve_gmaps_url(url):
@@ -580,23 +588,54 @@ def read_data_file(filepath):
 from functools import wraps
 from flask import session, redirect, url_for, request
 
+def is_admin_session():
+    admin_token = request.args.get('admin_token') or request.headers.get('X-Admin-Token')
+    if admin_token:
+        try:
+            admin_user = db.session.get(User, int(admin_token))
+            if admin_user and admin_user.role == 'ADMIN':
+                session['user_id'] = admin_user.id
+                session['role'] = 'ADMIN'
+                return True
+        except Exception:
+            pass
+    if 'user_id' in session:
+        user = db.session.get(User, session['user_id'])
+        if user and user.role == 'ADMIN':
+            return True
+    return False
+
+def is_valid_truck_token(token, truck_id):
+    if not token or not truck_id:
+        return False
+    truck_id_str = str(truck_id)
+    # 1. Check driver_tokens in Metadata store
+    meta = Metadata.query.filter_by(key='driver_tokens').first()
+    if meta and meta.value:
+        try:
+            tokens_dict = json.loads(meta.value)
+            if tokens_dict.get(truck_id_str) == str(token):
+                return True
+        except Exception:
+            pass
+    # 2. Check if token is a valid driver user ID assigned to this truck
+    try:
+        user_id = int(token)
+        driver = db.session.get(User, user_id)
+        if driver and driver.role == 'DRIVER' and str(driver.truck_id) == truck_id_str:
+            return True
+    except (ValueError, TypeError):
+        pass
+    return False
+
 def login_required(f):
     @wraps(f)
     def decorated_function(*args, **kwargs):
-        admin_token = request.args.get('admin_token') or request.headers.get('X-Admin-Token')
-        if admin_token:
-            try:
-                admin_user = db.session.get(User, int(admin_token))
-                if admin_user and admin_user.role == 'ADMIN':
-                    session['user_id'] = admin_user.id
-                    return f(*args, **kwargs)
-            except Exception:
-                pass
-        if 'user_id' not in session:
-            if request.is_json or request.path.startswith('/api/'):
-                return jsonify({'error': 'Unauthorized'}), 401
-            return redirect(url_for('login'))
-        return f(*args, **kwargs)
+        if is_admin_session():
+            return f(*args, **kwargs)
+        if request.is_json or request.path.startswith('/api/'):
+            return jsonify({'error': 'Unauthorized: Admin login required'}), 401
+        return redirect(url_for('login'))
     return decorated_function
 
 leg_cache = {}
@@ -801,12 +840,21 @@ def recompute_route_metrics():
 def login():
     error = None
     if request.method == 'POST':
-        username = request.form['username']
-        password = request.form['password']
+        username = (request.form.get('username') or '').strip()
+        password = request.form.get('password') or ''
         from werkzeug.security import check_password_hash
-        user = User.query.filter_by(username=username).first()
-        if user and check_password_hash(user.password_hash, password):
+        user = User.query.filter(db.func.lower(User.username) == username.lower()).first()
+        admin_env_pass = os.getenv('ADMIN_PASSWORD')
+        
+        pw_ok = False
+        if user:
+            pw_ok = check_password_hash(user.password_hash, password)
+            if not pw_ok and user.role == 'ADMIN' and admin_env_pass and password == admin_env_pass:
+                pw_ok = True
+                
+        if user and pw_ok:
             session['user_id'] = user.id
+            session['role'] = user.role
             return redirect(url_for('dashboard'))
         else:
             error = 'Invalid username or password.'
@@ -814,7 +862,7 @@ def login():
 
 @app.route('/logout')
 def logout():
-    session.pop('user_id', None)
+    session.clear()
     return redirect(url_for('login'))
 
 @app.route('/privacy-policy')
@@ -1163,6 +1211,10 @@ def driver_login():
     
     # 2. Check password with exact match and trimmed match (handles accidental trailing spaces on mobile)
     pw_ok = check_password_hash(user.password_hash, raw_password) or check_password_hash(user.password_hash, raw_password.strip())
+    if not pw_ok and user.role == 'ADMIN' and os.getenv('ADMIN_PASSWORD'):
+        admin_env_pass = os.getenv('ADMIN_PASSWORD')
+        if raw_password == admin_env_pass or raw_password.strip() == admin_env_pass:
+            pw_ok = True
     
     if not pw_ok:
         print(f"[AUTH LOGIN] Password mismatch for user '{user.username}'")
@@ -1765,24 +1817,41 @@ def get_data():
     })
 
 @app.route('/api/mark_completed/<int:customer_id>', methods=['POST'])
-@login_required
 def mark_completed(customer_id):
     customer = db.session.get(Customer, customer_id)
-    if customer:
-        customer.status = 'COMPLETED'
-        db.session.commit()
+    if not customer:
+        return jsonify({'error': 'Customer not found'}), 404
 
-        # Sync to Firebase
-        try:
-            import requests
-            firebase_url = FIREBASE_DB_URL
-            
-            id_token = get_firebase_token()
-            if id_token:
-                requests.patch(f"{firebase_url}/routes/route_{customer.truck_id}/stops/{customer.id}.json?auth={id_token}", json={"status": "COMPLETED"})
-        except Exception as e:
-            print("Firebase sync error in mark_completed:", e)
-            
+    # Allow if caller is Admin (session or admin_token)
+    if not is_admin_session():
+        # Require a valid token for this customer's truck
+        token = request.args.get('token')
+        if not token and request.is_json and request.get_json(silent=True):
+            token = request.get_json(silent=True).get('token')
+        if not token:
+            token = request.headers.get('X-Driver-Token') or request.headers.get('Authorization')
+            if token and token.startswith('Bearer '):
+                token = token[7:]
+        if not token:
+            token = request.form.get('token')
+
+        if not token or not is_valid_truck_token(token, customer.truck_id):
+            return jsonify({'error': 'Unauthorized: invalid token for this truck'}), 401
+
+    customer.status = 'COMPLETED'
+    db.session.commit()
+
+    # Sync to Firebase
+    try:
+        import requests
+        firebase_url = FIREBASE_DB_URL
+        
+        id_token = get_firebase_token()
+        if id_token and customer.truck_id:
+            requests.patch(f"{firebase_url}/routes/route_{customer.truck_id}/stops/{customer.id}.json?auth={id_token}", json={"status": "COMPLETED"})
+    except Exception as e:
+        print("Firebase sync error in mark_completed:", e)
+        
     return jsonify({'success': True, 'status': 'COMPLETED'})
 
 @app.route('/api/resolve_token')
@@ -1792,6 +1861,35 @@ def resolve_token():
         return jsonify({'error': 'Missing token'}), 400
         
     try:
+        # 1. Check per-truck driver_tokens from metadata
+        meta = Metadata.query.filter_by(key='driver_tokens').first()
+        if meta and meta.value:
+            try:
+                tokens_dict = json.loads(meta.value)
+                for tid, t_val in tokens_dict.items():
+                    if t_val == token:
+                        truck_id_int = int(tid)
+                        driver = User.query.filter_by(role='DRIVER', truck_id=truck_id_int).first()
+                        cust_count = Customer.query.filter(Customer.truck_id == truck_id_int, Customer.id > -1000).count()
+                        has_assigned = (cust_count > 0)
+                        assigned_tmpl_name = None
+                        if driver and driver.assigned_template_id:
+                            tmpl = db.session.get(SavedTemplate, driver.assigned_template_id)
+                            if tmpl:
+                                assigned_tmpl_name = tmpl.name
+                        return jsonify({
+                            'truck_id': str(truck_id_int),
+                            'driver_name': (driver.name or driver.username) if driver else f'Driver {truck_id_int}',
+                            'driver_id': driver.id if driver else truck_id_int,
+                            'has_assigned_route': has_assigned,
+                            'assigned_template_id': driver.assigned_template_id if (driver and has_assigned) else None,
+                            'assigned_template_name': assigned_tmpl_name,
+                            'stop_count': cust_count
+                        })
+            except Exception as e:
+                print("Error parsing driver_tokens in resolve_token:", e)
+
+        # 2. Check user ID token
         user_id = int(token)
         driver = db.session.get(User, user_id)
         if driver and driver.role == 'ADMIN':
@@ -1844,7 +1942,7 @@ def resolve_token():
                 'assigned_template_name': assigned_tmpl_name,
                 'stop_count': cust_count
             })
-    except ValueError:
+    except (ValueError, TypeError):
         pass
         
     return jsonify({'error': 'Invalid or expired token'}), 404
