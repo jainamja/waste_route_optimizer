@@ -523,6 +523,17 @@
                 
                 <div style="display:grid; grid-template-columns:1fr 1fr; gap:12px;">
                     <div>
+                        <label style="font-size:12px; font-weight:600; color:var(--text-muted); display:block; margin-bottom:4px;">Latitude</label>
+                        <input type="number" step="any" id="edit-cust-lat" placeholder="23.0225" style="width:100%; box-sizing:border-box; padding:10px 12px; border:1px solid var(--border); border-radius:10px; font-family:'Inter', sans-serif; font-size:14px;">
+                    </div>
+                    <div>
+                        <label style="font-size:12px; font-weight:600; color:var(--text-muted); display:block; margin-bottom:4px;">Longitude</label>
+                        <input type="number" step="any" id="edit-cust-lng" placeholder="72.5714" style="width:100%; box-sizing:border-box; padding:10px 12px; border:1px solid var(--border); border-radius:10px; font-family:'Inter', sans-serif; font-size:14px;">
+                    </div>
+                </div>
+                
+                <div style="display:grid; grid-template-columns:1fr 1fr; gap:12px;">
+                    <div>
                         <label style="font-size:12px; font-weight:600; color:var(--text-muted); display:block; margin-bottom:4px;">Customer Status</label>
                         <select id="edit-cust-status" style="width:100%; box-sizing:border-box; padding:10px 12px; border:1px solid var(--border); border-radius:10px; font-family:'Inter', sans-serif; font-size:13px; font-weight:600; background:#f8fafc;">
                             <option value="ACTIVE">Active</option>
@@ -875,16 +886,28 @@
             let timeWarnBadge = document.getElementById('stat-time-warn');
             let warnDetails = document.getElementById('stat-warning-details');
 
-            if (hasExcessiveDistance || hasExcessiveTime || outlierStops.length > 0) {
+            let coordWarnings = data.identical_coord_warnings || [];
+            let failedStops = (data.customers || []).filter(c => (c.geocode_quality || '').toUpperCase() === 'FAILED');
+
+            if (hasExcessiveDistance || hasExcessiveTime || outlierStops.length > 0 || coordWarnings.length > 0 || failedStops.length > 0) {
                 if (distWarnBadge) distWarnBadge.style.display = hasExcessiveDistance ? 'inline-block' : 'none';
                 if (timeWarnBadge) timeWarnBadge.style.display = hasExcessiveTime ? 'inline-block' : 'none';
                 if (warnBanner && warnDetails) {
                     warnBanner.style.display = 'block';
-                    let html = `One or more routes or stops appear far from the expected operational area (>200 km or >12 h).`;
-                    if (outlierStops.length > 0) {
-                        html += `<br><strong>Flagged Outlier Stops:</strong> ` + outlierStops.map(o => `<span>#${o.id} <strong>${o.name || 'Stop'}</strong> (${o.warning || (o.distance_km ? o.distance_km + ' km away' : 'Outlier')})</span>`).join(', ');
+                    let items = [];
+                    if (hasExcessiveDistance || hasExcessiveTime) {
+                        items.push(`One or more routes or stops appear far from the expected operational area (>200 km or >12 h).`);
                     }
-                    warnDetails.innerHTML = html;
+                    if (outlierStops.length > 0) {
+                        items.push(`<strong>Flagged Outlier Stops:</strong> ` + outlierStops.map(o => `<span>#${o.id} <strong>${o.name || 'Stop'}</strong> (${o.warning || (o.distance_km ? o.distance_km + ' km away' : 'Outlier')})</span>`).join(', '));
+                    }
+                    if (failedStops.length > 0) {
+                        items.push(`<strong><i class="fa-solid fa-triangle-exclamation" style="color:#ef4444;"></i> Geocoding Failed (${failedStops.length} stops need review):</strong> ` + failedStops.map(f => `<span>#${f.id} <strong>${f.name || 'Stop'}</strong></span>`).join(', ') + `. Assigned temporary coordinates; drag markers or edit stop to position accurately.`);
+                    }
+                    if (coordWarnings.length > 0) {
+                        items.push(`<strong><i class="fa-solid fa-clone" style="color:#d97706;"></i> Identical Coordinates Notice:</strong> ` + coordWarnings.map(w => `<span>${w.warning}</span>`).join('; '));
+                    }
+                    warnDetails.innerHTML = items.join('<br>');
                 }
             } else {
                 if (distWarnBadge) distWarnBadge.style.display = 'none';
@@ -954,12 +977,18 @@
                     let popupHtml = `<div class="map-popup-card">`;
                     customersHere.forEach(c => {
                         let isDone = c.status === 'COMPLETED';
+                        let q = (c.geocode_quality || 'EXACT').toUpperCase();
+                        let qBadge = q === 'FAILED' ? '<span style="color:#ef4444; font-weight:700; font-size:11px;">[Needs Review]</span>' : (q === 'APPROXIMATE' ? '<span style="color:#d97706; font-weight:700; font-size:11px;">[Approx]</span>' : '<span style="color:#10b981; font-weight:700; font-size:11px;">[Exact]</span>');
                         popupHtml += `
                             <div style="margin-bottom:12px; border-bottom:1px solid var(--border); padding-bottom:12px;">
-                                <h4>${c.name}</h4>
-                                <p>
+                                <div style="display:flex; justify-content:space-between; align-items:center;">
+                                    <h4 style="margin:0;">${c.name} ${qBadge}</h4>
+                                    <button class="btn btn-sm" onclick="openEditCustomerModal(${c.id})" style="background:#e0e7ff; color:#4338ca; border:1px solid #c7d2fe; padding:2px 8px; border-radius:6px; font-weight:600; cursor:pointer;" title="Edit Stop Details or Coordinates"><i class="fa-solid fa-pen-to-square"></i> Edit</button>
+                                </div>
+                                <p style="margin-top:6px;">
                                     ${c.phone ? '<i class="fa-solid fa-phone"></i> ' + c.phone + '<br>' : ''}
-                                    ${c.address ? '<i class="fa-solid fa-location-dot"></i> ' + c.address : ''}
+                                    ${c.address ? '<i class="fa-solid fa-location-dot"></i> ' + c.address + '<br>' : ''}
+                                    <span style="font-size:11px; color:var(--text-muted);"><i class="fa-solid fa-crosshairs"></i> ${coord[0].toFixed(5)}, ${coord[1].toFixed(5)} (Drag pin to move)</span>
                                 </p>
                                 <button class="btn btn-sm ${isDone ? '' : 'btn-primary'}" onclick="markCompleted(${c.id})" ${isDone ? 'disabled style="background:var(--bg); color:var(--text-muted); border:1px solid var(--border);"' : ''}>
                                     ${isDone ? '<i class="fa-solid fa-check"></i> Completed' : 'Mark Completed'}
@@ -975,7 +1004,11 @@
                         </div>
                     `;
                     let customIcon = L.divIcon({ html: iconHtml, className: 'custom-div-icon', iconSize: null, iconAnchor: [12, 12] });
-                    L.marker(coord, { icon: customIcon }).bindPopup(popupHtml, {maxHeight: 350}).addTo(map);
+                    let stopMarker = L.marker(coord, { icon: customIcon, draggable: true }).bindPopup(popupHtml, {maxHeight: 350}).addTo(map);
+                    stopMarker.on('dragend', function(e) {
+                        let pos = e.target.getLatLng();
+                        openEditCustomerModal(customersHere[0].id, pos.lat, pos.lng);
+                    });
                 });
                 
                 latlngs.push(endCoord);
@@ -1062,6 +1095,18 @@
                                              'background:#eff6ff; color:#2F5FFF; border:1px solid #2F5FFF;')));
                                              
                             let confHtml = isDepot ? '' : `<span style="font-size:10px; font-weight:700; padding:2px 6px; border-radius:8px; margin-left:8px; ${badgeStyle}">${badgeText}</span>`;
+
+                            let q = (customer.geocode_quality || 'EXACT').toUpperCase();
+                            let qHtml = '';
+                            if (!isDepot) {
+                                if (q === 'FAILED') {
+                                    qHtml = `<span style="font-size:10px; font-weight:700; padding:2px 6px; border-radius:8px; margin-left:6px; background:#fef2f2; color:#ef4444; border:1px solid #ef4444;" title="Geocoding failed. Manual review needed."><i class="fa-solid fa-triangle-exclamation"></i> Needs Review</span>`;
+                                } else if (q === 'APPROXIMATE') {
+                                    qHtml = `<span style="font-size:10px; font-weight:700; padding:2px 6px; border-radius:8px; margin-left:6px; background:#fffbeb; color:#d97706; border:1px solid #f59e0b;" title="Approximate location from area/street geocode"><i class="fa-solid fa-location-crosshairs"></i> Approx</span>`;
+                                } else {
+                                    qHtml = `<span style="font-size:10px; font-weight:700; padding:2px 6px; border-radius:8px; margin-left:6px; background:#ecfdf5; color:#10b981; border:1px solid #10b981;" title="Exact coordinates"><i class="fa-solid fa-circle-check"></i> Exact</span>`;
+                                }
+                            }
                             
                             let isInactive = customer.customer_status === 'INACTIVE';
                             let itemStyle = isDepot ? '' : 'cursor: grab;';
@@ -1104,7 +1149,7 @@
                                     </div>
                                     <div class="stop-info" style="flex:1;">
                                         <div style="display:flex; justify-content:space-between; align-items:flex-start;">
-                                            <div class="stop-name" style="display:flex; align-items:center; ${nameDec}">${displayName}${confHtml}</div>
+                                            <div class="stop-name" style="display:flex; align-items:center; flex-wrap:wrap; gap:4px; ${nameDec}">${displayName}${confHtml}${qHtml}</div>
                                             ${!isDone && !isDepot ? `
                                                 <div style="display:flex; align-items:center; gap:2px; margin-left:8px;">
                                                     <button onclick="openEditCustomerModal(${customer.id})" style="background:none; border:none; color:#4f46e5; cursor:pointer; padding:4px 6px; border-radius:6px; font-size:13px;" title="Edit Customer Details"><i class="fa-solid fa-pen-to-square"></i></button>
@@ -1647,7 +1692,7 @@
 
         
         
-        window.openEditCustomerModal = function(id) {
+        window.openEditCustomerModal = function(id, draggedLat, draggedLng) {
             if (!data || !data.customers) return;
             const c = data.customers.find(x => x.id === id || String(x.id) === String(id));
             if (!c) {
@@ -1659,6 +1704,8 @@
             document.getElementById('edit-cust-phone').value = c.phone || '';
             document.getElementById('edit-cust-address').value = c.address || '';
             document.getElementById('edit-cust-url').value = c.location_url || (c.lat && c.lng ? `${c.lat}, ${c.lng}` : '');
+            document.getElementById('edit-cust-lat').value = (draggedLat !== undefined && draggedLat !== null) ? Number(draggedLat).toFixed(6) : (c.lat !== null && c.lat !== undefined ? c.lat : '');
+            document.getElementById('edit-cust-lng').value = (draggedLng !== undefined && draggedLng !== null) ? Number(draggedLng).toFixed(6) : (c.lng !== null && c.lng !== undefined ? c.lng : '');
             document.getElementById('edit-cust-status').value = (c.customer_status || 'ACTIVE').toUpperCase() === 'INACTIVE' ? 'INACTIVE' : 'ACTIVE';
             document.getElementById('edit-cust-conf').value = c.confirmation || 'NOT_CONFIRMED';
             
@@ -1675,6 +1722,8 @@
             const phone = document.getElementById('edit-cust-phone').value.trim();
             const address = document.getElementById('edit-cust-address').value.trim();
             const location_url = document.getElementById('edit-cust-url').value.trim();
+            const latStr = document.getElementById('edit-cust-lat').value.trim();
+            const lngStr = document.getElementById('edit-cust-lng').value.trim();
             const customer_status = document.getElementById('edit-cust-status').value;
             const confirmation = document.getElementById('edit-cust-conf').value;
             
@@ -1689,18 +1738,24 @@
             btn.innerHTML = '<i class="fa-solid fa-circle-notch fa-spin"></i> Saving...';
             
             try {
+                let payload = {
+                    id: id,
+                    name: name,
+                    phone: phone,
+                    address: address,
+                    location_url: location_url,
+                    customer_status: customer_status,
+                    confirmation: confirmation
+                };
+                if (latStr !== "" && lngStr !== "") {
+                    payload.lat = parseFloat(latStr);
+                    payload.lng = parseFloat(lngStr);
+                    payload.geocode_quality = 'EXACT';
+                }
                 let res = await fetch('/api/update_customer_details', {
                     method: 'POST',
                     headers: {'Content-Type': 'application/json'},
-                    body: JSON.stringify({
-                        id: id,
-                        name: name,
-                        phone: phone,
-                        address: address,
-                        location_url: location_url,
-                        customer_status: customer_status,
-                        confirmation: confirmation
-                    })
+                    body: JSON.stringify(payload)
                 });
                 let result = await res.json();
                 if (result.success) {

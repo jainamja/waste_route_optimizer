@@ -94,6 +94,7 @@ class Customer(db.Model):
     stop_number = db.Column(db.Integer)
     confirmation = db.Column(db.String(20), default='NOT_CONFIRMED')
     customer_status = db.Column(db.String(20), default='ACTIVE')
+    geocode_quality = db.Column(db.String(20), default='EXACT')
 
 class Metadata(db.Model):
     __tablename__ = 'metadata_store'
@@ -140,6 +141,12 @@ with app.app_context():
         
     try:
         db.session.execute(text("ALTER TABLE customers ADD COLUMN customer_status VARCHAR(20) DEFAULT 'ACTIVE';"))
+        db.session.commit()
+    except:
+        db.session.rollback()
+
+    try:
+        db.session.execute(text("ALTER TABLE customers ADD COLUMN geocode_quality VARCHAR(20) DEFAULT 'EXACT';"))
         db.session.commit()
     except:
         db.session.rollback()
@@ -275,6 +282,110 @@ def extract_lat_lng(coord_str):
     match = re.search(r'(-?\d+(?:\.\d+)?)\s*,\s*(-?\d+(?:\.\d+)?)', str(coord_str).strip())
     return (float(match.group(1)), float(match.group(2))) if match else (None, None)
 
+def clean_address_for_geocoding(addr):
+    if not addr or not isinstance(addr, str):
+        return ''
+    s = re.sub(r'[\r\n\t]+', ' ', addr.strip())
+    pin_match = re.search(r'\b(38\d{4})\b', s)
+    pincode = pin_match.group(1) if pin_match else None
+    
+    # Strip leading flat/block/house/plot/shop/office numbers (e.g. '1760,', 'F /54,', 'B/303,')
+    s = re.sub(r'^\s*(?:flat|block|house|plot|shop|office|room|survey)?\s*[a-z0-9/-]+\s*,\s*', '', s, flags=re.I)
+    
+    # Strip landmark clauses: 'b/h gota uhc', 'opp revati tower', 'nr. iscon cross road'
+    s = re.sub(r'\b(?:b/h|behind|opp|opposite|nr\.?|near|next\s+to|beside)\s+[^,]+,?', '', s, flags=re.I)
+    
+    # Fix typo 'ARE' -> 'Area'
+    s = re.sub(r'\bARE\b', 'Area', s, flags=re.I)
+    
+    # Clean up commas and spaces
+    s = re.sub(r'\s*,\s*', ', ', s)
+    s = re.sub(r',\s*,+', ', ', s)
+    s = re.sub(r'\s+', ' ', s).strip(' ,')
+    
+    # Append city context if missing
+    if 'ahmedabad' not in s.lower() and 'gujarat' not in s.lower():
+        suffix = f', Ahmedabad, Gujarat {pincode}, India' if pincode else ', Ahmedabad, Gujarat, India'
+        s += suffix
+    elif pincode and pincode not in s:
+        s += f' {pincode}'
+    return s.strip()
+
+def geocode_address_robust(addr):
+    if not addr or not isinstance(addr, str) or not addr.strip():
+        return None, None, 'FAILED'
+        
+    cleaned = clean_address_for_geocoding(addr)
+    
+    # 1. Optional Google Maps API (if GMAPS_API_KEY is set)
+    gkey = os.environ.get('GMAPS_API_KEY')
+    if gkey:
+        try:
+            import requests
+            params = {
+                'address': cleaned,
+                'key': gkey,
+                'components': 'country:IN',
+                'bounds': '22.90,72.42|23.18,72.72'
+            }
+            res = requests.get('https://maps.googleapis.com/maps/api/geocode/json', params=params, timeout=5).json()
+            if res.get('status') == 'OK' and res.get('results'):
+                first = res['results'][0]
+                loc = first['geometry']['location']
+                glat, glng = loc['lat'], loc['lng']
+                loc_type = first['geometry'].get('location_type', 'APPROXIMATE')
+                types = first.get('types', [])
+                if 'locality' not in types and 'country' not in types and 'administrative_area_level_1' not in types:
+                    if 22.90 <= glat <= 23.18 and 72.42 <= glng <= 72.72:
+                        qual = 'EXACT' if loc_type in ['ROOFTOP', 'RANGE_INTERPOLATED'] else 'APPROXIMATE'
+                        return glat, glng, qual
+        except Exception as ge:
+            print(f"Google Geocode error: {ge}")
+
+    # 2. ArcGIS with centroid rejection and bounds validation
+    try:
+        from geopy.geocoders import ArcGIS
+        arc = ArcGIS()
+        queries = [cleaned]
+        raw_ahmedabad = addr.strip() + ', Ahmedabad, Gujarat, India' if 'ahmedabad' not in addr.lower() else addr.strip()
+        if raw_ahmedabad not in queries:
+            queries.append(raw_ahmedabad)
+            
+        parts = [p.strip() for p in cleaned.split(',') if p.strip()]
+        for k in [4, 3]:
+            if len(parts) > k:
+                sub_q = ", ".join(parts[-k:])
+                if sub_q not in queries:
+                    queries.append(sub_q)
+                    
+        for q in queries:
+            try:
+                loc = arc.geocode(q, timeout=5)
+                if loc:
+                    clat, clng = loc.latitude, loc.longitude
+                    raw = loc.raw or {}
+                    score = raw.get('score', 0)
+                    addr_type = raw.get('attributes', {}).get('Addr_type', '')
+                    matched_addr = loc.address.strip() if hasattr(loc, 'address') and loc.address else ''
+                    
+                    # Reject city centroid fallbacks (Jamalpur / central Ahmedabad fallback)
+                    if matched_addr in ['Ahmedabad, Gujarat', 'Ahmedabad', 'Ahmedabad, India'] or addr_type == 'City':
+                        continue
+                    if abs(clat - 23.0145) < 0.003 and abs(clng - 72.5918) < 0.003:
+                        continue
+                        
+                    # Validate within Ahmedabad metro bounds
+                    if 22.90 <= clat <= 23.18 and 72.42 <= clng <= 72.72:
+                        qual = 'EXACT' if (score >= 85 and addr_type in ['PointAddress', 'StreetAddress', 'StreetName']) else 'APPROXIMATE'
+                        return clat, clng, qual
+            except Exception:
+                pass
+    except Exception as ae:
+        print(f"ArcGIS geocode error: {ae}")
+
+    return None, None, 'FAILED'
+
+
 def read_data_file(filepath):
     ext = os.path.splitext(filepath)[1].lower()
     df = None
@@ -407,7 +518,10 @@ def read_data_file(filepath):
             if coord_col: lat, lng = extract_lat_lng(row[coord_col])
             elif lat_col and lng_col: lat, lng = row[lat_col], row[lng_col]
                 
-        if lat is None or lng is None:
+        geocode_quality = 'EXACT'
+        if lat is not None and lng is not None:
+            geocode_quality = 'EXACT'
+        elif lat is None or lng is None:
             address = str(row.get(address_col)) if address_col and not pd.isna(row.get(address_col)) else ""
             
             # Fix shifted Address
@@ -425,71 +539,16 @@ def read_data_file(filepath):
                 lng = None
 
             if address:
-                search_query = str(address)
-                if "ahmedabad" not in search_query.lower() and "gujarat" not in search_query.lower():
-                    search_query += ", Ahmedabad, Gujarat, India"
-                gmaps_key = os.environ.get('GMAPS_API_KEY')
-                if gmaps_key:
-                    try:
-                        import requests
-                        g_res = requests.get('https://maps.googleapis.com/maps/api/geocode/json', params={'address': search_query, 'key': gmaps_key}).json()
-                        if g_res.get('status') == 'OK':
-                            glat = g_res['results'][0]['geometry']['location']['lat']
-                            glng = g_res['results'][0]['geometry']['location']['lng']
-                            if 8.0 <= glat <= 38.0 and 68.0 <= glng <= 98.0:
-                                if "ahmedabad" in search_query.lower():
-                                    if 22.4 <= glat <= 23.6 and 72.0 <= glng <= 73.1:
-                                        lat, lng = glat, glng
-                                else:
-                                    lat, lng = glat, glng
-                    except Exception as e: print(f"GMAPS Geocode Error: {e}")
-                if lat is None or lng is None:
-                    try:
-                        from geopy.geocoders import Nominatim
-                        nom = Nominatim(user_agent="waste_route_123")
-                        parts = [p.strip() for p in search_query.split(',')]
-                        queries = [search_query]
-                        # Only keep queries that retain street/local area details (never drop down to just City, State, Country)
-                        for k in [5, 4]:
-                            if len(parts) > k:
-                                cand_q = ", ".join(parts[-k:])
-                                if cand_q not in queries:
-                                    queries.append(cand_q)
-                          
-                        for short_q in queries:
-                            try:
-                                loc = nom.geocode(short_q, timeout=3)
-                                if loc:
-                                    clat, clng = loc.latitude, loc.longitude
-                                    if 8.0 <= clat <= 38.0 and 68.0 <= clng <= 98.0:
-                                        if "ahmedabad" in search_query.lower():
-                                            if 22.4 <= clat <= 23.6 and 72.0 <= clng <= 73.1:
-                                                lat, lng = clat, clng
-                                                break
-                                        else:
-                                            lat, lng = clat, clng
-                                            break
-                            except: pass
-                              
-                        # If still none, fallback to progressive ArcGIS with same bounds check
-                        if lat is None or lng is None:
-                            from geopy.geocoders import ArcGIS
-                            arc = ArcGIS()
-                            for short_q in queries:
-                                try:
-                                    loc = arc.geocode(short_q, timeout=3)
-                                    if loc:
-                                        clat, clng = loc.latitude, loc.longitude
-                                        if 8.0 <= clat <= 38.0 and 68.0 <= clng <= 98.0:
-                                            if "ahmedabad" in search_query.lower():
-                                                if 22.4 <= clat <= 23.6 and 72.0 <= clng <= 73.1:
-                                                    lat, lng = clat, clng
-                                                    break
-                                            else:
-                                                lat, lng = clat, clng
-                                                break
-                                except: pass
-                    except: pass
+                glat, glng, qual = geocode_address_robust(address)
+                if glat is not None and glng is not None:
+                    lat, lng = glat, glng
+                    geocode_quality = qual
+                else:
+                    lat, lng = 23.0225, 72.5714
+                    geocode_quality = 'FAILED'
+            else:
+                lat, lng = 23.0225, 72.5714
+                geocode_quality = 'FAILED'
             
         try:
             try:
@@ -524,7 +583,12 @@ def read_data_file(filepath):
                 except (ValueError, TypeError):
                     waste_val = 0
 
-            lat, lng = float(lat), float(lng)
+            try:
+                lat, lng = float(lat), float(lng)
+            except (ValueError, TypeError):
+                lat, lng = 23.0225, 72.5714
+                geocode_quality = 'FAILED'
+
             if not pd.isna(lat) and not pd.isna(lng):
                 customers.append({
                     'id': sr_id,
@@ -536,7 +600,8 @@ def read_data_file(filepath):
                     'lng': lng,
                     'waste_kg': waste_val,
                     'status': 'PENDING',
-                    'customer_status': 'ACTIVE'
+                    'customer_status': 'ACTIVE',
+                    'geocode_quality': geocode_quality
                 })
         except (ValueError, TypeError):
             pass
@@ -1126,7 +1191,9 @@ def upload():
             id=cid, name=c['name'], phone=c['phone'], address=c['address'],
             location_url=c['location_url'], lat=c['lat'], lng=c['lng'],
             status=c.get('status', 'PENDING'), truck_id=truck_val, stop_number=c.get('stop_number'),
-            confirmation=c.get('confirmation', 'NOT_CONFIRMED')
+            confirmation=c.get('confirmation', 'NOT_CONFIRMED'),
+            customer_status=c.get('customer_status', 'ACTIVE'),
+            geocode_quality=c.get('geocode_quality', 'EXACT')
         )
         db.session.add(new_cust)
         
@@ -1391,7 +1458,8 @@ def admin_set_driver_truck():
                         location_url=c.get('location_url'), lat=c['lat'], lng=c['lng'],
                         status='PENDING', truck_id=tid, stop_number=c.get('stop_number'),
                         confirmation=c.get('confirmation', 'NOT_CONFIRMED'),
-                        customer_status=c.get('customer_status', 'ACTIVE')
+                        customer_status=c.get('customer_status', 'ACTIVE'),
+                        geocode_quality=c.get('geocode_quality', 'EXACT')
                     )
                     db.session.add(new_cust)
     elif old_truck and not tid:
@@ -1775,7 +1843,8 @@ def get_data():
             'location_url': r.location_url, 'lat': r.lat, 'lng': r.lng,
             'status': r.status, 'truck': r.truck_id, 'stop_number': r.stop_number,
             'confirmation': r.confirmation if r.confirmation else 'NOT_CONFIRMED',
-            'customer_status': getattr(r, 'customer_status', 'ACTIVE') or 'ACTIVE'
+            'customer_status': getattr(r, 'customer_status', 'ACTIVE') or 'ACTIVE',
+            'geocode_quality': getattr(r, 'geocode_quality', 'EXACT') or 'EXACT'
         })
         t_id = r.truck_id
         if t_id not in routes_dict: routes_dict[t_id] = []
@@ -1813,6 +1882,25 @@ def get_data():
             'assigned_template_name': assigned_name
         })
 
+    coord_counts = {}
+    for c in customers:
+        if c.get('lat') is not None and c.get('lng') is not None:
+            key = (round(float(c['lat']), 5), round(float(c['lng']), 5))
+            coord_counts.setdefault(key, []).append(c)
+
+    identical_coord_warnings = []
+    for (clat, clng), custs in coord_counts.items():
+        if len(custs) >= 3:
+            names = [f"#{c.get('id')} {c.get('name', 'Customer')}" for c in custs]
+            identical_coord_warnings.append({
+                'lat': clat,
+                'lng': clng,
+                'count': len(custs),
+                'customer_ids': [c.get('id') for c in custs],
+                'customer_names': [c.get('name') for c in custs],
+                'warning': f"{len(custs)} stops share identical coordinates ({clat}, {clng}): {', '.join(names[:3])}{'...' if len(custs) > 3 else ''}"
+            })
+
     return jsonify({
         'customers': customers,
         'routes': routes,
@@ -1825,7 +1913,8 @@ def get_data():
         'is_from_template': metadata.get('is_from_template') == 'true',
         'current_template_id': metadata.get('current_template_id'),
         'current_template_name': metadata.get('current_template_name'),
-        'outlier_warnings': json.loads(metadata.get('outlier_warnings', '[]'))
+        'outlier_warnings': json.loads(metadata.get('outlier_warnings', '[]')),
+        'identical_coord_warnings': identical_coord_warnings
     })
 
 @app.route('/api/mark_completed/<int:customer_id>', methods=['POST'])
@@ -2051,6 +2140,7 @@ def add_stop():
     location_url = data.get('location_url', '')
     
     lat_val, lng_val = data.get('lat'), data.get('lng')
+    geocode_quality = 'EXACT'
     if lat_val is not None and lng_val is not None:
         try: lat, lng = float(lat_val), float(lng_val)
         except ValueError: lat, lng = None, None
@@ -2068,6 +2158,7 @@ def add_stop():
                 c_lat, c_lng = extract_lat_lng(candidate)
                 if c_lat is not None and c_lng is not None and (8.0 <= c_lat <= 38.0) and (68.0 <= c_lng <= 98.0):
                     lat, lng = c_lat, c_lng
+                    geocode_quality = 'EXACT'
                     break
 
     # 2. Extract from Google Maps URL (or shortlink)
@@ -2076,75 +2167,18 @@ def add_stop():
             url_match = re.search(r'(https?://[^\s]+)', str(location_url))
             if url_match:
                 lat, lng = resolve_gmaps_url(url_match.group(1))
+                if lat is not None and lng is not None:
+                    geocode_quality = 'EXACT'
             
     if lat is None and isinstance(lng, str):
         address = lng
         lng = None
         
     if (lat is None or lng is None) and address:
-        search_query = str(address)
-        if "ahmedabad" not in search_query.lower() and "gujarat" not in search_query.lower():
-            search_query += ", Ahmedabad, Gujarat, India"
-        gmaps_key = os.environ.get('GMAPS_API_KEY')
-        if gmaps_key:
-            try:
-                import requests
-                g_res = requests.get('https://maps.googleapis.com/maps/api/geocode/json', params={'address': search_query, 'key': gmaps_key}).json()
-                if g_res.get('status') == 'OK':
-                    glat = g_res['results'][0]['geometry']['location']['lat']
-                    glng = g_res['results'][0]['geometry']['location']['lng']
-                    if 8.0 <= glat <= 38.0 and 68.0 <= glng <= 98.0:
-                        if "ahmedabad" in search_query.lower():
-                            if 22.4 <= glat <= 23.6 and 72.0 <= glng <= 73.1:
-                                lat, lng = glat, glng
-                        else:
-                            lat, lng = glat, glng
-            except Exception as e: print(f"GMAPS Geocode Error: {e}")
-        if lat is None or lng is None:
-            try:
-                from geopy.geocoders import Nominatim
-                nom = Nominatim(user_agent="waste_route_optim_ahmedabad_1")
-                parts = [p.strip() for p in search_query.split(',')]
-                queries = [search_query]
-                for k in [5, 4]:
-                    if len(parts) > k:
-                        cand_q = ", ".join(parts[-k:])
-                        if cand_q not in queries:
-                            queries.append(cand_q)
-                  
-                for short_q in queries:
-                    try:
-                        loc = nom.geocode(short_q, timeout=3)
-                        if loc:
-                            clat, clng = loc.latitude, loc.longitude
-                            if 8.0 <= clat <= 38.0 and 68.0 <= clng <= 98.0:
-                                if "ahmedabad" in search_query.lower():
-                                    if 22.4 <= clat <= 23.6 and 72.0 <= clng <= 73.1:
-                                        lat, lng = clat, clng
-                                        break
-                                else:
-                                    lat, lng = clat, clng
-                                    break
-                    except: pass
-                      
-                if lat is None or lng is None:
-                    from geopy.geocoders import ArcGIS
-                    arc = ArcGIS()
-                    for short_q in queries:
-                        try:
-                            loc = arc.geocode(short_q, timeout=3)
-                            if loc:
-                                clat, clng = loc.latitude, loc.longitude
-                                if 8.0 <= clat <= 38.0 and 68.0 <= clng <= 98.0:
-                                    if "ahmedabad" in search_query.lower():
-                                        if 22.4 <= clat <= 23.6 and 72.0 <= clng <= 73.1:
-                                            lat, lng = clat, clng
-                                            break
-                                    else:
-                                        lat, lng = clat, clng
-                                        break
-                        except: pass
-            except: pass
+        glat, glng, qual = geocode_address_robust(address)
+        if glat is not None and glng is not None:
+            lat, lng = glat, glng
+            geocode_quality = qual
         
     if lat is None or lng is None:
         return jsonify({'error': 'Could not resolve coordinates from the provided URL or Address.'}), 400
@@ -2169,7 +2203,7 @@ def add_stop():
                 id=new_id, name=name, phone=phone, address=address,
                 location_url=location_url, lat=lat, lng=lng,
                 status='PENDING', truck_id=target_truck_id, stop_number=target_sequence + 1,
-                confirmation='NOT_CONFIRMED'
+                confirmation='NOT_CONFIRMED', geocode_quality=geocode_quality
             )
             db.session.add(new_cust)
             db.session.commit()
@@ -2212,7 +2246,7 @@ def add_stop():
             new_cust = Customer(
                 id=new_id, name=name, phone=phone, address=address,
                 location_url=location_url, lat=lat, lng=lng, status='PENDING',
-                confirmation='NOT_CONFIRMED'
+                confirmation='NOT_CONFIRMED', geocode_quality=geocode_quality
             )
             db.session.add(new_cust)
             db.session.commit()
@@ -2652,8 +2686,12 @@ def update_customer_details():
         try:
             c.lat = float(data.get('lat'))
             c.lng = float(data.get('lng'))
+            c.geocode_quality = 'EXACT'
         except:
             pass
+
+    if 'geocode_quality' in data and data.get('geocode_quality'):
+        c.geocode_quality = str(data.get('geocode_quality')).upper()
             
     try:
         db.session.commit()
@@ -2681,6 +2719,7 @@ def update_customer_details():
                         if c.lng is not None: tc['lng'] = c.lng
                         tc['customer_status'] = c.customer_status
                         tc['confirmation'] = c.confirmation
+                        tc['geocode_quality'] = getattr(c, 'geocode_quality', 'EXACT') or 'EXACT'
                         updated_tmpl = True
                         break
                 if updated_tmpl:
@@ -2837,6 +2876,8 @@ def assign_route():
             status='PENDING', truck_id=driver.truck_id, stop_number=c.get('stop_number'),
             confirmation=c.get('confirmation', 'NOT_CONFIRMED'),
             customer_status=c.get('customer_status', 'ACTIVE')
+        ,
+            geocode_quality=c.get('geocode_quality', 'EXACT')
         )
         db.session.add(new_cust)
         
@@ -2930,7 +2971,8 @@ def save_template():
         'location_url': c.location_url, 'lat': c.lat, 'lng': c.lng,
         'status': c.status, 'truck_id': c.truck_id, 'stop_number': c.stop_number,
         'confirmation': c.confirmation if c.confirmation else 'NOT_CONFIRMED',
-        'customer_status': getattr(c, 'customer_status', 'ACTIVE') or 'ACTIVE'
+        'customer_status': getattr(c, 'customer_status', 'ACTIVE') or 'ACTIVE',
+        'geocode_quality': getattr(c, 'geocode_quality', 'EXACT') or 'EXACT'
     } for c in cust_rows]
     
     if not t and not target_is_assigned:
@@ -3001,6 +3043,8 @@ def save_template():
                         status=c.get('status', 'PENDING'), truck_id=d.truck_id, stop_number=c.get('stop_number'),
                         confirmation=c.get('confirmation', 'NOT_CONFIRMED'),
                         customer_status=c.get('customer_status', 'ACTIVE')
+                    ,
+                        geocode_quality=c.get('geocode_quality', 'EXACT')
                     )
                     db.session.add(new_cust)
                 db.session.commit()
@@ -3113,6 +3157,8 @@ def get_assigned_routes():
                         status=c.get('status', 'PENDING'), truck_id=d.truck_id, stop_number=c.get('stop_number'),
                         confirmation=c.get('confirmation', 'NOT_CONFIRMED'),
                         customer_status=c.get('customer_status', 'ACTIVE')
+                    ,
+                        geocode_quality=c.get('geocode_quality', 'EXACT')
                     )
                     db.session.add(new_cust)
                 db.session.commit()
@@ -3410,6 +3456,8 @@ def deploy_template(t_id):
             status='PENDING', truck_id=new_tid, stop_number=c.get('stop_number'),
             confirmation=c.get('confirmation', 'NOT_CONFIRMED'),
             customer_status=c.get('customer_status', 'ACTIVE')
+        ,
+            geocode_quality=c.get('geocode_quality', 'EXACT')
         )
         db.session.add(new_cust)
         deployed_customers.append({
