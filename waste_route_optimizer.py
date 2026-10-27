@@ -17,25 +17,10 @@ from dotenv import load_dotenv
 # Load environment variables from .env file
 load_dotenv()
 
-FIREBASE_API_KEY = os.getenv("FIREBASE_API_KEY", "AIzaSyAhLnjh0gRa2pf29G90zr-6AMcjLjbQpPg")
-FIREBASE_DB_URL = os.getenv("FIREBASE_DB_URL", "https://wasteroutelive-default-rtdb.firebaseio.com").rstrip('/')
+from firebase_client import FirebaseClient, firebase_client, get_firebase_token
 
-
-_firebase_token_cache = {"token": None, "expires": 0}
-def get_firebase_token():
-    import time, requests
-    global _firebase_token_cache
-    if _firebase_token_cache["token"] and time.time() < _firebase_token_cache["expires"]:
-        return _firebase_token_cache["token"]
-        
-    API_KEY = FIREBASE_API_KEY
-    auth_url = f"https://identitytoolkit.googleapis.com/v1/accounts:signUp?key={API_KEY}"
-    auth_res = requests.post(auth_url, json={"returnSecureToken": True})
-    if auth_res.status_code == 200:
-        _firebase_token_cache["token"] = auth_res.json().get('idToken')
-        _firebase_token_cache["expires"] = time.time() + 3000 # 50 minutes
-        return _firebase_token_cache["token"]
-    return None
+FIREBASE_API_KEY = firebase_client.api_key
+FIREBASE_DB_URL = firebase_client.db_url
 
 app = Flask(__name__)
 
@@ -1120,73 +1105,58 @@ def upload():
 
     # INSERT TO FIREBASE
     try:
-        import requests
-        firebase_url = FIREBASE_DB_URL
-        
-        id_token = get_firebase_token()
-        if id_token:
-            
-            # Clear only non-protected old data in Firebase
-            trucks_res = requests.get(f"{firebase_url}/trucks.json?auth={id_token}")
-            if trucks_res.status_code == 200 and trucks_res.json():
-                trucks_data = trucks_res.json()
-                trucks_items = trucks_data.items() if isinstance(trucks_data, dict) else enumerate(trucks_data) if isinstance(trucks_data, list) else []
-                for tid, val in trucks_items:
-                    if val is not None:
-                        try:
-                            if int(tid) in protected_trucks:
-                                continue
-                        except:
-                            pass
-                        requests.delete(f"{firebase_url}/trucks/{tid}.json?auth={id_token}")
-                    
-            routes_res = requests.get(f"{firebase_url}/routes.json?auth={id_token}")
-            if routes_res.status_code == 200 and routes_res.json():
-                routes_data = routes_res.json()
-                routes_items = routes_data.items() if isinstance(routes_data, dict) else enumerate(routes_data) if isinstance(routes_data, list) else []
-                for rid, val in routes_items:
-                    if val is not None:
-                        try:
-                            tid_num = int(str(rid).replace('route_', ''))
-                            if tid_num in protected_trucks:
-                                continue
-                        except:
-                            pass
-                        requests.delete(f"{firebase_url}/routes/{rid}.json?auth={id_token}")
-            
-            # Group updates by route
-            routes_payload = {}
-            for c in customers_data:
-                tid = c.get('truck')
-                if tid:
-                    route_key = f"route_{tid}"
-                    if route_key not in routes_payload: routes_payload[route_key] = {}
-                    
-                    routes_payload[route_key][str(c['id'])] = {
-                        "name": c['name'],
-                        "address": c['address'],
-                        "phone": c.get('phone', ''),
-                        "lat": c['lat'],
-                        "lng": c['lng'],
-                        "sequence": c.get('stop_number', None),
-                        "status": "PENDING",
-                        "confirmation": c.get("confirmation", "NOT_CONFIRMED"),
-                        "customer_status": c.get("customer_status", "ACTIVE")
-                    }
-                    
-            for route_key, stops in routes_payload.items():
-                res = requests.put(f"{firebase_url}/routes/{route_key}.json?auth={id_token}", json={"stops": stops})
-                if res.status_code != 200:
-                    print(f"Failed to write {route_key}: {res.text}")
-                    
-                # also init the truck so it exists for tracking
-                tid = route_key.split('_')[1]
-                requests.put(f"{firebase_url}/trucks/{tid}.json?auth={id_token}", json={"status": "offline"})
-        else:
-            print("Backend Firebase Auth failed:", auth_res.text)
-            
+        # Clear only non-protected old data in Firebase
+        trucks_data = firebase_client.get_trucks()
+        trucks_items = trucks_data.items() if isinstance(trucks_data, dict) else enumerate(trucks_data) if isinstance(trucks_data, list) else []
+        for tid, val in trucks_items:
+            if val is not None:
+                try:
+                    if int(tid) in protected_trucks:
+                        continue
+                except Exception:
+                    pass
+                firebase_client.delete_truck(tid)
+
+        routes_data = firebase_client.get_routes()
+        routes_items = routes_data.items() if isinstance(routes_data, dict) else enumerate(routes_data) if isinstance(routes_data, list) else []
+        for rid, val in routes_items:
+            if val is not None:
+                try:
+                    tid_num = int(str(rid).replace('route_', ''))
+                    if tid_num in protected_trucks:
+                        continue
+                except Exception:
+                    pass
+                firebase_client.delete_route(rid)
+
+        # Group updates by route
+        routes_payload = {}
+        for c in customers_data:
+            tid = c.get('truck')
+            if tid:
+                route_key = f"route_{tid}"
+                if route_key not in routes_payload:
+                    routes_payload[route_key] = {}
+
+                routes_payload[route_key][str(c['id'])] = {
+                    "name": c['name'],
+                    "address": c['address'],
+                    "phone": c.get('phone', ''),
+                    "lat": c['lat'],
+                    "lng": c['lng'],
+                    "sequence": c.get('stop_number', None),
+                    "status": "PENDING",
+                    "confirmation": c.get("confirmation", "NOT_CONFIRMED"),
+                    "customer_status": c.get("customer_status", "ACTIVE")
+                }
+
+        for route_key, stops in routes_payload.items():
+            firebase_client.set_route_stops(route_key, stops)
+            # also init the truck so it exists for tracking
+            tid = route_key.split('_')[1]
+            firebase_client.put_truck(tid, {"status": "offline"})
     except Exception as e:
-        print("Firebase sync error:", e)
+        print("Firebase sync error in upload:", e)
 
 
     return redirect(url_for('route_dashboard'))
@@ -1609,22 +1579,14 @@ def driver_view():
 
 def sync_firebase_to_sql(template_id=None):
     try:
-        import requests
-        firebase_url = FIREBASE_DB_URL
-        id_token = get_firebase_token()
-        if not id_token:
-            return
-        
         # Determine which truck IDs we need to sync
         truck_ids_to_sync = None
         if template_id:
             drivers = User.query.filter_by(assigned_template_id=template_id).all()
             truck_ids_to_sync = [str(d.truck_id) for d in drivers] if drivers else []
         
-        res = requests.get(f"{firebase_url}/routes.json?auth={id_token}", timeout=8)
-        if res.status_code == 200:
-            routes_data = res.json()
-            if routes_data:
+        routes_data = firebase_client.get_routes()
+        if routes_data:
                 for route_key, route_info in routes_data.items():
                     if not route_key.startswith('route_'): continue
                     tid_str = route_key.split('_')[1]
@@ -1846,12 +1808,8 @@ def mark_completed(customer_id):
 
     # Sync to Firebase
     try:
-        import requests
-        firebase_url = FIREBASE_DB_URL
-        
-        id_token = get_firebase_token()
-        if id_token and customer.truck_id:
-            requests.patch(f"{firebase_url}/routes/route_{customer.truck_id}/stops/{customer.id}.json?auth={id_token}", json={"status": "COMPLETED"})
+        if customer.truck_id:
+            firebase_client.mark_stop_status(customer.truck_id, customer.id, "COMPLETED")
     except Exception as e:
         print("Firebase sync error in mark_completed:", e)
         
@@ -3484,18 +3442,11 @@ def dynamic_recalculate():
     firebase_url = FIREBASE_DB_URL
     
     try:
-        # Authenticate anonymously as backend
-        id_token = get_firebase_token()
-        if not id_token:
-            return jsonify({'error': 'Backend auth failed'}), 500
-        
         # 1. Fetch current GPS for all trucks
-        trucks_res = requests.get(f"{firebase_url}/trucks.json?auth={id_token}")
-        trucks_data = trucks_res.json() or {}
+        trucks_data = firebase_client.get_trucks()
         
         # 2. Fetch all current routes
-        routes_res = requests.get(f"{firebase_url}/routes.json?auth={id_token}")
-        routes_data = routes_res.json() or {}
+        routes_data = firebase_client.get_routes()
         
         pending_customers = []
         truck_starts = []
@@ -3649,7 +3600,7 @@ def dynamic_recalculate():
                         
         # Now PUT the new assignments individually to clear out old orphaned pending stops on these active routes
         for route_key, stops in updates_by_route.items():
-            requests.put(f"{firebase_url}/routes/{route_key}/stops.json?auth={id_token}", json=stops)
+            firebase_client.update_route_stops_only(route_key, stops)
         
         # Update SQL Database so Excel reports stay perfectly synced with live routes
         try:
