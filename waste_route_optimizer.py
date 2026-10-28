@@ -43,10 +43,16 @@ def favicon():
 
 @app.errorhandler(Exception)
 def handle_exception(e):
+    try:
+        db.session.rollback()
+    except Exception:
+        pass
     if isinstance(e, HTTPException):
         return e
     import traceback
     return jsonify({'error': str(e), 'traceback': traceback.format_exc()}), 500
+
+
 
 CORS(app)
 app.config['UPLOAD_FOLDER'] = 'uploads'
@@ -187,10 +193,15 @@ with app.app_context():
         db.session.rollback()
 
     try:
-        db.session.execute(text("ALTER TABLE customers ADD COLUMN is_manually_corrected BOOLEAN DEFAULT 0;"))
+        db.session.execute(text("ALTER TABLE customers ADD COLUMN is_manually_corrected BOOLEAN DEFAULT FALSE;"))
         db.session.commit()
     except:
         db.session.rollback()
+        try:
+            db.session.execute(text("ALTER TABLE customers ADD COLUMN is_manually_corrected BOOLEAN DEFAULT 0;"))
+            db.session.commit()
+        except:
+            db.session.rollback()
 
     # Re-evaluate existing centroid and default rows to FAILED (clearing lat/lng so they are not plotted as real coordinates)
     try:
@@ -200,7 +211,7 @@ with app.app_context():
             WHERE (
                 (abs(lat - 23.0145) < 0.003 AND abs(lng - 72.5918) < 0.003)
                 OR (abs(lat - 23.0225) < 0.001 AND abs(lng - 72.5714) < 0.001)
-            ) AND (is_manually_corrected IS NULL OR is_manually_corrected = 0);
+            ) AND (is_manually_corrected IS NULL OR is_manually_corrected = FALSE);
         """))
         db.session.commit()
     except Exception as mig_e:
@@ -1063,6 +1074,10 @@ def ensure_driver_truck_assignments():
             except Exception as fb_e:
                 print("Firebase auto-sync truck error:", fb_e)
     except Exception as e:
+        try:
+            db.session.rollback()
+        except Exception:
+            pass
         print("ensure_driver_truck_assignments error:", e)
 
 @app.route('/api/drivers', methods=['GET'])
@@ -1839,6 +1854,10 @@ def sync_firebase_to_sql(template_id=None):
 
                 db.session.commit()
     except Exception as e:
+        try:
+            db.session.rollback()
+        except Exception:
+            pass
         print("Error syncing Firebase to SQL inside get_data:", e)
 
 @app.route('/api/data')
@@ -3189,10 +3208,29 @@ def get_assigned_routes():
     try:
         sync_firebase_to_sql()
     except Exception as e:
+        try:
+            db.session.rollback()
+        except Exception:
+            pass
         print("sync_firebase_to_sql error in get_assigned_routes:", e)
 
-    ensure_driver_truck_assignments()
-    drivers = User.query.filter(User.assigned_template_id != None, User.truck_id != None).all()
+    try:
+        ensure_driver_truck_assignments()
+    except Exception as e:
+        try:
+            db.session.rollback()
+        except Exception:
+            pass
+        print("ensure_driver_truck_assignments error in get_assigned_routes:", e)
+
+    try:
+        drivers = User.query.filter(User.assigned_template_id != None, User.truck_id != None).all()
+    except Exception as e:
+        try:
+            db.session.rollback()
+        except Exception:
+            pass
+        drivers = User.query.filter(User.assigned_template_id != None, User.truck_id != None).all()
     
     res = []
     for d in drivers:
