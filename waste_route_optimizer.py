@@ -1,5 +1,10 @@
 import os
 import json
+try:
+    from dotenv import load_dotenv
+    load_dotenv()
+except ImportError:
+    pass
 import re
 import pandas as pd
 from werkzeug.utils import secure_filename
@@ -21,7 +26,7 @@ def get_firebase_token():
     if _firebase_token_cache["token"] and time.time() < _firebase_token_cache["expires"]:
         return _firebase_token_cache["token"]
         
-    API_KEY = "AIzaSyAhLnjh0gRa2pf29G90zr-6AMcjLjbQpPg"
+    API_KEY = os.environ.get('FIREBASE_API_KEY', 'AIzaSyAhLnjh0gRa2pf29G90zr-6AMcjLjbQpPg')
     auth_url = f"https://identitytoolkit.googleapis.com/v1/accounts:signUp?key={API_KEY}"
     auth_res = requests.post(auth_url, json={"returnSecureToken": True})
     if auth_res.status_code == 200:
@@ -64,7 +69,7 @@ app.config['SQLALCHEMY_ENGINE_OPTIONS'] = {
 db = SQLAlchemy(app)
 
 
-app.secret_key = 'super_secret_waste_route_key_123'
+app.secret_key = os.environ.get('SECRET_KEY', 'super_secret_waste_route_key_123')
 if os.environ.get('RENDER') or os.environ.get('DATABASE_URL'):
     app.config.update(
         SESSION_COOKIE_SECURE=True,
@@ -237,11 +242,16 @@ with app.app_context():
         db.session.rollback()
         
     from werkzeug.security import generate_password_hash
+    admin_env_pass = os.environ.get('ADMIN_PASSWORD')
     admin_user = User.query.filter_by(username='admin').first()
     if not admin_user:
-        db.session.add(User(username='admin', password_hash=generate_password_hash('admin'), role='ADMIN'))
+        init_pass = admin_env_pass or 'admin'
+        db.session.add(User(username='admin', password_hash=generate_password_hash(init_pass), role='ADMIN'))
         for i in range(1, 11):
             db.session.add(User(username='driver'+str(i), password_hash=generate_password_hash('driver'+str(i)), role='DRIVER', truck_id=i))
+        db.session.commit()
+    elif admin_env_pass:
+        admin_user.password_hash = generate_password_hash(admin_env_pass)
         db.session.commit()
 
 def _save_url_coordinate_cache(url, lat, lng):
