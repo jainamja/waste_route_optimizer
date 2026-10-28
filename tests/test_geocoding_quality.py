@@ -185,59 +185,61 @@ def test_manual_correction_survives_reoptimize_and_template_redeploy():
         db.session.add(c)
         db.session.commit()
 
-        with app.test_client() as client:
-            with client.session_transaction() as sess:
-                sess['user_id'] = 1
-                sess['role'] = 'ADMIN'
+        try:
+            with patch('requests.patch') as mock_patch:
+                with app.test_client() as client:
+                    with client.session_transaction() as sess:
+                        sess['user_id'] = 1
+                        sess['role'] = 'ADMIN'
 
-            # 1. Admin manually adjusts pin
-            payload = {
-                "id": 9991,
-                "name": "Manual Move Cust",
-                "lat": 23.0850,
-                "lng": 72.5350
-            }
-            res_upd = client.post('/api/update_customer_details', json=payload)
-            assert res_upd.status_code == 200
+                    # 1. Admin manually adjusts pin
+                    payload = {
+                        "id": 9991,
+                        "name": "Manual Move Cust",
+                        "lat": 23.0850,
+                        "lng": 72.5350
+                    }
+                    res_upd = client.post('/api/update_customer_details', json=payload)
+                    assert res_upd.status_code == 200
 
-            updated = db.session.get(Customer, 9991)
-            assert updated.lat == pytest.approx(23.0850)
-            assert updated.lng == pytest.approx(72.5350)
-            assert updated.is_manually_corrected is True
-            assert updated.coord_source == "MANUAL"
-            assert updated.geocode_quality == "EXACT"
+                    updated = db.session.get(Customer, 9991)
+                    assert updated.lat == pytest.approx(23.0850)
+                    assert updated.lng == pytest.approx(72.5350)
+                    assert updated.is_manually_corrected is True
+                    assert updated.coord_source == "MANUAL"
+                    assert updated.geocode_quality == "EXACT"
 
-            # 2. Admin saves template
-            save_res = client.post('/api/save_template', json={
-                "name": "Manual_Correction_Test_Template",
-                "metadata": {"workspace_truck_ids": "[1]"}
-            })
-            assert save_res.status_code == 200
+                    # 2. Admin saves template
+                    save_res = client.post('/api/save_template', json={
+                        "name": "Manual_Correction_Test_Template",
+                        "metadata": {"workspace_truck_ids": "[1]"}
+                    })
+                    assert save_res.status_code == 200
 
-            tmpl = SavedTemplate.query.filter_by(name="Manual_Correction_Test_Template").first()
-            assert tmpl is not None
-            tmpl_custs = json.loads(tmpl.customers_json)
-            tc = next(x for x in tmpl_custs if x['id'] == 9991)
-            assert tc['lat'] == pytest.approx(23.0850)
-            assert tc['lng'] == pytest.approx(72.5350)
-            assert tc['is_manually_corrected'] is True
-            assert tc['coord_source'] == "MANUAL"
+                    tmpl = SavedTemplate.query.filter_by(name="Manual_Correction_Test_Template").first()
+                    assert tmpl is not None
+                    tmpl_custs = json.loads(tmpl.customers_json)
+                    tc = next(x for x in tmpl_custs if x['id'] == 9991)
+                    assert tc['lat'] == pytest.approx(23.0850)
+                    assert tc['lng'] == pytest.approx(72.5350)
+                    assert tc['is_manually_corrected'] is True
+                    assert tc['coord_source'] == "MANUAL"
 
-            # 3. Simulate deploying template to another truck
-            dep_res = client.post(f'/api/deploy_template/{tmpl.id}?mode=edit')
-            assert dep_res.status_code == 200
+                    # 3. Simulate deploying template to another truck
+                    dep_res = client.post(f'/api/deploy_template/{tmpl.id}?mode=edit')
+                    assert dep_res.status_code == 200
 
-            dep_cust = db.session.get(Customer, 9991)
-            assert dep_cust.lat == pytest.approx(23.0850)
-            assert dep_cust.lng == pytest.approx(72.5350)
-            assert dep_cust.is_manually_corrected is True
-            assert dep_cust.coord_source == "MANUAL"
-            assert dep_cust.geocode_quality == "EXACT"
-
-        # Cleanup
-        Customer.query.filter_by(id=9991).delete()
-        SavedTemplate.query.filter_by(name="Manual_Correction_Test_Template").delete()
-        db.session.commit()
+                    dep_cust = db.session.get(Customer, 9991)
+                    assert dep_cust.lat == pytest.approx(23.0850)
+                    assert dep_cust.lng == pytest.approx(72.5350)
+                    assert dep_cust.is_manually_corrected is True
+                    assert dep_cust.coord_source == "MANUAL"
+                    assert dep_cust.geocode_quality == "EXACT"
+        finally:
+            # Cleanup
+            Customer.query.filter_by(id=9991).delete()
+            SavedTemplate.query.filter_by(name="Manual_Correction_Test_Template").delete()
+            db.session.commit()
 
 
 def test_identical_coord_warnings_in_get_data():
