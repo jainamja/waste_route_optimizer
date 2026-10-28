@@ -89,6 +89,13 @@ class User(db.Model):
     name = db.Column(db.String(100))
     assigned_template_id = db.Column(db.Integer, nullable=True)
 
+class UrlCoordinateCache(db.Model):
+    __tablename__ = 'url_coordinate_cache'
+    url = db.Column(db.String(500), primary_key=True)
+    lat = db.Column(db.Float, nullable=False)
+    lng = db.Column(db.Float, nullable=False)
+    created_at = db.Column(db.DateTime, server_default=db.func.now())
+
 class Customer(db.Model):
     __tablename__ = 'customers'
     id = db.Column(db.BigInteger, primary_key=True)
@@ -103,6 +110,9 @@ class Customer(db.Model):
     stop_number = db.Column(db.Integer)
     confirmation = db.Column(db.String(20), default='NOT_CONFIRMED')
     customer_status = db.Column(db.String(20), default='ACTIVE')
+    geocode_quality = db.Column(db.String(20), default='UNKNOWN')
+    coord_source = db.Column(db.String(20), default='UNKNOWN')
+    is_manually_corrected = db.Column(db.Boolean, default=False)
 
 class Metadata(db.Model):
     __tablename__ = 'metadata_store'
@@ -158,6 +168,38 @@ with app.app_context():
         db.session.commit()
     except:
         db.session.rollback()
+
+    try:
+        db.session.execute(text("ALTER TABLE customers ADD COLUMN geocode_quality VARCHAR(20) DEFAULT 'UNKNOWN';"))
+        db.session.commit()
+    except:
+        db.session.rollback()
+
+    try:
+        db.session.execute(text("ALTER TABLE customers ADD COLUMN coord_source VARCHAR(20) DEFAULT 'UNKNOWN';"))
+        db.session.commit()
+    except:
+        db.session.rollback()
+
+    try:
+        db.session.execute(text("ALTER TABLE customers ADD COLUMN is_manually_corrected BOOLEAN DEFAULT 0;"))
+        db.session.commit()
+    except:
+        db.session.rollback()
+
+    # Re-evaluate existing centroid and default rows to FAILED (clearing lat/lng so they are not plotted as real coordinates)
+    try:
+        db.session.execute(text("""
+            UPDATE customers
+            SET geocode_quality = 'FAILED', lat = NULL, lng = NULL, coord_source = 'FAILED'
+            WHERE (
+                (abs(lat - 23.0145) < 0.003 AND abs(lng - 72.5918) < 0.003)
+                OR (abs(lat - 23.0225) < 0.001 AND abs(lng - 72.5714) < 0.001)
+            ) AND (is_manually_corrected IS NULL OR is_manually_corrected = 0);
+        """))
+        db.session.commit()
+    except Exception as mig_e:
+        db.session.rollback()
         
     try:
         db.session.execute(text("ALTER TABLE saved_templates ADD COLUMN is_assigned_instance BOOLEAN DEFAULT FALSE;"))
@@ -202,74 +244,222 @@ with app.app_context():
             db.session.add(User(username='driver'+str(i), password_hash=generate_password_hash('driver'+str(i)), role='DRIVER', truck_id=i))
         db.session.commit()
 
-@lru_cache(maxsize=100)
-def resolve_gmaps_url(url):
+def _save_url_coordinate_cache(url, lat, lng):
     try:
-        # Fast local extraction if URL already contains coordinates (no network needed)
-        pin_match = re.search(r'!3d(-?\d+\.\d+)!4d(-?\d+\.\d+)', url)
-        if pin_match:
-            clat, clng = float(pin_match.group(1)), float(pin_match.group(2))
-            if (8 <= clat <= 38) and (68 <= clng <= 98):
-                return clat, clng
-        q_match = re.search(r'[?&]q=(-?\d+\.\d+),(-?\d+\.\d+)', url)
-        if q_match:
-            clat, clng = float(q_match.group(1)), float(q_match.group(2))
-            if (8 <= clat <= 38) and (68 <= clng <= 98):
-                return clat, clng
-        vp_match = re.search(r'@(-?\d+\.\d+),(-?\d+\.\d+)', url)
-        if vp_match:
-            clat, clng = float(vp_match.group(1)), float(vp_match.group(2))
-            if (8 <= clat <= 38) and (68 <= clng <= 98):
-                return clat, clng
-        c_lat, c_lng = extract_lat_lng(url)
-        if c_lat and c_lng and (8 <= c_lat <= 38) and (68 <= c_lng <= 98):
-            return c_lat, c_lng
-
-        headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)'}
-        res = requests.get(url, allow_redirects=True, headers=headers, timeout=5)
-        
-        lat, lng = None, None
-        pin_match = re.search(r'!3d(-?\d+\.\d+)!4d(-?\d+\.\d+)', res.url)
-        if pin_match: lat, lng = float(pin_match.group(1)), float(pin_match.group(2))
-        
-        if not lat or not lng:
-            q_match = re.search(r'q=(-?\d+\.\d+),(-?\d+\.\d+)', res.url)
-            if q_match: lat, lng = float(q_match.group(1)), float(q_match.group(2))
-            
-        if not lat or not lng:
-            vp_match = re.search(r'@(-?\d+\.\d+),(-?\d+\.\d+)', res.url)
-            if vp_match: lat, lng = float(vp_match.group(1)), float(vp_match.group(2))
-            
-            
-        # Validate coordinates are within India (Lat 8 to 38, Lng 68 to 98)
-        if lat and lng and (8 <= lat <= 38) and (68 <= lng <= 98):
-            return lat, lng
-            
-        # Check preview link if present in HTML (e.g. for place shortlinks without direct coordinates in URL)
+        with app.app_context():
+            entry = UrlCoordinateCache(url=url, lat=lat, lng=lng)
+            db.session.merge(entry)
+            db.session.commit()
+    except Exception:
         try:
-            preview_match = re.search(r'href="(/maps/preview/place[^"]+)"', res.text)
-            if preview_match:
-                import html
-                preview_url = "https://www.google.com" + html.unescape(preview_match.group(1))
-                p_res = requests.get(preview_url, headers=headers, timeout=10)
-                coord_match = re.search(r'\[null,\s*null,\s*(-?\d+\.\d+),\s*(-?\d+\.\d+)\]', p_res.text)
-                if coord_match:
-                    p_lat, p_lng = float(coord_match.group(1)), float(coord_match.group(2))
-                    if (8 <= p_lat <= 38) and (68 <= p_lng <= 98):
-                        return p_lat, p_lng
-        except Exception as pe:
-            print(f"Error fetching preview URL: {pe}")
+            db.session.rollback()
+        except Exception:
+            pass
+
+def resolve_gmaps_url(url):
+    if not url or not isinstance(url, str):
+        return None, None
+    url = url.strip()
+
+    # 1. Fast local coordinate extraction if URL string itself contains coordinates
+    pin_match = re.search(r'!3d(-?\d+\.\d+)!4d(-?\d+\.\d+)', url)
+    if pin_match:
+        clat, clng = float(pin_match.group(1)), float(pin_match.group(2))
+        if (8 <= clat <= 38) and (68 <= clng <= 98):
+            _save_url_coordinate_cache(url, clat, clng)
+            return clat, clng
+    q_match = re.search(r'[?&]q=(-?\d+\.\d+),(-?\d+\.\d+)', url)
+    if q_match:
+        clat, clng = float(q_match.group(1)), float(q_match.group(2))
+        if (8 <= clat <= 38) and (68 <= clng <= 98):
+            _save_url_coordinate_cache(url, clat, clng)
+            return clat, clng
+    vp_match = re.search(r'@(-?\d+\.\d+),(-?\d+\.\d+)', url)
+    if vp_match:
+        clat, clng = float(vp_match.group(1)), float(vp_match.group(2))
+        if (8 <= clat <= 38) and (68 <= clng <= 98):
+            _save_url_coordinate_cache(url, clat, clng)
+            return clat, clng
+    c_lat, c_lng = extract_lat_lng(url)
+    if c_lat and c_lng and (8 <= c_lat <= 38) and (68 <= c_lng <= 98):
+        _save_url_coordinate_cache(url, c_lat, c_lng)
+        return c_lat, c_lng
+
+    # 2. Check Database URL cache (persisted keyed by URL, resolved once)
+    try:
+        with app.app_context():
+            cached = db.session.get(UrlCoordinateCache, url)
+            if cached and cached.lat and cached.lng:
+                return cached.lat, cached.lng
+    except Exception:
+        pass
+
+    # 3. Network resolution with retry and backoff (timeout=6s, 3 attempts)
+    headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)'}
+    for attempt in range(3):
+        try:
+            res = requests.get(url, allow_redirects=True, headers=headers, timeout=6.0)
+            target_url = res.url or ''
             
-        import urllib.parse
-        unquoted_url = urllib.parse.unquote_plus(res.url)
-        place_match = re.search(r'place/([^/]+)/', unquoted_url)
-        if place_match:
-            place_name = place_match.group(1).replace('+', ' ').strip()
-            return None, place_name
+            lat, lng = None, None
+            pin_match = re.search(r'!3d(-?\d+\.\d+)!4d(-?\d+\.\d+)', target_url)
+            if pin_match: lat, lng = float(pin_match.group(1)), float(pin_match.group(2))
             
-    except Exception as e:
-        print(f"Error resolving {url}: {e}")
+            if not lat or not lng:
+                q_match = re.search(r'[?&]q=(-?\d+\.\d+),(-?\d+\.\d+)', target_url)
+                if q_match: lat, lng = float(q_match.group(1)), float(q_match.group(2))
+                
+            if not lat or not lng:
+                vp_match = re.search(r'@(-?\d+\.\d+),(-?\d+\.\d+)', target_url)
+                if vp_match: lat, lng = float(vp_match.group(1)), float(vp_match.group(2))
+
+            # Preview link parsing if direct coords not present in redirect URL
+            if (not lat or not lng) and res.text:
+                preview_match = re.search(r'href="(/maps/preview/place[^"]+)"', res.text)
+                if preview_match:
+                    import html
+                    preview_url = "https://www.google.com" + html.unescape(preview_match.group(1))
+                    p_res = requests.get(preview_url, headers=headers, timeout=6.0)
+                    coord_match = re.search(r'\[null,\s*null,\s*(-?\d+\.\d+),\s*(-?\d+\.\d+)\]', p_res.text)
+                    if coord_match:
+                        lat, lng = float(coord_match.group(1)), float(coord_match.group(2))
+
+            # Coordinates extracted from response text (e.g. meta tags)
+            if (not lat or not lng) and res.text:
+                meta_match = re.search(r'itemprop="image"\s+content="[^"]*\?center=(-?\d+\.\d+)%2C(-?\d+\.\d+)', res.text)
+                if meta_match:
+                    lat, lng = float(meta_match.group(1)), float(meta_match.group(2))
+
+            if lat and lng and (8 <= lat <= 38) and (68 <= lng <= 98):
+                _save_url_coordinate_cache(url, lat, lng)
+                return lat, lng
+
+            # Place name fallback
+            import urllib.parse
+            unquoted_url = urllib.parse.unquote_plus(target_url)
+            place_match = re.search(r'place/([^/]+)/', unquoted_url)
+            if place_match:
+                place_name = place_match.group(1).replace('+', ' ').strip()
+                return None, place_name
+
+            break # No valid coords found, no need to retry network
+        except Exception as e:
+            if attempt < 2:
+                time.sleep(1.0 * (2 ** attempt))
+            else:
+                print(f"[GMAPS RESOLVE ERROR] Failed to resolve location link after 3 attempts: {url}. Error: {e}")
+
+    # Never cache failed (None, None) so future attempts or manual corrections can succeed
     return None, None
+
+def clean_address_for_geocoding(addr):
+    if not addr or not isinstance(addr, str):
+        return ''
+    s = re.sub(r'[\r\n\t]+', ' ', addr.strip())
+    pin_match = re.search(r'\b(38\d{4})\b', s)
+    pincode = pin_match.group(1) if pin_match else None
+    
+    # Strip leading flat/block/house/plot/shop/office numbers (e.g. '1760,', 'F /54,', 'B/303,')
+    s = re.sub(r'^\s*(?:flat|block|house|plot|shop|office|room|survey)?\s*[a-z0-9/-]+\s*,\s*', '', s, flags=re.I)
+    
+    # Strip landmark clauses: 'b/h gota uhc', 'opp revati tower', 'nr. iscon cross road'
+    s = re.sub(r'\b(?:b/h|behind|opp|opposite|nr\.?|near|next\s+to|beside)\s+[^,]+,?', '', s, flags=re.I)
+    
+    # Fix typo 'ARE' -> 'Area'
+    s = re.sub(r'\bARE\b', 'Area', s, flags=re.I)
+    
+    # Clean up commas and spaces
+    s = re.sub(r'\s*,\s*', ', ', s)
+    s = re.sub(r',\s*,+', ', ', s)
+    s = re.sub(r'\s+', ' ', s).strip(' ,')
+    
+    # Append city context if missing
+    if 'ahmedabad' not in s.lower() and 'gujarat' not in s.lower():
+        suffix = f', Ahmedabad, Gujarat {pincode}, India' if pincode else ', Ahmedabad, Gujarat, India'
+        s += suffix
+    elif pincode and pincode not in s:
+        s += f' {pincode}'
+    return s.strip()
+
+def geocode_address_robust(addr):
+    if not addr or not isinstance(addr, str) or not addr.strip():
+        return None, None, 'FAILED'
+        
+    cleaned = clean_address_for_geocoding(addr)
+    
+    # 1. Optional Google Maps API (if GMAPS_API_KEY is set)
+    gkey = os.environ.get('GMAPS_API_KEY')
+    if gkey:
+        try:
+            import requests
+            params = {
+                'address': cleaned,
+                'key': gkey,
+                'components': 'country:IN',
+                'bounds': '22.85,72.40|23.20,72.80'
+            }
+            res = requests.get('https://maps.googleapis.com/maps/api/geocode/json', params=params, timeout=5).json()
+            if res.get('status') == 'OK' and res.get('results'):
+                first = res['results'][0]
+                loc = first['geometry']['location']
+                glat, glng = loc['lat'], loc['lng']
+                loc_type = first['geometry'].get('location_type', 'APPROXIMATE')
+                types = first.get('types', [])
+                # Reject country, state, city, and locality broad results
+                if not any(t in types for t in ['country', 'administrative_area_level_1', 'administrative_area_level_2', 'locality']):
+                    if 22.85 <= glat <= 23.20 and 72.40 <= glng <= 72.80:
+                        qual = 'EXACT' if loc_type == 'ROOFTOP' else 'APPROXIMATE'
+                        return glat, glng, qual
+        except Exception as ge:
+            print(f"Google Geocode error: {ge}")
+
+    # 2. ArcGIS with strict point/street validation and centroid rejection
+    try:
+        from geopy.geocoders import ArcGIS
+        arc = ArcGIS()
+        queries = [cleaned]
+        raw_ahmedabad = addr.strip() + ', Ahmedabad, Gujarat, India' if 'ahmedabad' not in addr.lower() else addr.strip()
+        if raw_ahmedabad not in queries:
+            queries.append(raw_ahmedabad)
+            
+        parts = [p.strip() for p in cleaned.split(',') if p.strip()]
+        for k in [4, 3]:
+            if len(parts) > k:
+                sub_q = ", ".join(parts[-k:])
+                if sub_q not in queries:
+                    queries.append(sub_q)
+                    
+        for q in queries:
+            try:
+                loc = arc.geocode(q, timeout=5)
+                if loc:
+                    clat, clng = loc.latitude, loc.longitude
+                    raw = loc.raw or {}
+                    score = raw.get('score', 0)
+                    addr_type = raw.get('attributes', {}).get('Addr_type', '')
+                    matched_addr = loc.address.strip() if hasattr(loc, 'address') and loc.address else ''
+                    
+                    # Treat city, locality, and administrative level results as FAILED
+                    if matched_addr in ['Ahmedabad, Gujarat', 'Ahmedabad', 'Ahmedabad, India'] or addr_type in ['City', 'Locality', 'Admin', 'Region', 'Country']:
+                        continue
+                    if abs(clat - 23.0145) < 0.003 and abs(clng - 72.5918) < 0.003:
+                        continue
+                    if abs(clat - 23.0225) < 0.001 and abs(clng - 72.5714) < 0.001:
+                        continue
+                        
+                    # Validate within Ahmedabad metro bounds
+                    if 22.85 <= clat <= 23.20 and 72.40 <= clng <= 72.80:
+                        # Strict EXACT rule: only high-score PointAddress is EXACT
+                        if score >= 90 and (addr_type == 'PointAddress' or 'point' in addr_type.lower()):
+                            return clat, clng, 'EXACT'
+                        elif score >= 80:
+                            return clat, clng, 'APPROXIMATE'
+            except Exception:
+                pass
+    except Exception as ae:
+        print(f"ArcGIS Geocode error: {ae}")
+
+    return None, None, 'FAILED'
 
 def extract_lat_lng(coord_str):
     if pd.isna(coord_str): return None, None
@@ -384,6 +574,8 @@ def read_data_file(filepath):
     for idx, row in df.iterrows():
         lat, lng = None, None
         loc_url_clean = ""
+        coord_source = 'UNKNOWN'
+        geocode_quality = 'UNKNOWN'
         
         # Fix shifted URLs
         loc_url_raw = row.get(loc_url_col) if loc_url_col and not pd.isna(row.get(loc_url_col)) else ""
@@ -401,10 +593,15 @@ def read_data_file(filepath):
                     res_tuple = resolved_urls[loc_url_clean]
                     if res_tuple[0] is not None or res_tuple[1] is not None:
                         lat, lng = res_tuple
+                        coord_source = 'MAPS_LINK'
+                        geocode_quality = 'EXACT'
                 
         if lat is None or lng is None:
             if coord_col: lat, lng = extract_lat_lng(row[coord_col])
             elif lat_col and lng_col: lat, lng = row[lat_col], row[lng_col]
+            if lat is not None and lng is not None:
+                coord_source = 'FILE'
+                geocode_quality = 'EXACT'
                 
         if lat is None or lng is None:
             address = str(row.get(address_col)) if address_col and not pd.isna(row.get(address_col)) else ""
@@ -424,71 +621,17 @@ def read_data_file(filepath):
                 lng = None
 
             if address:
-                search_query = str(address)
-                if "ahmedabad" not in search_query.lower() and "gujarat" not in search_query.lower():
-                    search_query += ", Ahmedabad, Gujarat, India"
-                gmaps_key = os.environ.get('GMAPS_API_KEY')
-                if gmaps_key:
-                    try:
-                        import requests
-                        g_res = requests.get('https://maps.googleapis.com/maps/api/geocode/json', params={'address': search_query, 'key': gmaps_key}).json()
-                        if g_res.get('status') == 'OK':
-                            glat = g_res['results'][0]['geometry']['location']['lat']
-                            glng = g_res['results'][0]['geometry']['location']['lng']
-                            if 8.0 <= glat <= 38.0 and 68.0 <= glng <= 98.0:
-                                if "ahmedabad" in search_query.lower():
-                                    if 22.4 <= glat <= 23.6 and 72.0 <= glng <= 73.1:
-                                        lat, lng = glat, glng
-                                else:
-                                    lat, lng = glat, glng
-                    except Exception as e: print(f"GMAPS Geocode Error: {e}")
-                if lat is None or lng is None:
-                    try:
-                        from geopy.geocoders import Nominatim
-                        nom = Nominatim(user_agent="waste_route_123")
-                        parts = [p.strip() for p in search_query.split(',')]
-                        queries = [search_query]
-                        # Only keep queries that retain street/local area details (never drop down to just City, State, Country)
-                        for k in [5, 4]:
-                            if len(parts) > k:
-                                cand_q = ", ".join(parts[-k:])
-                                if cand_q not in queries:
-                                    queries.append(cand_q)
-                          
-                        for short_q in queries:
-                            try:
-                                loc = nom.geocode(short_q, timeout=3)
-                                if loc:
-                                    clat, clng = loc.latitude, loc.longitude
-                                    if 8.0 <= clat <= 38.0 and 68.0 <= clng <= 98.0:
-                                        if "ahmedabad" in search_query.lower():
-                                            if 22.4 <= clat <= 23.6 and 72.0 <= clng <= 73.1:
-                                                lat, lng = clat, clng
-                                                break
-                                        else:
-                                            lat, lng = clat, clng
-                                            break
-                            except: pass
-                              
-                        # If still none, fallback to progressive ArcGIS with same bounds check
-                        if lat is None or lng is None:
-                            from geopy.geocoders import ArcGIS
-                            arc = ArcGIS()
-                            for short_q in queries:
-                                try:
-                                    loc = arc.geocode(short_q, timeout=3)
-                                    if loc:
-                                        clat, clng = loc.latitude, loc.longitude
-                                        if 8.0 <= clat <= 38.0 and 68.0 <= clng <= 98.0:
-                                            if "ahmedabad" in search_query.lower():
-                                                if 22.4 <= clat <= 23.6 and 72.0 <= clng <= 73.1:
-                                                    lat, lng = clat, clng
-                                                    break
-                                            else:
-                                                lat, lng = clat, clng
-                                                break
-                                except: pass
-                    except: pass
+                glat, glng, gqual = geocode_address_robust(str(address))
+                if glat is not None and glng is not None:
+                    lat, lng = glat, glng
+                    geocode_quality = gqual
+                    coord_source = 'GEOCODE'
+                else:
+                    geocode_quality = 'FAILED'
+                    coord_source = 'FAILED'
+            else:
+                geocode_quality = 'FAILED'
+                coord_source = 'FAILED'
             
         try:
             try:
@@ -515,21 +658,43 @@ def read_data_file(filepath):
                     raw_phone = raw_phone[:-2]
                 phone_val = raw_phone
 
-            lat, lng = float(lat), float(lng)
-            if not pd.isna(lat) and not pd.isna(lng):
-                customers.append({
-                    'id': sr_id,
-                    'name': row.get(name_col) if name_col and not pd.isna(row.get(name_col)) else f"Customer {idx+1}",
-                    'phone': phone_val,
-                    'address': row.get(address_col) if address_col and not pd.isna(row.get(address_col)) else "",
-                    'location_url': loc_url_clean,
-                    'lat': lat,
-                    'lng': lng,
-                    'status': 'PENDING',
-                    'customer_status': 'ACTIVE'
-                })
-        except (ValueError, TypeError):
-            pass
+            # Never drop stops missing coordinates: preserve them with None coordinates and FAILED quality
+            cust_lat = float(lat) if (lat is not None and not pd.isna(lat)) else None
+            cust_lng = float(lng) if (lng is not None and not pd.isna(lng)) else None
+
+            customers.append({
+                'id': sr_id,
+                'name': row.get(name_col) if name_col and not pd.isna(row.get(name_col)) else f"Customer {idx+1}",
+                'phone': phone_val,
+                'address': row.get(address_col) if address_col and not pd.isna(row.get(address_col)) else "",
+                'location_url': loc_url_clean,
+                'lat': cust_lat,
+                'lng': cust_lng,
+                'status': 'PENDING',
+                'customer_status': 'ACTIVE',
+                'geocode_quality': geocode_quality,
+                'coord_source': coord_source,
+                'is_manually_corrected': False
+            })
+        except Exception as add_e:
+            print("Error appending customer in read_data_file:", add_e)
+
+    # Cluster check: Only downgrade 3+ identical coordinates if derived from address GEOCODE or DEFAULT fallback
+    # Multi-customer apartments whose coordinates came from FILE or MAPS_LINK must stay EXACT!
+    try:
+        coord_clusters = {}
+        for c in customers:
+            if c.get('lat') is not None and c.get('lng') is not None:
+                pt_key = (round(c['lat'], 5), round(c['lng'], 5))
+                coord_clusters.setdefault(pt_key, []).append(c)
+
+        for pt_key, group in coord_clusters.items():
+            if len(group) >= 3:
+                for c in group:
+                    if c.get('coord_source') in ('GEOCODE', 'DEFAULT'):
+                        c['geocode_quality'] = 'APPROXIMATE'
+    except Exception as ce:
+        print("Error evaluating coordinate clusters in read_data_file:", ce)
 
     # F1: Outlier detection & safe conditional auto-swap (flag-only, no dropping)
     try:
@@ -948,7 +1113,8 @@ def upload():
     customers_data = read_data_file(filepath)
     if not customers_data: return "No valid customer data found", 400
         
-    aco = ACO_VRP(start_coords, end_coords, customers_data, num_trucks=num_trucks)
+    valid_customers_data = [c for c in customers_data if c.get('lat') is not None and c.get('lng') is not None and c.get('geocode_quality') != 'FAILED']
+    aco = ACO_VRP(start_coords, end_coords, valid_customers_data, num_trucks=num_trucks)
     routes, route_times, route_distances = aco.run()
     
     # Filter out empty routes so truck numbering is always sequential (e.g. 1, 2, 3)
@@ -1723,7 +1889,10 @@ def get_data():
             'location_url': r.location_url, 'lat': r.lat, 'lng': r.lng,
             'status': r.status, 'truck': r.truck_id, 'stop_number': r.stop_number,
             'confirmation': r.confirmation if r.confirmation else 'NOT_CONFIRMED',
-            'customer_status': getattr(r, 'customer_status', 'ACTIVE') or 'ACTIVE'
+            'customer_status': getattr(r, 'customer_status', 'ACTIVE') or 'ACTIVE',
+            'geocode_quality': getattr(r, 'geocode_quality', 'UNKNOWN') or 'UNKNOWN',
+            'coord_source': getattr(r, 'coord_source', 'UNKNOWN') or 'UNKNOWN',
+            'is_manually_corrected': getattr(r, 'is_manually_corrected', False) or False
         })
         t_id = r.truck_id
         if t_id not in routes_dict: routes_dict[t_id] = []
@@ -1761,8 +1930,28 @@ def get_data():
             'assigned_template_name': assigned_name
         })
 
+    # Calculate identical coordinate warnings for 3+ identical geocoded/default stops
+    identical_coord_warnings = []
+    coord_counts = {}
+    for c in customers:
+        if c.get('lat') is not None and c.get('lng') is not None:
+            pt = (round(c['lat'], 5), round(c['lng'], 5))
+            coord_counts.setdefault(pt, []).append(c)
+
+    for pt, grp in coord_counts.items():
+        if len(grp) >= 3 and any(x.get('coord_source') in ('GEOCODE', 'DEFAULT') for x in grp):
+            names = [x.get('name', 'Stop') for x in grp[:3]]
+            identical_coord_warnings.append({
+                'lat': pt[0],
+                'lng': pt[1],
+                'count': len(grp),
+                'names': names,
+                'message': f"{len(grp)} stops share identical geocoded coordinates ({pt[0]}, {pt[1]}): {', '.join(names)}..."
+            })
+
     return jsonify({
         'customers': customers,
+        'identical_coord_warnings': identical_coord_warnings,
         'routes': routes,
         'route_times': route_times,
         'route_distances': route_distances,
@@ -2265,7 +2454,8 @@ def ai_rebalance():
         cancelled_by_truck[tid].append(c)
     
     # 5. Run AI
-    aco = ACO_VRP(start_coords, end_coords, customers_data, num_trucks=num_trucks)
+    valid_customers_data = [c for c in customers_data if c.get('lat') is not None and c.get('lng') is not None and c.get('geocode_quality') != 'FAILED']
+    aco = ACO_VRP(start_coords, end_coords, valid_customers_data, num_trucks=num_trucks)
     routes, route_times, route_distances = aco.run()
     
     active_routes = []
@@ -2555,6 +2745,9 @@ def update_customer_details():
         try:
             c.lat = float(data.get('lat'))
             c.lng = float(data.get('lng'))
+            c.is_manually_corrected = True
+            c.coord_source = 'MANUAL'
+            c.geocode_quality = 'EXACT'
         except:
             pass
             
@@ -2580,8 +2773,16 @@ def update_customer_details():
                         tc['phone'] = c.phone or ''
                         tc['address'] = c.address or ''
                         tc['location_url'] = c.location_url or ''
-                        if c.lat is not None: tc['lat'] = c.lat
-                        if c.lng is not None: tc['lng'] = c.lng
+                        if c.lat is not None:
+                            tc['lat'] = c.lat
+                            tc['geocode_quality'] = 'EXACT'
+                            tc['coord_source'] = 'MANUAL'
+                            tc['is_manually_corrected'] = True
+                        if c.lng is not None:
+                            tc['lng'] = c.lng
+                            tc['geocode_quality'] = 'EXACT'
+                            tc['coord_source'] = 'MANUAL'
+                            tc['is_manually_corrected'] = True
                         tc['customer_status'] = c.customer_status
                         tc['confirmation'] = c.confirmation
                         updated_tmpl = True
@@ -2736,10 +2937,13 @@ def assign_route():
         cid = allocate_customer_id(raw_id, is_depot, driver.truck_id, existing_ids, max_id_tracker)
         new_cust = Customer(
             id=cid, name=c['name'], phone=c.get('phone'), address=c.get('address'),
-            location_url=c.get('location_url'), lat=c['lat'], lng=c['lng'],
+            location_url=c.get('location_url'), lat=c.get('lat'), lng=c.get('lng'),
             status='PENDING', truck_id=driver.truck_id, stop_number=c.get('stop_number'),
             confirmation=c.get('confirmation', 'NOT_CONFIRMED'),
-            customer_status=c.get('customer_status', 'ACTIVE')
+            customer_status=c.get('customer_status', 'ACTIVE'),
+            geocode_quality=c.get('geocode_quality', 'UNKNOWN'),
+            coord_source=c.get('coord_source', 'UNKNOWN'),
+            is_manually_corrected=c.get('is_manually_corrected', False)
         )
         db.session.add(new_cust)
         
@@ -2833,7 +3037,10 @@ def save_template():
         'location_url': c.location_url, 'lat': c.lat, 'lng': c.lng,
         'status': c.status, 'truck_id': c.truck_id, 'stop_number': c.stop_number,
         'confirmation': c.confirmation if c.confirmation else 'NOT_CONFIRMED',
-        'customer_status': getattr(c, 'customer_status', 'ACTIVE') or 'ACTIVE'
+        'customer_status': getattr(c, 'customer_status', 'ACTIVE') or 'ACTIVE',
+        'geocode_quality': getattr(c, 'geocode_quality', 'UNKNOWN') or 'UNKNOWN',
+        'coord_source': getattr(c, 'coord_source', 'UNKNOWN') or 'UNKNOWN',
+        'is_manually_corrected': getattr(c, 'is_manually_corrected', False) or False
     } for c in cust_rows]
     
     if not t and not target_is_assigned:
@@ -3309,10 +3516,13 @@ def deploy_template(t_id):
         
         new_cust = Customer(
             id=cid, name=c['name'], phone=c.get('phone'), address=c.get('address'),
-            location_url=c.get('location_url'), lat=c['lat'], lng=c['lng'],
+            location_url=c.get('location_url'), lat=c.get('lat'), lng=c.get('lng'),
             status='PENDING', truck_id=new_tid, stop_number=c.get('stop_number'),
             confirmation=c.get('confirmation', 'NOT_CONFIRMED'),
-            customer_status=c.get('customer_status', 'ACTIVE')
+            customer_status=c.get('customer_status', 'ACTIVE'),
+            geocode_quality=c.get('geocode_quality', 'UNKNOWN'),
+            coord_source=c.get('coord_source', 'UNKNOWN'),
+            is_manually_corrected=c.get('is_manually_corrected', False)
         )
         db.session.add(new_cust)
         deployed_customers.append({
