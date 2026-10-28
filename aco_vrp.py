@@ -81,12 +81,15 @@ class ACO_VRP:
                                     self.distance_matrix[i + r_idx][j + c_idx] = 9999999
                                     self.actual_distance_matrix[i + r_idx][j + c_idx] = 9999999
                     except Exception as e:
-                        print("GMaps Matrix Error:", e)
+                        print("GMaps Matrix Error, falling back to geodesic distance for chunk:", e)
                         for r_idx in range(chunk_size):
                             for c_idx in range(chunk_size):
-                                if i + r_idx < n and j + c_idx < n:
-                                    self.distance_matrix[i + r_idx][j + c_idx] = 9999999
-                                    self.actual_distance_matrix[i + r_idx][j + c_idx] = 9999999
+                                u = i + r_idx
+                                v = j + c_idx
+                                if u < n and v < n:
+                                    dist_m = int(geodesic(self.nodes[u], self.nodes[v]).meters) if u != v else 0
+                                    self.distance_matrix[u][v] = int(dist_m / 10)
+                                    self.actual_distance_matrix[u][v] = dist_m
         else:
             # Fallback: OSRM Estimated Travel Time (Duration)
             coords_str = ";".join([f"{n[1]},{n[0]}" for n in self.nodes])
@@ -152,10 +155,12 @@ class ACO_VRP:
         )
         stops_dimension = routing.GetDimensionOrDie("Stops")
         
-        # To guarantee we find a solution within 8 seconds, we use extremely relaxed bounds.
-        # We enforce a strict minimum of 1 customer per truck to ensure no truck is left empty.
-        min_stops = 1
-        # Maximum is theoretically all customers, leaving room for the AI to dynamically balance based on Time
+        # Handle empty customer list or trucks > customers
+        if not self.customers:
+            return [[] for _ in range(self.num_trucks)], [0] * self.num_trucks, [0] * self.num_trucks
+
+        # If more trucks than customers, allow empty trucks (min_stops=0) so problem is feasible
+        min_stops = 1 if len(self.customers) >= self.num_trucks else 0
         max_stops = len(self.customers)
         
         for vehicle_id in range(self.num_trucks):
@@ -216,14 +221,21 @@ class ACO_VRP:
         # Check duplicates
         import collections
         dupes = [item for item, count in collections.Counter(assigned_cids).items() if count > 1]
-        assert not dupes, f"VRP output contained duplicate customer IDs: {dupes}"
+        if dupes:
+            raise ValueError(f"VRP output contained duplicate customer IDs: {dupes}")
         
         # Check missing
         missing = set(all_input_cids) - set(assigned_cids)
-        assert not missing, f"VRP output dropped customer IDs: {missing}"
+        if missing:
+            raise ValueError(f"VRP output dropped customer IDs: {missing}")
         
         # Check extra
         extra = set(assigned_cids) - set(all_input_cids)
-        assert not extra, f"VRP output generated unknown customer IDs: {extra}"
+        if extra:
+            raise ValueError(f"VRP output generated unknown customer IDs: {extra}")
 
         return routes, route_times, route_distances
+
+# Alias for backward compatibility and clean nomenclature
+RouteOptimizer = ACO_VRP
+
