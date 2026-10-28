@@ -1559,6 +1559,24 @@ def sync_firebase_to_sql(template_id=None):
         if template_id:
             drivers = User.query.filter_by(assigned_template_id=template_id).all()
             truck_ids_to_sync = [str(d.truck_id) for d in drivers] if drivers else []
+        else:
+            # Only sync trucks belonging to active assigned drivers
+            active_drivers = User.query.filter(User.role == 'DRIVER', User.assigned_template_id != None, User.truck_id != None).all()
+            active_trucks = set(str(d.truck_id) for d in active_drivers if d.truck_id is not None)
+            
+            # If current workspace is editing a template, do not sync template workspace trucks from Firebase
+            curr_tmpl = Metadata.query.filter_by(key='current_template_id').first()
+            is_from_tmpl = Metadata.query.filter_by(key='is_from_template').first()
+            if curr_tmpl and curr_tmpl.value and is_from_tmpl and is_from_tmpl.value == 'false':
+                ws_meta = Metadata.query.filter_by(key='workspace_truck_ids').first()
+                if ws_meta and ws_meta.value:
+                    try:
+                        import json
+                        ws_trucks = set(str(x) for x in json.loads(ws_meta.value))
+                        active_trucks = active_trucks - ws_trucks
+                    except:
+                        pass
+            truck_ids_to_sync = list(active_trucks)
         
         res = requests.get(f"{firebase_url}/routes.json?auth={id_token}", timeout=8)
         if res.status_code == 200:
@@ -1616,9 +1634,9 @@ def sync_firebase_to_sql(template_id=None):
                                 if fb_addr and c.address != fb_addr:
                                     c.address = fb_addr
 
-                # Keep SavedTemplates in sync with updated stop coordinates
+                # Keep driver-assigned instance SavedTemplates in sync with updated stop coordinates
                 try:
-                    for t in SavedTemplate.query.all():
+                    for t in SavedTemplate.query.filter_by(is_assigned_instance=True).all():
                         if t.customers_json:
                             t_custs = json.loads(t.customers_json)
                             t_changed = False
@@ -1689,7 +1707,7 @@ def get_data():
     elif 'workspace_truck_ids' in metadata and metadata['workspace_truck_ids']:
         try:
             ws_trucks = json.loads(metadata['workspace_truck_ids'])
-            if ws_trucks and Customer.query.filter(Customer.truck_id.in_(ws_trucks)).count() > 0:
+            if ws_trucks is not None:
                 query = query.filter(Customer.truck_id.in_(ws_trucks))
         except:
             pass
@@ -3261,6 +3279,9 @@ def deploy_template(t_id):
         used_trucks.add(new_tid)
         
     workspace_trucks = sorted(list(truck_id_map.values()))
+    
+    # Clean any leftover customer stops on workspace trucks so old dummy data never lingers
+    Customer.query.filter(Customer.truck_id.in_(workspace_trucks)).delete(synchronize_session=False)
     
     for k, v in meta_dict.items():
         if k not in ['is_from_template', 'current_template_id', 'current_template_name', 'workspace_truck_ids']:
