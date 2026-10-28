@@ -2,7 +2,7 @@ import os
 import pytest
 import pandas as pd
 from waste_route_optimizer import (
-    app, db, Customer,
+    app, db, Customer, Metadata,
     clean_address_for_geocoding,
     geocode_address_robust,
     read_data_file
@@ -78,9 +78,19 @@ def test_read_data_file_does_not_drop_unresolvable_stop(tmp_path):
 
 
 def test_identical_coord_warnings_in_get_data():
+    import json
     with app.app_context():
-        # Clear existing customers for test isolation
-        Customer.query.delete()
+        # Clean up any residual test fixtures
+        Customer.query.filter(Customer.id >= 9900).delete()
+        # Ensure workspace_truck_ids includes truck 1
+        m = Metadata.query.filter_by(key='workspace_truck_ids').first()
+        orig_ws = m.value if m else None
+        if m:
+            m.value = json.dumps([1])
+        else:
+            db.session.add(Metadata(key='workspace_truck_ids', value=json.dumps([1])))
+        db.session.commit()
+
         # Create 3 customers with identical coordinates
         for i in range(1, 4):
             c = Customer(
@@ -96,22 +106,107 @@ def test_identical_coord_warnings_in_get_data():
             db.session.add(c)
         db.session.commit()
 
-        with app.test_client() as client:
-            with client.session_transaction() as sess:
-                sess['user_id'] = 1
-                sess['role'] = 'ADMIN'
-            res = client.get('/api/data')
-            assert res.status_code == 200
-            data = res.get_json()
-            warnings = data.get('identical_coord_warnings', [])
-            assert len(warnings) >= 1
-            cluster_warn = next((w for w in warnings if round(w['lat'], 4) == round(23.02541, 4)), None)
-            assert cluster_warn is not None
-            assert cluster_warn['count'] == 3
+        try:
+            with app.test_client() as client:
+                with client.session_transaction() as sess:
+                    sess['user_id'] = 1
+                    sess['role'] = 'ADMIN'
+                res = client.get('/api/data?truck_id=1')
+                assert res.status_code == 200
+                data = res.get_json()
+                warnings = data.get('identical_coord_warnings', [])
+                assert len(warnings) >= 1
+                cluster_warn = next((w for w in warnings if round(w['lat'], 4) == round(23.02541, 4)), None)
+                assert cluster_warn is not None
+                assert cluster_warn['count'] == 3
+        finally:
+            # Cleanup
+            Customer.query.filter(Customer.id >= 9900).delete()
+            m = Metadata.query.filter_by(key='workspace_truck_ids').first()
+            if m:
+                if orig_ws is not None:
+                    m.value = orig_ws
+                else:
+                    db.session.delete(m)
+            db.session.commit()
 
-        # Cleanup
-        Customer.query.filter(Customer.id >= 9900).delete()
+
+def test_geocode_address_robust_resolves_p3_row49_uppercase():
+    addr = "1760, KUMUD NAGAR SOCIETY, AKASH PARISHAR ROAD, B/H GOTA UHC, CHANKYAPURI ARE"
+    lat, lng, qual = geocode_address_robust(addr)
+    assert lat is not None and lng is not None
+    assert qual in ["EXACT", "APPROXIMATE"]
+    # Verify it is in North-West Ahmedabad (Chanakyapuri), NOT central Jamalpur (23.0145, 72.5918)
+    assert 23.05 <= lat <= 23.12
+    assert 72.50 <= lng <= 72.56
+    assert abs(lat - 23.0145) > 0.03
+
+
+def test_read_data_file_shortlink_fallback_chanakyapuri(tmp_path):
+    csv_file = tmp_path / "shortlink_fallback.csv"
+    df = pd.DataFrame([
+        {
+            "Name": "PRAJAPATI KIRANKUMAR RAMESHBHAI",
+            "Address": "1760, KUMUD NAGAR SOCIETY, AKASH PARISHAR ROAD, B/H GOTA UHC, CHANKYAPURI ARE",
+            "Location": "https://maps.app.goo.gl/invalid_timeout_link_fixture_99",
+            "Phone": "9876543210"
+        }
+    ])
+    df.to_csv(csv_file, index=False)
+    custs = read_data_file(str(csv_file))
+    assert len(custs) == 1
+    c = custs[0]
+    assert c["geocode_quality"] in ["EXACT", "APPROXIMATE"]
+    assert 23.05 <= c["lat"] <= 23.12
+    assert 72.50 <= c["lng"] <= 72.56
+    assert abs(c["lat"] - 23.0145) > 0.03
+
+
+def test_repair_database_fixes_legacy_centroid():
+    with app.app_context():
+        # Clean up any leftover fixture
+        Customer.query.filter_by(id=9998).delete()
         db.session.commit()
+
+        # Setup: Create a customer stuck at Jamalpur centroid
+        test_c = Customer(
+            id=9998,
+            name="Centroid Repair Test Cust",
+            address="1760, KUMUD NAGAR SOCIETY, AKASH PARISHAR ROAD, B/H GOTA UHC, CHANKYAPURI ARE",
+            lat=23.0145096,
+            lng=72.5917595,
+            truck_id=1,
+            stop_number=99,
+            geocode_quality="APPROXIMATE"
+        )
+        db.session.add(test_c)
+        db.session.commit()
+
+        try:
+            with app.test_client() as client:
+                with client.session_transaction() as sess:
+                    sess['user_id'] = 1
+                    sess['role'] = 'ADMIN'
+
+                # Dry run first
+                dry_res = client.post('/api/admin/repair_database', json={'dry_run': True})
+                assert dry_res.status_code == 200
+                dry_data = dry_res.get_json()
+                repaired = dry_data.get('details', {}).get('repaired_centroids', [])
+                assert any(r['customer_id'] == 9998 for r in repaired)
+
+                # Real execution
+                run_res = client.post('/api/admin/repair_database', json={'dry_run': False})
+                assert run_res.status_code == 200
+
+                updated = db.session.get(Customer, 9998)
+                assert 23.05 <= updated.lat <= 23.12
+                assert 72.50 <= updated.lng <= 72.56
+                assert abs(updated.lat - 23.0145) > 0.03
+                assert updated.geocode_quality in ["EXACT", "APPROXIMATE"]
+        finally:
+            Customer.query.filter_by(id=9998).delete()
+            db.session.commit()
 
 
 def test_update_customer_details_promotes_quality_to_exact():

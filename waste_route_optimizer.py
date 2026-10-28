@@ -232,7 +232,7 @@ def resolve_gmaps_url(url):
             return c_lat, c_lng
 
         headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)'}
-        res = requests.get(url, allow_redirects=True, headers=headers, timeout=5)
+        res = requests.get(url, allow_redirects=True, headers=headers, timeout=2.5)
         
         lat, lng = None, None
         pin_match = re.search(r'!3d(-?\d+\.\d+)!4d(-?\d+\.\d+)', res.url)
@@ -257,7 +257,7 @@ def resolve_gmaps_url(url):
             if preview_match:
                 import html
                 preview_url = "https://www.google.com" + html.unescape(preview_match.group(1))
-                p_res = requests.get(preview_url, headers=headers, timeout=10)
+                p_res = requests.get(preview_url, headers=headers, timeout=3.0)
                 coord_match = re.search(r'\[null,\s*null,\s*(-?\d+\.\d+),\s*(-?\d+\.\d+)\]', p_res.text)
                 if coord_match:
                     p_lat, p_lng = float(coord_match.group(1)), float(coord_match.group(2))
@@ -326,7 +326,7 @@ def geocode_address_robust(addr):
                 'address': cleaned,
                 'key': gkey,
                 'components': 'country:IN',
-                'bounds': '22.90,72.42|23.18,72.72'
+                'bounds': '22.85,72.40|23.20,72.80'
             }
             res = requests.get('https://maps.googleapis.com/maps/api/geocode/json', params=params, timeout=5).json()
             if res.get('status') == 'OK' and res.get('results'):
@@ -336,7 +336,7 @@ def geocode_address_robust(addr):
                 loc_type = first['geometry'].get('location_type', 'APPROXIMATE')
                 types = first.get('types', [])
                 if 'locality' not in types and 'country' not in types and 'administrative_area_level_1' not in types:
-                    if 22.90 <= glat <= 23.18 and 72.42 <= glng <= 72.72:
+                    if 22.85 <= glat <= 23.20 and 72.40 <= glng <= 72.80:
                         qual = 'EXACT' if loc_type in ['ROOFTOP', 'RANGE_INTERPOLATED'] else 'APPROXIMATE'
                         return glat, glng, qual
         except Exception as ge:
@@ -375,7 +375,7 @@ def geocode_address_robust(addr):
                         continue
                         
                     # Validate within Ahmedabad metro bounds
-                    if 22.90 <= clat <= 23.18 and 72.42 <= clng <= 72.72:
+                    if 22.85 <= clat <= 23.20 and 72.40 <= clng <= 72.80:
                         qual = 'EXACT' if (score >= 85 and addr_type in ['PointAddress', 'StreetAddress', 'StreetName']) else 'APPROXIMATE'
                         return clat, clng, qual
             except Exception:
@@ -486,7 +486,7 @@ def read_data_file(filepath):
     resolved_urls = {}
     if urls_to_resolve:
         import concurrent.futures
-        with concurrent.futures.ThreadPoolExecutor(max_workers=3) as executor:
+        with concurrent.futures.ThreadPoolExecutor(max_workers=10) as executor:
             future_to_url = {executor.submit(resolve_gmaps_url, url): url for url in urls_to_resolve}
             for future in concurrent.futures.as_completed(future_to_url):
                 resolved_urls[future_to_url[future]] = future.result() if future.result() else (None, None)
@@ -2298,21 +2298,49 @@ def repair_database():
         if not dry_run:
             for o in orphans:
                 db.session.delete(o)
+
+        # 4. Repair legacy centroid stops (any non-Jamalpur address stuck at city centroid 23.0145, 72.5918)
+        centroid_stops = Customer.query.filter(
+            Customer.lat != None,
+            Customer.lng != None,
+            db.func.abs(Customer.lat - 23.0145) < 0.003,
+            db.func.abs(Customer.lng - 72.5918) < 0.003
+        ).all()
+        repaired_centroids = 0
+        repaired_details = []
+        for c in centroid_stops:
+            if c.address and 'jamalpur' not in c.address.lower():
+                glat, glng, qual = geocode_address_robust(c.address)
+                if glat is not None and glng is not None:
+                    repaired_details.append({
+                        "customer_id": c.id,
+                        "name": c.name,
+                        "old_lat": c.lat,
+                        "old_lng": c.lng,
+                        "new_lat": glat,
+                        "new_lng": glng,
+                        "quality": qual
+                    })
+                    if not dry_run:
+                        c.lat = glat
+                        c.lng = glng
+                        c.geocode_quality = qual
+                    repaired_centroids += 1
                 
         if not dry_run:
             db.session.commit()
             return jsonify({
                 'success': True,
-                'message': f"Database repaired: Cleared {ghost_count} ghost route assignments, fixed {fixed_sequences} stop sequences, and purged {orphan_count} orphaned customers.",
-                'details': { 'ghosts': ghost_details, 'sequences': fixed_details, 'orphans': orphan_details }
+                'message': f"Database repaired: Cleared {ghost_count} ghost route assignments, fixed {fixed_sequences} stop sequences, purged {orphan_count} orphaned customers, and repaired {repaired_centroids} centroid stops.",
+                'details': { 'ghosts': ghost_details, 'sequences': fixed_details, 'orphans': orphan_details, 'repaired_centroids': repaired_details }
             })
         else:
             db.session.rollback() # Ensure nothing was saved
             return jsonify({
                 'success': True,
                 'dry_run': True,
-                'message': f"Dry run complete. Would clear {ghost_count} ghost route assignments, fix {fixed_sequences} stop sequences, and purge {orphan_count} orphaned customers.",
-                'details': { 'ghosts': ghost_details, 'sequences': fixed_details, 'orphans': orphan_details }
+                'message': f"Dry run complete. Would clear {ghost_count} ghost route assignments, fix {fixed_sequences} stop sequences, purge {orphan_count} orphaned customers, and repair {repaired_centroids} centroid stops.",
+                'details': { 'ghosts': ghost_details, 'sequences': fixed_details, 'orphans': orphan_details, 'repaired_centroids': repaired_details }
             })
     except Exception as e:
         db.session.rollback()
