@@ -216,6 +216,54 @@ with app.app_context():
         db.session.commit()
     except Exception as mig_e:
         db.session.rollback()
+
+    # Specifically correct Prajapati Kirankumar / Kumud Nagar Society in customers table if present
+    try:
+        for c in Customer.query.filter(
+            (Customer.address.like('%KUMUD NAGAR%')) | (Customer.phone.like('%9687430655%'))
+        ).all():
+            c.lat = 23.0744137
+            c.lng = 72.5280572
+            c.coord_source = 'FILE'
+            c.geocode_quality = 'EXACT'
+            c.is_manually_corrected = True
+        db.session.commit()
+    except Exception as cust_e:
+        db.session.rollback()
+
+    # Sanitize saved_templates customers_json: fix Kumud Nagar coords and clear uncorrected centroids
+    try:
+        for tmpl in SavedTemplate.query.all():
+            if not tmpl.customers_json:
+                continue
+            c_list = json.loads(tmpl.customers_json or '[]')
+            modified = False
+            for c_item in c_list:
+                c_addr = str(c_item.get('address') or '')
+                c_phone = str(c_item.get('phone') or '')
+                clat = c_item.get('lat')
+                clng = c_item.get('lng')
+
+                if 'KUMUD NAGAR' in c_addr.upper() or '9687430655' in c_phone:
+                    if clat != 23.0744137 or clng != 72.5280572:
+                        c_item['lat'] = 23.0744137
+                        c_item['lng'] = 72.5280572
+                        c_item['coord_source'] = 'FILE'
+                        c_item['geocode_quality'] = 'EXACT'
+                        c_item['is_manually_corrected'] = True
+                        modified = True
+                elif clat is not None and clng is not None and not c_item.get('is_manually_corrected'):
+                    if (abs(clat - 23.0145) < 0.003 and abs(clng - 72.5918) < 0.003) or                        (abs(clat - 23.0225) < 0.001 and abs(clng - 72.5714) < 0.001):
+                        c_item['lat'] = None
+                        c_item['lng'] = None
+                        c_item['geocode_quality'] = 'FAILED'
+                        c_item['coord_source'] = 'FAILED'
+                        modified = True
+            if modified:
+                tmpl.customers_json = json.dumps(c_list)
+        db.session.commit()
+    except Exception as tmpl_e:
+        db.session.rollback()
         
     try:
         db.session.execute(text("ALTER TABLE saved_templates ADD COLUMN is_assigned_instance BOOLEAN DEFAULT FALSE;"))

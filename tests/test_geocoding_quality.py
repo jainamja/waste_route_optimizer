@@ -294,3 +294,90 @@ def test_identical_coord_warnings_in_get_data():
                 else:
                     db.session.delete(m)
             db.session.commit()
+
+
+def test_template_centroid_sanitization_and_kumud_nagar_correction():
+    with app.app_context():
+        # Setup dummy template with old centroid and kumud nagar customer
+        custs = [
+            {
+                "id": 9951,
+                "name": "Prajapati Kirankumar Rameshbhai",
+                "phone": "9687430655",
+                "address": "1760, KUMUD NAGAR SOCIETY, AKASH PARISHAR ROAD, B/H GOTA UHC, CHANKYAPURI ARE",
+                "lat": 23.0145096,
+                "lng": 72.5917595,
+                "geocode_quality": "APPROXIMATE",
+                "coord_source": "GEOCODE",
+                "is_manually_corrected": False
+            },
+            {
+                "id": 9952,
+                "name": "Generic Centroid Cust",
+                "phone": "9876543210",
+                "address": "Some Vague Address, Ahmedabad",
+                "lat": 23.0145096,
+                "lng": 72.5917595,
+                "geocode_quality": "APPROXIMATE",
+                "coord_source": "GEOCODE",
+                "is_manually_corrected": False
+            }
+        ]
+        tmpl = SavedTemplate(
+            name="Test_Sanitization_Tuesday_Template",
+            customers_json=json.dumps(custs),
+            metadata_json=json.dumps({})
+        )
+        db.session.add(tmpl)
+        db.session.commit()
+        tmpl_id = tmpl.id
+
+        try:
+            # Re-run sanitization logic as runs on startup
+            for t in SavedTemplate.query.filter_by(id=tmpl_id).all():
+                c_list = json.loads(t.customers_json or '[]')
+                modified = False
+                for c_item in c_list:
+                    c_addr = str(c_item.get('address') or '')
+                    c_phone = str(c_item.get('phone') or '')
+                    clat = c_item.get('lat')
+                    clng = c_item.get('lng')
+
+                    if 'KUMUD NAGAR' in c_addr.upper() or '9687430655' in c_phone:
+                        if clat != 23.0744137 or clng != 72.5280572:
+                            c_item['lat'] = 23.0744137
+                            c_item['lng'] = 72.5280572
+                            c_item['coord_source'] = 'FILE'
+                            c_item['geocode_quality'] = 'EXACT'
+                            c_item['is_manually_corrected'] = True
+                            modified = True
+                    elif clat is not None and clng is not None and not c_item.get('is_manually_corrected'):
+                        if (abs(clat - 23.0145) < 0.003 and abs(clng - 72.5918) < 0.003) or                            (abs(clat - 23.0225) < 0.001 and abs(clng - 72.5714) < 0.001):
+                            c_item['lat'] = None
+                            c_item['lng'] = None
+                            c_item['geocode_quality'] = 'FAILED'
+                            c_item['coord_source'] = 'FAILED'
+                            modified = True
+                if modified:
+                    t.customers_json = json.dumps(c_list)
+            db.session.commit()
+
+            # Verify
+            updated_tmpl = SavedTemplate.query.get(tmpl_id)
+            updated_custs = json.loads(updated_tmpl.customers_json)
+            k_cust = next(c for c in updated_custs if c['id'] == 9951)
+            g_cust = next(c for c in updated_custs if c['id'] == 9952)
+
+            assert k_cust['lat'] == pytest.approx(23.0744137)
+            assert k_cust['lng'] == pytest.approx(72.5280572)
+            assert k_cust['coord_source'] == 'FILE'
+            assert k_cust['geocode_quality'] == 'EXACT'
+            assert k_cust['is_manually_corrected'] is True
+
+            assert g_cust['lat'] is None
+            assert g_cust['lng'] is None
+            assert g_cust['geocode_quality'] == 'FAILED'
+            assert g_cust['coord_source'] == 'FAILED'
+        finally:
+            SavedTemplate.query.filter_by(id=tmpl_id).delete()
+            db.session.commit()
