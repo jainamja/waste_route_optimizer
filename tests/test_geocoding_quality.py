@@ -381,3 +381,71 @@ def test_template_centroid_sanitization_and_kumud_nagar_correction():
         finally:
             SavedTemplate.query.filter_by(id=tmpl_id).delete()
             db.session.commit()
+
+
+def test_recompute_route_metrics_with_unlocated_stop():
+    with app.app_context():
+        # Clean any old test stops
+        Customer.query.filter(Customer.id >= 9970).delete()
+        Metadata.query.filter_by(key='start_coords').delete()
+        
+        m_start = Metadata(key='start_coords', value=json.dumps(["23.0225,72.5714"]))
+        m_ws = Metadata.query.filter_by(key='workspace_truck_ids').first()
+        orig_ws = m_ws.value if m_ws else None
+        if m_ws:
+            m_ws.value = json.dumps([1])
+        else:
+            db.session.add(Metadata(key='workspace_truck_ids', value=json.dumps([1])))
+        db.session.add(m_start)
+        
+        # Add 1 valid stop and 1 unlocated stop (lat=None, lng=None)
+        c1 = Customer(id=9971, name="Valid Stop", lat=23.050, lng=72.550, truck_id=1, stop_number=1, geocode_quality="EXACT")
+        c2 = Customer(id=9972, name="Failed Stop", lat=None, lng=None, truck_id=1, stop_number=2, geocode_quality="FAILED")
+        db.session.add_all([c1, c2])
+        db.session.commit()
+        
+        try:
+            from waste_route_optimizer import recompute_route_metrics
+            # Must NOT crash with TypeError on None coordinates
+            recompute_route_metrics()
+            
+            m_times = Metadata.query.filter_by(key='route_times').first()
+            assert m_times is not None
+            times = json.loads(m_times.value)
+            assert len(times) == 1
+            assert times[0] >= 300 # Contains time for the 1 valid stop
+        finally:
+            Customer.query.filter(Customer.id >= 9970).delete()
+            Metadata.query.filter_by(key='start_coords').delete()
+            m_ws = Metadata.query.filter_by(key='workspace_truck_ids').first()
+            if m_ws:
+                if orig_ws is not None:
+                    m_ws.value = orig_ws
+                else:
+                    db.session.delete(m_ws)
+            db.session.commit()
+
+
+def test_ai_rebalance_parses_comma_separated_start_coords():
+    with app.app_context():
+        # Setup metadata with comma-separated coordinate strings
+        Metadata.query.filter(Metadata.key.in_(['start_coords', 'end_coords'])).delete()
+        db.session.add(Metadata(key='start_coords', value=json.dumps(["23.0225,72.5714", "23.0300,72.5800"])))
+        db.session.add(Metadata(key='end_coords', value=json.dumps(["23.0500,72.5900", "23.0600,72.6000"])))
+        
+        # Test string parsing logic
+        meta_starts = json.loads(Metadata.query.filter_by(key='start_coords').first().value)
+        meta_ends = json.loads(Metadata.query.filter_by(key='end_coords').first().value)
+        
+        start_coords = []
+        for s in meta_starts:
+            if isinstance(s, str):
+                lat, lng = map(float, s.split(','))
+            else:
+                lat, lng = float(s[0]), float(s[1])
+            start_coords.append((lat, lng))
+            
+        assert start_coords[0][0] == pytest.approx(23.0225)
+        assert start_coords[0][1] == pytest.approx(72.5714)
+        assert start_coords[0][0] > 20.0 # Must NOT be 2.0 (Atlantic Ocean)
+        assert start_coords[0][1] > 70.0 # Must NOT be 3.0

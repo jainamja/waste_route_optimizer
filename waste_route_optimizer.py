@@ -918,9 +918,9 @@ def recompute_route_metrics():
                 route_distances.append(0)
                 continue
                 
-            depots = [s for s in stops if s.id <= -1000 or s.name == 'End Location / Depot']
-            real_stops = [s for s in stops if s.id > -1000 and s.name != 'End Location / Depot' and s.confirmation != 'CANCELLED']
-            depot_stop = depots[-1] if depots else None
+            depots = [s for s in stops if (s.id <= -1000 or s.name == 'End Location / Depot') and s.lat is not None and s.lng is not None]
+            real_stops = [s for s in stops if s.id > -1000 and s.name != 'End Location / Depot' and s.confirmation != 'CANCELLED' and s.lat is not None and s.lng is not None]
+            depot_stop = depots[-1] if depots and depots[-1].lat is not None and depots[-1].lng is not None else None
             
             start_idx = min(idx, len(start_coords) - 1)
             slat, slng = map(float, start_coords[start_idx].split(','))
@@ -1023,6 +1023,10 @@ def recompute_route_metrics():
         
         db.session.commit()
     except Exception as e:
+        try:
+            db.session.rollback()
+        except Exception:
+            pass
         print(f"Error recomputing route metrics: {e}")
 
 @app.route('/login', methods=['GET', 'POST'])
@@ -1291,10 +1295,14 @@ def upload():
         cid = allocate_customer_id(raw_id, is_depot, truck_val, existing_ids, max_id_tracker)
         c['id'] = cid
         new_cust = Customer(
-            id=cid, name=c['name'], phone=c['phone'], address=c['address'],
-            location_url=c['location_url'], lat=c['lat'], lng=c['lng'],
+            id=cid, name=c['name'], phone=c.get('phone') or '', address=c.get('address') or '',
+            location_url=c.get('location_url') or '', lat=c.get('lat'), lng=c.get('lng'),
             status=c.get('status', 'PENDING'), truck_id=truck_val, stop_number=c.get('stop_number'),
-            confirmation=c.get('confirmation', 'NOT_CONFIRMED')
+            confirmation=c.get('confirmation', 'NOT_CONFIRMED'),
+            customer_status=c.get('customer_status', 'ACTIVE'),
+            geocode_quality=c.get('geocode_quality', 'UNKNOWN'),
+            coord_source=c.get('coord_source', 'UNKNOWN'),
+            is_manually_corrected=c.get('is_manually_corrected', False)
         )
         db.session.add(new_cust)
         
@@ -2207,6 +2215,10 @@ def remove_stop():
         recompute_route_metrics()
         return jsonify({'success': True})
     except Exception as e:
+        try:
+            db.session.rollback()
+        except Exception:
+            pass
         import traceback
         traceback.print_exc()
         return jsonify({'error': str(e)}), 500
@@ -2253,70 +2265,17 @@ def add_stop():
         address = lng
         lng = None
         
+    geocode_quality = 'UNKNOWN'
+    coord_source = 'UNKNOWN'
     if (lat is None or lng is None) and address:
-        search_query = str(address)
-        if "ahmedabad" not in search_query.lower() and "gujarat" not in search_query.lower():
-            search_query += ", Ahmedabad, Gujarat, India"
-        gmaps_key = os.environ.get('GMAPS_API_KEY')
-        if gmaps_key:
-            try:
-                import requests
-                g_res = requests.get('https://maps.googleapis.com/maps/api/geocode/json', params={'address': search_query, 'key': gmaps_key}).json()
-                if g_res.get('status') == 'OK':
-                    glat = g_res['results'][0]['geometry']['location']['lat']
-                    glng = g_res['results'][0]['geometry']['location']['lng']
-                    if 8.0 <= glat <= 38.0 and 68.0 <= glng <= 98.0:
-                        if "ahmedabad" in search_query.lower():
-                            if 22.4 <= glat <= 23.6 and 72.0 <= glng <= 73.1:
-                                lat, lng = glat, glng
-                        else:
-                            lat, lng = glat, glng
-            except Exception as e: print(f"GMAPS Geocode Error: {e}")
-        if lat is None or lng is None:
-            try:
-                from geopy.geocoders import Nominatim
-                nom = Nominatim(user_agent="waste_route_optim_ahmedabad_1")
-                parts = [p.strip() for p in search_query.split(',')]
-                queries = [search_query]
-                for k in [5, 4]:
-                    if len(parts) > k:
-                        cand_q = ", ".join(parts[-k:])
-                        if cand_q not in queries:
-                            queries.append(cand_q)
-                  
-                for short_q in queries:
-                    try:
-                        loc = nom.geocode(short_q, timeout=3)
-                        if loc:
-                            clat, clng = loc.latitude, loc.longitude
-                            if 8.0 <= clat <= 38.0 and 68.0 <= clng <= 98.0:
-                                if "ahmedabad" in search_query.lower():
-                                    if 22.4 <= clat <= 23.6 and 72.0 <= clng <= 73.1:
-                                        lat, lng = clat, clng
-                                        break
-                                else:
-                                    lat, lng = clat, clng
-                                    break
-                    except: pass
-                      
-                if lat is None or lng is None:
-                    from geopy.geocoders import ArcGIS
-                    arc = ArcGIS()
-                    for short_q in queries:
-                        try:
-                            loc = arc.geocode(short_q, timeout=3)
-                            if loc:
-                                clat, clng = loc.latitude, loc.longitude
-                                if 8.0 <= clat <= 38.0 and 68.0 <= clng <= 98.0:
-                                    if "ahmedabad" in search_query.lower():
-                                        if 22.4 <= clat <= 23.6 and 72.0 <= clng <= 73.1:
-                                            lat, lng = clat, clng
-                                            break
-                                    else:
-                                        lat, lng = clat, clng
-                                        break
-                        except: pass
-            except: pass
+        glat, glng, gqual = geocode_address_robust(str(address))
+        if glat is not None and glng is not None:
+            lat, lng = glat, glng
+            geocode_quality = gqual
+            coord_source = 'GEOCODE'
+    elif lat is not None and lng is not None:
+        geocode_quality = 'EXACT'
+        coord_source = 'MANUAL'
         
     if lat is None or lng is None:
         return jsonify({'error': 'Could not resolve coordinates from the provided URL or Address.'}), 400
@@ -2341,7 +2300,9 @@ def add_stop():
                 id=new_id, name=name, phone=phone, address=address,
                 location_url=location_url, lat=lat, lng=lng,
                 status='PENDING', truck_id=target_truck_id, stop_number=target_sequence + 1,
-                confirmation='NOT_CONFIRMED'
+                confirmation='NOT_CONFIRMED', customer_status='ACTIVE',
+                geocode_quality=geocode_quality, coord_source=coord_source,
+                is_manually_corrected=True
             )
             db.session.add(new_cust)
             db.session.commit()
@@ -2384,13 +2345,19 @@ def add_stop():
             new_cust = Customer(
                 id=new_id, name=name, phone=phone, address=address,
                 location_url=location_url, lat=lat, lng=lng, status='PENDING',
-                confirmation='NOT_CONFIRMED'
+                confirmation='NOT_CONFIRMED', customer_status='ACTIVE',
+                geocode_quality=geocode_quality, coord_source=coord_source,
+                is_manually_corrected=True
             )
             db.session.add(new_cust)
             db.session.commit()
             recompute_route_metrics()
             return jsonify({'success': True, 'customer_id': new_id})
     except Exception as e:
+        try:
+            db.session.rollback()
+        except Exception:
+            pass
         import traceback
         traceback.print_exc()
         return jsonify({'error': str(e)}), 500
@@ -2496,8 +2463,14 @@ def ai_rebalance():
     # 3. Build live start coords based on Firebase GPS (if available), else fallback to original
     for i in range(num_trucks):
         truck_id_str = str(i + 1)
-        lat = float(original_starts[i][0])
-        lng = float(original_starts[i][1])
+        if isinstance(original_starts[i], str):
+            slat, slng = map(float, original_starts[i].split(','))
+        elif isinstance(original_starts[i], (list, tuple)):
+            slat, slng = float(original_starts[i][0]), float(original_starts[i][1])
+        else:
+            slat, slng = 23.0225, 72.5714
+            
+        lat, lng = slat, slng
         
         # Override with live GPS if available and truck is not offline
         if truck_id_str in trucks_data:
@@ -2509,9 +2482,19 @@ def ai_rebalance():
         start_coords.append((lat, lng))
         
         if original_ends and len(original_ends) > i:
-            end_coords.append((float(original_ends[i][0]), float(original_ends[i][1])))
+            end_val = original_ends[i]
         elif original_ends:
-            end_coords.append((float(original_ends[0][0]), float(original_ends[0][1])))
+            end_val = original_ends[0]
+        else:
+            end_val = (lat, lng)
+            
+        if isinstance(end_val, str):
+            elat, elng = map(float, end_val.split(','))
+        elif isinstance(end_val, (list, tuple)):
+            elat, elng = float(end_val[0]), float(end_val[1])
+        else:
+            elat, elng = lat, lng
+        end_coords.append((elat, elng))
             
     # 4. Get all PENDING stops (exclude Depot -1000)
     pending_customers = Customer.query.filter(Customer.status == 'PENDING', Customer.id > -1000).all()
@@ -2662,69 +2645,78 @@ def ai_rebalance():
 @app.route('/api/update_route_manual', methods=['POST'])
 @login_required
 def update_route_manual():
-    data = request.json.get('routes', {})
-    
-    customers = Customer.query.all()
-    cust_map = {c.id: c for c in customers}
-    
-    routes_payload = {}
-    
-    for truck_id, stop_ids in data.items():
-        truck_id_int = int(truck_id)
-        route_key = f"route_{truck_id_int}"
-        if route_key not in routes_payload:
-            routes_payload[route_key] = {}
-        
-        # Re-sequence the valid customers based on their new index
-        for idx, cid in enumerate(stop_ids):
-            if cid in cust_map:
-                c = cust_map[cid]
-                c.truck_id = truck_id_int
-                c.stop_number = idx + 1
-                
-                routes_payload[route_key][str(cid)] = {
-                    "name": c.name,
-                    "address": c.address,
-                    "phone": c.phone or '',
-                    "lat": c.lat,
-                    "lng": c.lng,
-                    "sequence": idx + 1,
-                    "status": c.status,
-                    "confirmation": c.confirmation or "NOT_CONFIRMED",
-                    "customer_status": getattr(c, "customer_status", "ACTIVE") or "ACTIVE"
-                }
-                
-        # Preserve depot stop for this truck
-        depot_stops = [c for c in customers if c.truck_id == truck_id_int and (c.id <= -1000 or c.name == 'End Location / Depot')]
-        for dc in depot_stops:
-            dc.stop_number = len(stop_ids) + 1
-            routes_payload[route_key][str(dc.id)] = {
-                "name": dc.name,
-                "address": dc.address,
-                "phone": '',
-                "lat": dc.lat,
-                "lng": dc.lng,
-                "sequence": dc.stop_number,
-                "status": dc.status or "PENDING",
-                "confirmation": "NOT_CONFIRMED",
-                "customer_status": "ACTIVE"
-            }
-                
-    db.session.commit()
-    
-    # Sync with Firebase (only update the modified routes, preserving other drivers' routes)
     try:
-        import requests
-        firebase_url = "https://wasteroutelive-default-rtdb.firebaseio.com"
-        id_token = get_firebase_token()
-        if id_token:
-            for route_key, stops in routes_payload.items():
-                requests.put(f"{firebase_url}/routes/{route_key}.json?auth={id_token}", json={"stops": stops})
-    except Exception as e:
-        print("Firebase sync error on manual reorder:", e)
+        data = (request.json or {}).get('routes', {})
         
-    recompute_route_metrics()
-    return jsonify({'success': True})
+        customers = Customer.query.all()
+        cust_map = {c.id: c for c in customers}
+        
+        routes_payload = {}
+        
+        for truck_id, stop_ids in data.items():
+            truck_id_int = int(truck_id)
+            route_key = f"route_{truck_id_int}"
+            if route_key not in routes_payload:
+                routes_payload[route_key] = {}
+            
+            # Re-sequence the valid customers based on their new index
+            for idx, cid in enumerate(stop_ids):
+                if cid in cust_map:
+                    c = cust_map[cid]
+                    c.truck_id = truck_id_int
+                    c.stop_number = idx + 1
+                    
+                    routes_payload[route_key][str(cid)] = {
+                        "name": c.name,
+                        "address": c.address,
+                        "phone": c.phone or '',
+                        "lat": c.lat,
+                        "lng": c.lng,
+                        "sequence": idx + 1,
+                        "status": c.status,
+                        "confirmation": c.confirmation or "NOT_CONFIRMED",
+                        "customer_status": getattr(c, "customer_status", "ACTIVE") or "ACTIVE"
+                    }
+                    
+            # Preserve depot stop for this truck
+            depot_stops = [c for c in customers if c.truck_id == truck_id_int and (c.id <= -1000 or c.name == 'End Location / Depot')]
+            for dc in depot_stops:
+                dc.stop_number = len(stop_ids) + 1
+                routes_payload[route_key][str(dc.id)] = {
+                    "name": dc.name,
+                    "address": dc.address,
+                    "phone": '',
+                    "lat": dc.lat,
+                    "lng": dc.lng,
+                    "sequence": dc.stop_number,
+                    "status": dc.status or "PENDING",
+                    "confirmation": "NOT_CONFIRMED",
+                    "customer_status": "ACTIVE"
+                }
+                    
+        db.session.commit()
+        
+        # Sync with Firebase (only update the modified routes, preserving other drivers' routes)
+        try:
+            import requests
+            firebase_url = "https://wasteroutelive-default-rtdb.firebaseio.com"
+            id_token = get_firebase_token()
+            if id_token:
+                for route_key, stops in routes_payload.items():
+                    requests.put(f"{firebase_url}/routes/{route_key}.json?auth={id_token}", json={"stops": stops})
+        except Exception as e:
+            print("Firebase sync error on manual reorder:", e)
+            
+        recompute_route_metrics()
+        return jsonify({'success': True})
+    except Exception as e:
+        try:
+            db.session.rollback()
+        except Exception:
+            pass
+        import traceback
+        traceback.print_exc()
+        return jsonify({'error': str(e)}), 500
 
 
 @app.route('/api/update_customer_status', methods=['POST'])
@@ -3640,7 +3632,7 @@ def deploy_template(t_id):
         db.session.rollback()
         import traceback
         traceback.print_exc()
-        return jsonify({'error': f'Database error during deploy: {str(e)}'}), 200
+        return jsonify({'error': f'Database error during deploy: {str(e)}'}), 500
     
     # Sync with Firebase immediately while preserving protected active routes (only when deploying, NOT when opening to edit)
     if mode == 'deploy':
@@ -3735,13 +3727,15 @@ def dynamic_recalculate():
                     for stop_id, stop_info in stops_items:
                         if not stop_info: continue
                         if stop_info.get('status') == 'PENDING':
+                            s_lat = float(stop_info['lat']) if stop_info.get('lat') is not None else None
+                            s_lng = float(stop_info['lng']) if stop_info.get('lng') is not None else None
                             pending_customers.append({
                                 'id': str(stop_id),
                                 'name': stop_info.get('name', ''),
                                 'address': stop_info.get('address', ''),
                                 'phone': stop_info.get('phone', ''),
-                                'lat': float(stop_info['lat']),
-                                'lng': float(stop_info['lng']),
+                                'lat': s_lat,
+                                'lng': s_lng,
                                 'confirmation': stop_info.get('confirmation', 'NOT_CONFIRMED'),
                                 'customer_status': stop_info.get('customer_status', 'ACTIVE'),
                                 'truck_id': truck_id,
@@ -3769,8 +3763,8 @@ def dynamic_recalculate():
         if not pending_customers:
             return jsonify({'error': 'No pending stops to recalculate.'}), 400
             
-        # Filter out end depots from pending_customers so they aren't treated as mid-route stops
-        real_pending_customers = [c for c in pending_customers if int(c['id']) > -1000 and c['confirmation'] != 'CANCELLED']
+        # Filter out end depots from pending_customers and ensure valid coordinates
+        real_pending_customers = [c for c in pending_customers if int(c['id']) > -1000 and c['confirmation'] != 'CANCELLED' and c.get('lat') is not None and c.get('lng') is not None]
         
         cancelled_customers = [c for c in pending_customers if c['confirmation'] == 'CANCELLED']
         cancelled_by_truck = {}
@@ -3792,6 +3786,11 @@ def dynamic_recalculate():
         
         aco = ACO_VRP(truck_starts, end_coords, real_pending_customers, num_trucks=len(truck_starts))
         new_routes, _, _ = aco.run()
+        
+        # Safety check: if solver failed or dropped all pending stops, abort to prevent wiping Firebase!
+        total_assigned = sum(len(r) for r in new_routes) if new_routes else 0
+        if len(real_pending_customers) > 0 and total_assigned == 0:
+            return jsonify({'error': 'Optimizer failed to calculate a feasible route. Live routes preserved.'}), 500
         
         # 4. Write back to Firebase
         updates_by_route = {}
@@ -3888,6 +3887,10 @@ def dynamic_recalculate():
         return jsonify({'success': True, 'recalculated_stops': len(pending_customers)})
         
     except Exception as e:
+        try:
+            db.session.rollback()
+        except Exception:
+            pass
         import traceback
         traceback.print_exc()
         return jsonify({'error': str(e)}), 500
