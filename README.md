@@ -1,4 +1,4 @@
-# 🚛 OnRoute — Intelligent Waste Route Optimizer & Live Fleet Tracking Platform
+# 🚛 TrashTrekyx — Intelligent Waste Route Optimizer & Live Fleet Tracking Platform
 
 [![Python](https://img.shields.io/badge/Python-3.10+-3776AB?style=for-the-badge&logo=python&logoColor=white)](https://www.python.org/)
 [![Flask](https://img.shields.io/badge/Flask-2.x-000000?style=for-the-badge&logo=flask&logoColor=white)](https://flask.palletsprojects.com/)
@@ -8,7 +8,7 @@
 [![PostgreSQL](https://img.shields.io/badge/PostgreSQL-15-336791?style=for-the-badge&logo=postgresql&logoColor=white)](https://www.postgresql.org/)
 [![OSRM](https://img.shields.io/badge/OSRM-Routing%20Engine-4CAF50?style=for-the-badge)](http://project-osrm.org/)
 
-**OnRoute** is an enterprise-grade fleet management, algorithmic route optimization, and real-time telemetry platform tailored for commercial waste management and urban collection operations.
+**TrashTrekyx** is an enterprise-grade fleet management, algorithmic route optimization, and real-time telemetry platform tailored for commercial waste management and urban collection operations.
 
 It combines combinatorial optimization algorithms (Ant Colony Optimization & Google OR-Tools) with sub-second live GPS tracking modeled after ride-hailing platforms like Uber and Ola.
 
