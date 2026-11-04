@@ -491,9 +491,13 @@
     <div id="edit-customer-modal" style="display:none; position:fixed; top:0; left:0; right:0; bottom:0; background:rgba(0,0,0,0.5); z-index:9999; align-items:center; justify-content:center;">
         <div style="background:white; padding:28px; border-radius:20px; max-width:480px; width:92%; max-height:90vh; overflow-y:auto; box-shadow:0 20px 25px -5px rgba(0,0,0,0.1), 0 10px 10px -5px rgba(0,0,0,0.04);">
             <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:16px;">
-                <h3 style="margin:0; font-family:'Manrope', sans-serif; font-size:18px; color:var(--text-main);">
-                    <i class="fa-solid fa-pen-to-square" style="color:var(--primary); margin-right:8px;"></i>Edit Customer Details
-                </h3>
+                <div style="display:flex; align-items:center; gap:8px;">
+                    <h3 style="margin:0; font-family:'Manrope', sans-serif; font-size:18px; color:var(--text-main); display:flex; align-items:center;">
+                    <i class="fa-solid fa-pen-to-square" style="color:var(--primary); margin-right:8px;"></i>Edit Customer Details</h3>
+
+                <span id="edit-cust-stop-badge" style="background:#eff6ff; color:#2563eb; font-size:12px; font-weight:800; padding:2px 8px; border-radius:12px; border:1px solid #bfdbfe; margin-left:8px;">Stop #</span>
+                </div>
+
                 <button onclick="closeEditCustomerModal()" style="background:none; border:none; color:var(--text-muted); cursor:pointer; font-size:18px; padding:4px;"><i class="fa-solid fa-xmark"></i></button>
             </div>
             
@@ -519,6 +523,18 @@
                     <label style="font-size:12px; font-weight:600; color:var(--text-muted); display:block; margin-bottom:4px;">Google Maps Link or Coordinates</label>
                     <input type="text" id="edit-cust-url" placeholder="https://maps.app.goo.gl/... or 23.0123, 72.5678" style="width:100%; box-sizing:border-box; padding:10px 12px; border:1px solid var(--border); border-radius:10px; font-family:'Inter', sans-serif; font-size:14px;">
                     <span style="font-size:11px; color:var(--text-muted); margin-top:3px; display:block;">Pasting a new link will update the GPS pin location for this stop.</span>
+                </div>
+                
+                <div style="display:grid; grid-template-columns:1fr 1fr; gap:12px;">
+                    <div>
+                        <label style="font-size:12px; font-weight:600; color:var(--text-muted); display:block; margin-bottom:4px;">Stop Number</label>
+                        <input type="number" id="edit-cust-stop-number" min="1" placeholder="Stop Number" style="width:100%; box-sizing:border-box; padding:10px 12px; border:1px solid var(--border); border-radius:10px; font-family:'Inter', sans-serif; font-size:14px; font-weight:700; color:#1e293b;">
+                    </div>
+                    <div>
+                        <label style="font-size:12px; font-weight:600; color:var(--text-muted); display:block; margin-bottom:4px;">Assigned Truck</label>
+                        <select id="edit-cust-truck" style="width:100%; box-sizing:border-box; padding:10px 12px; border:1px solid var(--border); border-radius:10px; font-family:'Inter', sans-serif; font-size:13px; font-weight:600; background:#f8fafc;">
+                        </select>
+                    </div>
                 </div>
                 
                 <div style="display:grid; grid-template-columns:1fr 1fr; gap:12px;">
@@ -1107,7 +1123,7 @@
                                             <div class="stop-name" style="display:flex; align-items:center; ${nameDec}">${displayName}${confHtml}</div>
                                             ${!isDone && !isDepot ? `
                                                 <div style="display:flex; align-items:center; gap:2px; margin-left:8px;">
-                                                    <button onclick="openEditCustomerModal(${customer.id})" style="background:none; border:none; color:#4f46e5; cursor:pointer; padding:4px 6px; border-radius:6px; font-size:13px;" title="Edit Customer Details"><i class="fa-solid fa-pen-to-square"></i></button>
+                                                    <button onclick="openEditCustomerModal(${customer.id}, '${currentSr}', ${actualTruckId})" style="background:none; border:none; color:#4f46e5; cursor:pointer; padding:4px 6px; border-radius:6px; font-size:13px;" title="Edit Customer Details"><i class="fa-solid fa-pen-to-square"></i></button>
                                                     <button onclick="removeStop(${customer.id}, ${customer.truck})" style="background:none; border:none; color:#ef4444; cursor:pointer; padding:4px 6px; border-radius:6px; font-size:13px;" title="Remove Stop"><i class="fa-solid fa-trash"></i></button>
                                                 </div>
                                             ` : ''}
@@ -1633,13 +1649,55 @@
 
         
         
-        window.openEditCustomerModal = function(id) {
+        window.openEditCustomerModal = function(id, stopSr, truckId) {
             if (!data || !data.customers) return;
             const c = data.customers.find(x => x.id === id || String(x.id) === String(id));
             if (!c) {
                 alert("Customer not found");
                 return;
             }
+            
+            // Find current truck and stop number
+            let currentTruck = truckId || c.truck || 1;
+            let currentStop = stopSr;
+            
+            if (!currentStop || currentStop === '-' || currentStop === 'undefined') {
+                if (data.routes) {
+                    for (let rIdx = 0; rIdx < data.routes.length; rIdx++) {
+                        let r = data.routes[rIdx];
+                        let srCount = 1;
+                        for (let cId of r) {
+                            let item = data.customers.find(x => x.id === cId);
+                            let isDep = cId < 0 || (item && item.name === 'End Location / Depot');
+                            let sr = isDep ? '-' : srCount++;
+                            if (cId === c.id || String(cId) === String(c.id)) {
+                                currentTruck = rIdx + 1;
+                                currentStop = sr;
+                                break;
+                            }
+                        }
+                        if (currentStop && currentStop !== '-') break;
+                    }
+                }
+            }
+            if (!currentStop || currentStop === '-' || currentStop === 'undefined') {
+                currentStop = c.stop_number || 1;
+            }
+
+            // Populate Assigned Truck select
+            const truckSelect = document.getElementById('edit-cust-truck');
+            if (truckSelect) {
+                truckSelect.innerHTML = '';
+                let numTrucks = (data.routes && data.routes.length > 0) ? data.routes.length : 1;
+                for (let t = 1; t <= numTrucks; t++) {
+                    let opt = document.createElement('option');
+                    opt.value = t;
+                    opt.innerText = `Truck ${t}`;
+                    if (parseInt(currentTruck) === t) opt.selected = true;
+                    truckSelect.appendChild(opt);
+                }
+            }
+
             document.getElementById('edit-cust-id').value = c.id;
             document.getElementById('edit-cust-name').value = c.name || '';
             document.getElementById('edit-cust-phone').value = c.phone || '';
@@ -1647,6 +1705,17 @@
             document.getElementById('edit-cust-url').value = c.location_url || (c.lat && c.lng ? `${c.lat}, ${c.lng}` : '');
             document.getElementById('edit-cust-status').value = (c.customer_status || 'ACTIVE').toUpperCase() === 'INACTIVE' ? 'INACTIVE' : 'ACTIVE';
             document.getElementById('edit-cust-conf').value = c.confirmation || 'NOT_CONFIRMED';
+            
+            let stopNumVal = parseInt(currentStop) || 1;
+            document.getElementById('edit-cust-stop-number').value = stopNumVal;
+            
+            const badge = document.getElementById('edit-cust-stop-badge');
+            if (badge) {
+                badge.innerText = `Stop #${currentStop} (Truck ${currentTruck})`;
+            }
+
+            window._origEditTruck = parseInt(currentTruck);
+            window._origEditStopNumber = stopNumVal;
             
             document.getElementById('edit-customer-modal').style.display = 'flex';
         };
@@ -1656,13 +1725,15 @@
         };
 
         window.saveCustomerDetails = async function() {
-            const id = document.getElementById('edit-cust-id').value;
+            const id = parseInt(document.getElementById('edit-cust-id').value);
             const name = document.getElementById('edit-cust-name').value.trim();
             const phone = document.getElementById('edit-cust-phone').value.trim();
             const address = document.getElementById('edit-cust-address').value.trim();
             const location_url = document.getElementById('edit-cust-url').value.trim();
             const customer_status = document.getElementById('edit-cust-status').value;
             const confirmation = document.getElementById('edit-cust-conf').value;
+            const newStopNum = parseInt(document.getElementById('edit-cust-stop-number').value) || 1;
+            const newTruck = parseInt(document.getElementById('edit-cust-truck').value) || 1;
             
             if (!name) {
                 alert("Customer name is required.");
@@ -1675,6 +1746,9 @@
             btn.innerHTML = '<i class="fa-solid fa-circle-notch fa-spin"></i> Saving...';
             
             try {
+                let orderChanged = (window._origEditTruck !== newTruck) || (window._origEditStopNumber !== newStopNum);
+
+                // 1. Update basic customer details
                 let res = await fetch('/api/update_customer_details', {
                     method: 'POST',
                     headers: {'Content-Type': 'application/json'},
@@ -1685,16 +1759,47 @@
                         address: address,
                         location_url: location_url,
                         customer_status: customer_status,
-                        confirmation: confirmation
+                        confirmation: confirmation,
+                        truck_id: newTruck,
+                        stop_number: newStopNum
                     })
                 });
                 let result = await res.json();
-                if (result.success) {
-                    closeEditCustomerModal();
-                    loadData();
-                } else {
+                if (!result.success) {
                     alert("Error updating customer: " + (result.error || "Unknown error"));
+                    return;
                 }
+
+                // 2. If stop number or assigned truck changed, reorder route sequences
+                if (orderChanged && data && data.routes) {
+                    let newOrder = {};
+                    let numTrucks = data.routes.length;
+                    for (let t = 1; t <= numTrucks; t++) {
+                        let rIdx = t - 1;
+                        let list = (data.routes[rIdx] || []).filter(cId => {
+                            let cust = data.customers.find(x => x.id === cId);
+                            return cId > 0 && !(cust && cust.name === 'End Location / Depot');
+                        });
+                        list = list.filter(cId => cId !== id);
+                        newOrder[t] = list;
+                    }
+                    if (!newOrder[newTruck]) newOrder[newTruck] = [];
+                    let targetIndex = Math.max(0, Math.min(newStopNum - 1, newOrder[newTruck].length));
+                    newOrder[newTruck].splice(targetIndex, 0, id);
+
+                    let reorderRes = await fetch('/api/update_route_manual', {
+                        method: 'POST',
+                        headers: {'Content-Type': 'application/json'},
+                        body: JSON.stringify({ routes: newOrder })
+                    });
+                    let reorderData = await reorderRes.json();
+                    if (!reorderData.success) {
+                        console.warn("Reorder warning:", reorderData.error);
+                    }
+                }
+                
+                closeEditCustomerModal();
+                loadData();
             } catch(err) {
                 alert("Network error: " + err.message);
             } finally {

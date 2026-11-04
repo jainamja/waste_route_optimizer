@@ -2794,6 +2794,18 @@ def update_customer_details():
         
     if 'confirmation' in data and data.get('confirmation'):
         c.confirmation = data.get('confirmation')
+
+    if 'truck_id' in data and data.get('truck_id') is not None:
+        try:
+            c.truck_id = int(data.get('truck_id'))
+        except:
+            pass
+
+    if 'stop_number' in data and data.get('stop_number') is not None:
+        try:
+            c.stop_number = int(data.get('stop_number'))
+        except:
+            pass
         
     location_url = data.get('location_url')
     if location_url is not None:
@@ -2854,6 +2866,10 @@ def update_customer_details():
                             tc['is_manually_corrected'] = True
                         tc['customer_status'] = c.customer_status
                         tc['confirmation'] = c.confirmation
+                        if c.truck_id is not None:
+                            tc['truck_id'] = c.truck_id
+                        if c.stop_number is not None:
+                            tc['stop_number'] = c.stop_number
                         updated_tmpl = True
                         break
                 if updated_tmpl:
@@ -2874,7 +2890,8 @@ def update_customer_details():
                     "phone": c.phone or "",
                     "address": c.address or "",
                     "customer_status": c.customer_status or "ACTIVE",
-                    "confirmation": c.confirmation or "NOT_CONFIRMED"
+                    "confirmation": c.confirmation or "NOT_CONFIRMED",
+                    "sequence": c.stop_number
                 }
                 if c.lat is not None and c.lng is not None:
                     payload["lat"] = c.lat
