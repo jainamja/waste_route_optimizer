@@ -56,7 +56,6 @@ def handle_exception(e):
 
 CORS(app)
 app.config['UPLOAD_FOLDER'] = 'uploads'
-app.secret_key = 'supersecretkey'
 
 # Automatically use PostgreSQL if DATABASE_URL is set, otherwise fall back to local SQLite
 database_url = os.environ.get('DATABASE_URL')
@@ -75,7 +74,7 @@ app.config['SQLALCHEMY_ENGINE_OPTIONS'] = {
 db = SQLAlchemy(app)
 
 
-app.secret_key = os.environ.get('SECRET_KEY', 'super_secret_waste_route_key_123')
+app.secret_key = os.environ.get('SECRET_KEY', '7b4e2f91a5c84d3e0f6b2d1c9e8a7f4b3e2d1c0a9b8e7f6d5c4b3a2e1f0d9c8b')
 if os.environ.get('RENDER') or os.environ.get('DATABASE_URL'):
     app.config.update(
         SESSION_COOKIE_SECURE=True,
@@ -1433,7 +1432,11 @@ def driver_login():
         return jsonify({'error': f"Role '{user.role}' not permitted in mobile app"}), 403
 
 @app.route('/api/admin_check')
+@login_required
 def admin_check():
+    u = db.session.get(User, session.get('user_id'))
+    if not u or u.role != 'ADMIN':
+        return jsonify({'error': 'Unauthorized'}), 403
     admins = User.query.filter_by(role='ADMIN').all()
     return jsonify({
         'admin_count': len(admins),
@@ -1447,7 +1450,8 @@ def admin_reset_password():
     new_password = data.get('new_password')
     username = (data.get('username') or 'admin').strip()
     
-    if secret_key != 'super_secret_waste_route_key_123' and secret_key != app.secret_key:
+    configured_secret = os.environ.get('ADMIN_RESET_SECRET')
+    if not configured_secret or not secret_key or secret_key != configured_secret:
         return jsonify({'error': 'Unauthorized'}), 403
     if not new_password:
         return jsonify({'error': 'New password required'}), 400
@@ -3506,11 +3510,18 @@ def driver_finish_route():
     
     driver = None
     if driver_id:
-        try: driver = db.session.get(User, int(driver_id))
+        try:
+            candidate = db.session.get(User, int(driver_id))
+            if candidate and candidate.role in ('DRIVER', 'ADMIN'):
+                driver = candidate
         except: pass
-    if not driver and truck_id:
-        try: driver = User.query.filter_by(role='DRIVER', truck_id=int(truck_id)).first()
-        except: pass
+    elif session.get('user_id'):
+        s_user = db.session.get(User, session.get('user_id'))
+        if s_user:
+            driver = s_user
+            
+    if not driver:
+        return jsonify({'error': 'Unauthorized: Valid driver credentials required'}), 401
         
     if driver:
         eff_truck_id = driver.truck_id or truck_id
