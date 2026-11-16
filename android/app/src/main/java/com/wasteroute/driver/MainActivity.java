@@ -7,9 +7,10 @@ import android.os.Bundle;
 import android.os.Handler;
 import android.os.Looper;
 import android.view.View;
-import android.view.WindowInsetsController;
 import android.view.WindowManager;
 import android.webkit.CookieManager;
+import androidx.core.view.WindowCompat;
+import androidx.core.view.WindowInsetsControllerCompat;
 import com.getcapacitor.BridgeActivity;
 
 public class MainActivity extends BridgeActivity {
@@ -26,8 +27,48 @@ public class MainActivity extends BridgeActivity {
             }
         } catch (Exception ignored) {}
 
-        configureWakeAndLock();
+        applyStatusBarStyling();
         handleIntent(getIntent());
+    }
+
+    @Override
+    public void onResume() {
+        super.onResume();
+        applyStatusBarStyling();
+    }
+
+    @Override
+    public void onWindowFocusChanged(boolean hasFocus) {
+        super.onWindowFocusChanged(hasFocus);
+        if (hasFocus) {
+            applyStatusBarStyling();
+        }
+    }
+
+    private void applyStatusBarStyling() {
+        try {
+            // Keep screen on while driver is navigating
+            getWindow().addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
+
+            // Ensure window draws solid status bar background
+            getWindow().addFlags(WindowManager.LayoutParams.FLAG_DRAWS_SYSTEM_BAR_BACKGROUNDS);
+            getWindow().clearFlags(WindowManager.LayoutParams.FLAG_TRANSLUCENT_STATUS);
+            getWindow().setStatusBarColor(Color.WHITE);
+
+            // Use WindowCompat to guarantee dark icons (time, battery, Wi-Fi, notifications)
+            WindowInsetsControllerCompat insetsController = WindowCompat.getInsetsController(getWindow(), getWindow().getDecorView());
+            if (insetsController != null) {
+                insetsController.setAppearanceLightStatusBars(true);
+            }
+
+            // Legacy flag fallback for Android 6-10 (API 23-29)
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+                View decor = getWindow().getDecorView();
+                int flags = decor.getSystemUiVisibility();
+                flags |= View.SYSTEM_UI_FLAG_LIGHT_STATUS_BAR;
+                decor.setSystemUiVisibility(flags);
+            }
+        } catch (Exception ignored) {}
     }
 
     @Override
@@ -54,30 +95,6 @@ public class MainActivity extends BridgeActivity {
                 }
             } catch (Exception ignored) {}
         }, 300);
-    }
-
-    private void configureWakeAndLock() {
-        try {
-            // Keep screen on while driver is navigating
-            getWindow().addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
-
-            // Configure light status bar so time, battery & signal icons are dark and clearly visible
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
-                WindowInsetsController controller = getWindow().getInsetsController();
-                if (controller != null) {
-                    controller.setSystemBarsAppearance(
-                        WindowInsetsController.APPEARANCE_LIGHT_STATUS_BARS,
-                        WindowInsetsController.APPEARANCE_LIGHT_STATUS_BARS
-                    );
-                }
-                getWindow().setStatusBarColor(Color.WHITE);
-            } else if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
-                getWindow().getDecorView().setSystemUiVisibility(
-                    View.SYSTEM_UI_FLAG_LIGHT_STATUS_BAR
-                );
-                getWindow().setStatusBarColor(Color.WHITE);
-            }
-        } catch (Exception ignored) {}
     }
 
     @Override
