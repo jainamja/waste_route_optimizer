@@ -4,7 +4,7 @@
   "webDir": "src",
   "server": {
     "allowNavigation": [
-      "waste-route-optimizer-robn.onrender.com",
+      "waste-route-optimizer-190z.onrender.com",
       "*.onrender.com",
       "*.firebaseio.com"
     ]

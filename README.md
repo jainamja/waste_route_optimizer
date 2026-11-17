@@ -174,7 +174,7 @@ The platform is optimized for zero-downtime deployment on **Render**:
    - **Start Command:** `gunicorn -c gunicorn.conf.py waste_route_optimizer:app`
 
 2. **Custom Domain:**
-   - Point a `CNAME` record from your domain registrar (e.g., `app.greenglobalyx.com`) to your Render service address (`waste-route-optimizer-robn.onrender.com`).
+   - Point a `CNAME` record from your domain registrar (e.g., `app.greenglobalyx.com`) to your Render service address (`waste-route-optimizer-190z.onrender.com`).
    - Render automatically provisions and renews SSL/TLS certificates via Let's Encrypt.
 
 ---
