@@ -1940,14 +1940,20 @@ def get_data():
     elif 'start_coord' in metadata:
         start_coords = [metadata['start_coord']]
     else:
-        start_coords = []
+        start_coords = ['23.0225, 72.5714']
+        
+    if not start_coords:
+        start_coords = ['23.0225, 72.5714']
         
     if 'end_coords' in metadata:
         end_coords = json.loads(metadata['end_coords'])
     elif 'end_coord' in metadata:
         end_coords = [metadata['end_coord']]
     else:
-        end_coords = []
+        end_coords = ['23.0225, 72.5714']
+
+    if not end_coords:
+        end_coords = ['23.0225, 72.5714']
         
     query = Customer.query
     if req_truck_id:
