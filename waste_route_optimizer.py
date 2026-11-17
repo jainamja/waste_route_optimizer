@@ -37,6 +37,10 @@ def get_firebase_token():
 
 app = Flask(__name__)
 
+@app.route('/healthz')
+def healthz():
+    return jsonify({'status': 'ok'}), 200
+
 @app.route('/favicon.ico')
 def favicon():
     return send_from_directory(os.path.join(app.root_path, 'static'), 'logo.jpg', mimetype='image/jpeg')
