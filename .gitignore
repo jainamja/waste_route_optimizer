@@ -1,6 +1,7 @@
 __pycache__/
 *.pyc
-instance/
+instance/*
+!instance/routes.db
 node_modules/
 android/
 uploads/
