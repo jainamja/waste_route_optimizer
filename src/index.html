@@ -589,28 +589,28 @@
             routeRef.on('value', snapshot => {
                 const data = snapshot.val();
                 if (data && Object.keys(data).length > 0 && window.hasAssignedRoute !== false) {
-                    stops = [];
+                    let allStops = [];
                     for (let key in data) {
                         if (data[key] && typeof data[key] === 'object' && data[key].name) {
-                            let item = { id: key, ...data[key] };
-                            if (isStopSkippedByCancel(item)) continue;
-                            stops.push(item);
+                            allStops.push({ id: key, ...data[key] });
                         }
                     }
+                    allStops.sort((a, b) => (a.sequence || 999) - (b.sequence || 999));
+                
+                    // Assign original route Sr. No. BEFORE hiding cancelled-only stops so Sr. No. always matches Admin
+                    let dynamicSr = 1;
+                    allStops.forEach(s => {
+                        let isDepot = s.id < 0 || s.name === 'End Location / Depot';
+                        if (!isDepot) {
+                            s.dynamicSr = dynamicSr++;
+                        }
+                    });
+
+                    stops = allStops.filter(s => !isStopSkippedByCancel(s));
                     if (stops.length === 0) {
                         showNoRouteAssigned();
                         return;
                     }
-                    stops.sort((a, b) => (a.sequence || 999) - (b.sequence || 999));
-                
-                // Assign dynamic serial number (route position)
-                let dynamicSr = 1;
-                stops.forEach(s => {
-                    let isDepot = s.id < 0 || s.name === 'End Location / Depot';
-                    if (!isDepot) {
-                        s.dynamicSr = dynamicSr++;
-                    }
-                });
                     
                     // --- BEGIN CLUSTERING LOGIC ---
                     let groupedStops = [];
@@ -835,7 +835,7 @@
                     let isDepot = s.id < 0 || s.name === 'End Location / Depot';
                     let hasSeq = (s.sequence !== undefined && s.sequence !== null);
                     if (!hasSeq) console.warn("Stop missing sequence, falling back to index:", s);
-                    let displaySeq = hasSeq ? s.sequence : '?';
+                    let displaySeq = s.dynamicSr || (hasSeq ? s.sequence : '?');
 
                     let markerHtml = '';
                     if (isDepot) {
