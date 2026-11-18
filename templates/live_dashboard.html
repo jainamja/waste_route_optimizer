@@ -456,6 +456,7 @@
                     <option value="confirmed">Confirmed</option>
                     <option value="not">Not confirmed</option>
                     <option value="cancelled">Cancelled</option>
+                    <option value="bag">Deliver Bag</option>
                 </select>
                 <button onclick="markAllConf()" title="Mark all confirmed" class="btn btn-outline" style="padding:10px;"><i class="fa-solid fa-check-double"></i></button>
                 <button onclick="markAllNotConf()" title="Mark all not confirmed" class="btn btn-outline" style="padding:10px;"><i class="fa-solid fa-xmark"></i></button>
@@ -554,6 +555,10 @@
                         </select>
                     </div>
                 </div>
+                <label style="display:flex; align-items:center; gap:10px; padding:10px 12px; border:1px solid #fed7aa; background:#fff7ed; border-radius:10px; cursor:pointer; font-size:13px; font-weight:600; color:#c2410c;">
+                    <input type="checkbox" id="edit-cust-deliver-bag" style="width:16px; height:16px; accent-color:#f97316; cursor:pointer;">
+                    <i class="fa-solid fa-bag-shopping"></i> Deliver Bag to this Customer
+                </label>
             </div>
             
             <div style="margin-top:24px; display:flex; gap:12px;">
@@ -1101,7 +1106,9 @@
                                              (isCanc ? 'background:#fef2f2; color:#ef4444; border:1px solid #ef4444;' : 
                                              'background:#eff6ff; color:#2F5FFF; border:1px solid #2F5FFF;')));
                                              
-                            let confHtml = isDepot ? '' : `<span style="font-size:10px; font-weight:700; padding:2px 6px; border-radius:8px; margin-left:8px; ${badgeStyle}">${badgeText}</span>`;
+                            let hasBag = !!customer.deliver_bag;
+                            let bagHtml = (!isDepot && hasBag) ? `<span style="font-size:10px; font-weight:700; padding:2px 6px; border-radius:8px; margin-left:6px; background:#fff7ed; color:#ea580c; border:1px solid #f97316;"><i class="fa-solid fa-bag-shopping"></i> BAG</span>` : '';
+                            let confHtml = isDepot ? '' : `<span style="font-size:10px; font-weight:700; padding:2px 6px; border-radius:8px; margin-left:8px; ${badgeStyle}">${badgeText}</span>${bagHtml}`;
                             
                             let isInactive = customer.customer_status === 'INACTIVE';
                             let itemStyle = isDepot ? '' : 'cursor: grab;';
@@ -1321,7 +1328,9 @@
                             address: c.address,
                             phone: c.phone,
                             stop_number: c.stop_number,
-                            confirmation: c.confirmation || 'NOT_CONFIRMED'
+                            status: c.status,
+                            confirmation: c.confirmation || 'NOT_CONFIRMED',
+                            deliver_bag: !!c.deliver_bag
                         };
                     }
                 });
@@ -1349,6 +1358,13 @@
             renderConfList();
         };
         
+        window.toggleDeliverBag = function(id) {
+            let c = currentConfData[id];
+            if (!c) return;
+            c.deliver_bag = !c.deliver_bag;
+            renderConfList();
+        };
+        
         window.markAllConf = function() {
             Object.values(currentConfData).forEach(c => c.confirmation = 'CONFIRMED');
             renderConfList();
@@ -1367,8 +1383,9 @@
             
             let confirmedCount = arr.filter(c => c.confirmation === 'CONFIRMED').length;
             let cancelledCount = arr.filter(c => c.confirmation === 'CANCELLED').length;
+            let bagCount = arr.filter(c => c.deliver_bag).length;
             let notCount = arr.length - confirmedCount - cancelledCount;
-            document.getElementById('conf-counts').innerText = `${confirmedCount} confirmed \u00B7 ${notCount} not \u00B7 ${cancelledCount} cancelled`;
+            document.getElementById('conf-counts').innerText = `${confirmedCount} confirmed \u00B7 ${notCount} not \u00B7 ${cancelledCount} cancelled` + (bagCount > 0 ? ` \u00B7 ${bagCount} bag${bagCount > 1 ? 's' : ''}` : '');
             
             let html = '';
             arr.forEach((c, idx) => {
@@ -1379,21 +1396,39 @@
                 let isConf = c.confirmation === 'CONFIRMED';
                 let isCanc = c.confirmation === 'CANCELLED';
                 let isNot = !isConf && !isCanc;
+                let hasBag = !!c.deliver_bag;
                 
                 if (filter === 'confirmed' && !isConf) return;
                 if (filter === 'cancelled' && !isCanc) return;
                 if (filter === 'not' && !isNot) return;
+                if (filter === 'bag' && !hasBag) return;
                 
-                let borderColor = isConf ? '#10b981' : (isCanc ? '#ef4444' : 'var(--border)');
+                let cardStyle = 'background:white; border: 1px solid var(--border);';
+                if (isConf && hasBag) {
+                    cardStyle = 'background: linear-gradient(90deg, #ecfdf5 50%, #fff7ed 50%); border: 1.5px solid #f97316; border-left: 4px solid #10b981; border-right: 4px solid #f97316;';
+                } else if (isCanc && hasBag) {
+                    cardStyle = 'background: #fff7ed; border: 1.5px solid #f97316; border-left: 4px solid #f97316;';
+                } else if (hasBag) {
+                    cardStyle = 'background: linear-gradient(90deg, #ffffff 50%, #fff7ed 50%); border: 1.5px solid #f97316;';
+                } else if (isConf) {
+                    cardStyle = 'background:white; border: 1px solid #10b981;';
+                } else if (isCanc) {
+                    cardStyle = 'background:white; border: 1px solid #ef4444;';
+                }
+                
+                let strikeCanc = isCanc && !hasBag;
                 
                 html += `
-                    <div style="background:white; border-radius:10px; padding:12px; display:flex; flex-direction:column; gap:12px; border: 1px solid ${borderColor};">
-                        <div style="display:flex; align-items:center; gap:12px;">
+                    <div style="${cardStyle} border-radius:10px; padding:12px; display:flex; flex-direction:column; gap:10px;">
+                        <div style="display:flex; align-items:center; gap:10px;">
                             <div style="width:28px; height:28px; border-radius:50%; background:#f1f5f9; display:flex; align-items:center; justify-content:center; font-size:12px; font-weight:700; color:var(--text-muted); flex-shrink:0;">${currentSr}</div>
                             <div style="flex:1; overflow:hidden;">
-                                <div style="font-weight:600; font-size:14px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; text-decoration:${isCanc ? 'line-through' : 'none'}; color:${isCanc ? 'var(--text-muted)' : 'var(--text-main)'};">${escapeHtml(c.name)}</div>
+                                <div style="font-weight:600; font-size:14px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; text-decoration:${strikeCanc ? 'line-through' : 'none'}; color:${strikeCanc ? 'var(--text-muted)' : 'var(--text-main)'};">${escapeHtml(c.name)}</div>
                                 <div style="font-size:12px; color:var(--text-muted); white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">${escapeHtml(c.address || 'No address')}</div>
                             </div>
+                            <button onclick="toggleDeliverBag('${c.id}')" title="Toggle Deliver Bag for this customer" style="flex-shrink:0; display:inline-flex; align-items:center; gap:5px; padding:6px 10px; border-radius:8px; font-size:12px; font-weight:700; cursor:pointer; transition:all 0.15s; border:1px solid ${hasBag ? '#ea580c' : '#cbd5e1'}; background:${hasBag ? '#f97316' : '#ffffff'}; color:${hasBag ? '#ffffff' : '#64748b'};">
+                                <i class="fa-solid fa-bag-shopping"></i> ${hasBag ? 'Deliver Bag' : 'Bag'}
+                            </button>
                         </div>
                         <div style="display:flex; border-radius:8px; overflow:hidden; border:1px solid var(--border);">
                             <button onclick="setConf('${c.id}', 'CONFIRMED')" style="flex:1; padding:10px 0; border:none; background:${isConf?'#10b981':'#f8fafc'}; color:${isConf?'white':'#64748b'}; font-size:13px; font-weight:600; cursor:pointer;">Confirmed</button>
@@ -1413,8 +1448,10 @@
             btn.innerHTML = '<i class="fa-solid fa-circle-notch fa-spin"></i> Saving...';
             
             let payload = {};
+            let deliverBagPayload = {};
             Object.values(currentConfData).forEach(c => {
                 payload[c.id] = c.confirmation;
+                deliverBagPayload[c.id] = !!c.deliver_bag;
             });
             
             let driverId = currentConfDriver;
@@ -1424,7 +1461,7 @@
                 if (driver) driverId = driver.id;
             }
             
-            let reqBody = { truck_id: parseInt(currentConfTruck), confirmations: payload };
+            let reqBody = { truck_id: parseInt(currentConfTruck), confirmations: payload, deliver_bags: deliverBagPayload };
             if (driverId) {
                 reqBody.driver_id = parseInt(driverId);
             }
@@ -1729,6 +1766,7 @@
             document.getElementById('edit-cust-url').value = c.location_url || (c.lat && c.lng ? `${c.lat}, ${c.lng}` : '');
             document.getElementById('edit-cust-status').value = (c.customer_status || 'ACTIVE').toUpperCase() === 'INACTIVE' ? 'INACTIVE' : 'ACTIVE';
             document.getElementById('edit-cust-conf').value = c.confirmation || 'NOT_CONFIRMED';
+            document.getElementById('edit-cust-deliver-bag').checked = !!c.deliver_bag;
             
             let stopNumVal = parseInt(currentStop) || 1;
             document.getElementById('edit-cust-stop-number').value = stopNumVal;
@@ -1756,6 +1794,7 @@
             const location_url = document.getElementById('edit-cust-url').value.trim();
             const customer_status = document.getElementById('edit-cust-status').value;
             const confirmation = document.getElementById('edit-cust-conf').value;
+            const deliver_bag = document.getElementById('edit-cust-deliver-bag').checked;
             const newStopNum = parseInt(document.getElementById('edit-cust-stop-number').value) || 1;
             const newTruck = parseInt(document.getElementById('edit-cust-truck').value) || 1;
             
@@ -1784,6 +1823,7 @@
                         location_url: location_url,
                         customer_status: customer_status,
                         confirmation: confirmation,
+                        deliver_bag: deliver_bag,
                         truck_id: newTruck,
                         stop_number: newStopNum
                     })
