@@ -314,14 +314,37 @@ with app.app_context():
     admin_env_pass = os.environ.get('ADMIN_PASSWORD')
     admin_user = User.query.filter_by(username='admin').first()
     if not admin_user:
-        init_pass = admin_env_pass or 'admin'
+        init_pass = admin_env_pass or 'green@2026'
         db.session.add(User(username='admin', password_hash=generate_password_hash(init_pass), role='ADMIN'))
-        for i in range(1, 11):
-            db.session.add(User(username='driver'+str(i), password_hash=generate_password_hash('driver'+str(i)), role='DRIVER', truck_id=i))
         db.session.commit()
     elif admin_env_pass:
         admin_user.password_hash = generate_password_hash(admin_env_pass)
         db.session.commit()
+
+    # One-time seed of saved master templates from bundled instance/routes.db onto fresh persistent disk
+    try:
+        seeded_flag = Metadata.query.filter_by(key='initial_templates_seeded').first()
+        if not seeded_flag:
+            if SavedTemplate.query.count() == 0:
+                seed_db_path = os.path.join(app.root_path, 'instance', 'routes.db')
+                if os.path.exists(seed_db_path):
+                    import sqlite3
+                    sconn = sqlite3.connect(seed_db_path)
+                    scur = sconn.cursor()
+                    rows = scur.execute("SELECT name, metadata_json, customers_json, is_assigned_instance FROM saved_templates WHERE COALESCE(is_assigned_instance, 0) = 0").fetchall()
+                    sconn.close()
+                    for r_name, r_meta, r_custs, r_is_ass in rows:
+                        db.session.add(SavedTemplate(
+                            name=r_name,
+                            metadata_json=r_meta,
+                            customers_json=r_custs,
+                            is_assigned_instance=False
+                        ))
+            db.session.add(Metadata(key='initial_templates_seeded', value='true'))
+            db.session.commit()
+    except Exception as seed_e:
+        print("One-time template seed error:", seed_e)
+        db.session.rollback()
 
 def _save_url_coordinate_cache(url, lat, lng):
     try:
