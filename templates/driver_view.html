@@ -372,7 +372,6 @@
                     <div style="display:flex; align-items:center; gap:4px;"><span style="width:20px;height:12px;border-radius:3px;background:linear-gradient(90deg, #ecfdf5 50%, #fff7ed 50%);border-left:5px solid #10b981;border-right:5px solid #f97316;"></span> Pickup + Bag</div>
                     <div style="display:flex; align-items:center; gap:4px;"><span style="width:18px;height:12px;border-radius:3px;background:#fff7ed;border-left:6px solid #f97316;"></span> Bag Only</div>
                     <div style="display:flex; align-items:center; gap:4px;"><span style="width:18px;height:12px;border-radius:3px;background:#eff6ff;border-left:6px solid #2F5FFF;"></span> Not confirmed</div>
-                    <div style="display:flex; align-items:center; gap:4px;"><span style="width:18px;height:12px;border-radius:3px;background:#fef2f2;border-left:6px solid #ef4444;"></span> Cancelled</div>
                 </div>
             </div>
             
@@ -593,7 +592,9 @@
                     stops = [];
                     for (let key in data) {
                         if (data[key] && typeof data[key] === 'object' && data[key].name) {
-                            stops.push({ id: key, ...data[key] });
+                            let item = { id: key, ...data[key] };
+                            if (isStopSkippedByCancel(item)) continue;
+                            stops.push(item);
                         }
                     }
                     stops.sort((a, b) => (a.sequence || 999) - (b.sequence || 999));
