@@ -1819,18 +1819,54 @@ def assign_driver():
         firebase_url = "https://wasteroutelive-default-rtdb.firebaseio.com"
         id_token = get_firebase_token()
         if id_token:
-            if firebase_patch_data:
-                res = requests.patch(f"{firebase_url}/routes/route_{truck_id}/stops.json?auth={id_token}", json=firebase_patch_data)
+            all_truck_custs = Customer.query.filter_by(truck_id=truck_id).order_by(Customer.stop_number.asc()).all()
+            full_stops_payload = {}
+            for c in all_truck_custs:
+                full_stops_payload[str(c.id)] = {
+                    "name": c.name,
+                    "address": c.address or '',
+                    "phone": c.phone or '',
+                    "lat": c.lat,
+                    "lng": c.lng,
+                    "sequence": c.stop_number,
+                    "status": c.status or "PENDING",
+                    "confirmation": c.confirmation or "NOT_CONFIRMED",
+                    "deliver_bag": bool(getattr(c, 'deliver_bag', False)),
+                    "customer_status": getattr(c, 'customer_status', 'ACTIVE') or "ACTIVE"
+                }
+
+            if driver and full_stops_payload:
+                # Full PUT guarantees the driver app always receives complete stop objects (name, lat, lng, status, confirmation, deliver_bag)
+                res = requests.put(f"{firebase_url}/routes/route_{truck_id}.json?auth={id_token}", json={"stops": full_stops_payload})
                 if res.status_code != 200:
                     firebase_synced = False
-            if driver:
                 requests.patch(f"{firebase_url}/trucks/{truck_id}.json?auth={id_token}", json={
                     "driverName": driver.name or driver.username,
-                    "driverId": driver.id
+                    "driverId": driver.id,
+                    "routeCompleted": False
                 })
+            elif firebase_patch_data:
+                # Verify existing Firebase stops have full stop objects; if empty/missing, write full stops instead of broken partial patches
+                existing_fb = requests.get(f"{firebase_url}/routes/route_{truck_id}/stops.json?auth={id_token}", timeout=6)
+                existing_val = existing_fb.json() if existing_fb.status_code == 200 else None
+                has_valid_stops = False
+                if isinstance(existing_val, dict):
+                    has_valid_stops = any(isinstance(v, dict) and v.get('name') for v in existing_val.values())
+                elif isinstance(existing_val, list):
+                    has_valid_stops = any(isinstance(v, dict) and v.get('name') for v in existing_val)
+
+                if has_valid_stops:
+                    res = requests.patch(f"{firebase_url}/routes/route_{truck_id}/stops.json?auth={id_token}", json=firebase_patch_data)
+                elif full_stops_payload:
+                    res = requests.put(f"{firebase_url}/routes/route_{truck_id}.json?auth={id_token}", json={"stops": full_stops_payload})
+                else:
+                    res = None
+                if res is not None and res.status_code != 200:
+                    firebase_synced = False
         else:
             firebase_synced = False
-    except:
+    except Exception as fb_err:
+        print("assign_driver Firebase sync error:", fb_err)
         firebase_synced = False
             
     db.session.commit()
@@ -3599,6 +3635,33 @@ def driver_finish_route():
         
     if driver:
         eff_truck_id = driver.truck_id or truck_id
+        # Guard: sync latest stop statuses from Firebase and refuse to wipe a route that still has pending actionable stops
+        if eff_truck_id:
+            try:
+                sync_firebase_to_sql()
+            except Exception:
+                try:
+                    db.session.rollback()
+                except Exception:
+                    pass
+            try:
+                truck_stops = Customer.query.filter(
+                    Customer.truck_id == int(eff_truck_id),
+                    Customer.id > -1000
+                ).all()
+                pending_actionable = [
+                    c for c in truck_stops
+                    if (c.status or 'PENDING') == 'PENDING'
+                    and not (c.confirmation == 'CANCELLED' and not getattr(c, 'deliver_bag', False))
+                ]
+                if len(pending_actionable) > 0:
+                    return jsonify({
+                        'success': False,
+                        'error': f'Route still has {len(pending_actionable)} pending stops'
+                    }), 400
+            except Exception as guard_e:
+                print("driver_finish_route guard check error:", guard_e)
+
         if driver.assigned_template_id:
             old_inst = db.session.get(SavedTemplate, driver.assigned_template_id)
             if old_inst and getattr(old_inst, 'is_assigned_instance', False):

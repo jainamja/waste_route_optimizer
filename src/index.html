@@ -597,6 +597,10 @@
                             stops.push(item);
                         }
                     }
+                    if (stops.length === 0) {
+                        showNoRouteAssigned();
+                        return;
+                    }
                     stops.sort((a, b) => (a.sequence || 999) - (b.sequence || 999));
                 
                 // Assign dynamic serial number (route position)
@@ -667,6 +671,9 @@
                         if (i === stops.length - 1) {
                             currentIndex = stops.length;
                         }
+                    }
+                    if (currentIndex < stops.length) {
+                        window.isAlreadyAutoOffline = false;
                     }
                     render();
                 } else {
@@ -877,7 +884,15 @@
 
             // 2. Render UI
             if (currentIndex >= stops.length) {
-                triggerImmediateAutoOffline();
+                let hasRealDone = stops.some(s => {
+                    let isDepot = s.id < 0 || s.name === 'End Location / Depot';
+                    if (isDepot) return false;
+                    if (s.subStops) return s.subStops.some(ss => ss.status === 'COMPLETED' || ss.status === 'SKIPPED');
+                    return s.status === 'COMPLETED' || s.status === 'SKIPPED';
+                });
+                if (stops.length > 0 && hasRealDone) {
+                    triggerImmediateAutoOffline();
+                }
                 
                 let totalCompleted = stops.reduce((acc, s) => {
                     if (s.subStops) return acc + s.subStops.length;
