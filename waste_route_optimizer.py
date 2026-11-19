@@ -954,83 +954,180 @@ def verify_auth_token(token_str, max_age=86400):
         return None
 
 _firebase_admin_app = None
+_firebase_admin_diagnostic = {
+    "status": "uninitialized",
+    "stage": "not_started",
+    "env_var_present": False,
+    "env_var_length": 0,
+    "env_var_trimmed_length": 0,
+    "is_file_path": False,
+    "file_path_exists": False,
+    "json_parsed": False,
+    "has_type": False,
+    "type_value": None,
+    "project_id_match": False,
+    "project_id_found": None,
+    "has_client_email": False,
+    "has_private_key": False,
+    "private_key_length": 0,
+    "cert_created": False,
+    "app_initialized": False,
+    "error_class": None,
+    "error_message": None
+}
+
+def get_firebase_admin_diagnostic():
+    global _firebase_admin_diagnostic
+    return dict(_firebase_admin_diagnostic)
 
 def get_firebase_admin_app():
-    global _firebase_admin_app
+    global _firebase_admin_app, _firebase_admin_diagnostic
     if _firebase_admin_app is not None:
+        _firebase_admin_diagnostic["status"] = "initialized"
+        _firebase_admin_diagnostic["app_initialized"] = True
         return _firebase_admin_app
         
     try:
         import firebase_admin
         from firebase_admin import credentials
-    except ImportError:
+    except ImportError as e:
+        _firebase_admin_diagnostic["status"] = "failed"
+        _firebase_admin_diagnostic["stage"] = "import_failed"
+        _firebase_admin_diagnostic["error_class"] = type(e).__name__
+        _firebase_admin_diagnostic["error_message"] = "firebase_admin package not installed"
         app.logger.warning("firebase_admin package not installed")
         return None
         
     if firebase_admin._apps:
         _firebase_admin_app = firebase_admin.get_app()
+        _firebase_admin_diagnostic["status"] = "initialized"
+        _firebase_admin_diagnostic["stage"] = "already_initialized"
+        _firebase_admin_diagnostic["app_initialized"] = True
         return _firebase_admin_app
         
     is_prod = bool(os.environ.get('RENDER') or os.environ.get('DATABASE_URL') or os.environ.get('FLASK_ENV') == 'production' or os.environ.get('ENV') == 'production')
-    cred_json = os.environ.get('FIREBASE_SERVICE_ACCOUNT_JSON')
-    cred_path = os.environ.get('FIREBASE_SERVICE_ACCOUNT_PATH') or os.environ.get('GOOGLE_APPLICATION_CREDENTIALS')
+    raw_cred = os.environ.get('FIREBASE_SERVICE_ACCOUNT_JSON')
+    _firebase_admin_diagnostic["stage"] = "checking_env_var"
+    _firebase_admin_diagnostic["env_var_present"] = bool(raw_cred and raw_cred.strip())
+    _firebase_admin_diagnostic["env_var_length"] = len(raw_cred) if raw_cred else 0
     
-    if cred_json:
+    if raw_cred and raw_cred.strip():
+        s = raw_cred.strip()
+        _firebase_admin_diagnostic["env_var_trimmed_length"] = len(s)
+        
+        # Check if user entered a file path instead of raw JSON
+        if s.endswith('.json') or os.path.exists(s) or s.startswith('/etc/secrets/') or (len(s) > 1 and s[1] == ':'):
+            _firebase_admin_diagnostic["is_file_path"] = True
+            _firebase_admin_diagnostic["file_path_exists"] = os.path.exists(s)
+            if os.path.exists(s):
+                try:
+                    with open(s, 'r', encoding='utf-8') as f:
+                        s = f.read().strip()
+                except Exception as fe:
+                    _firebase_admin_diagnostic["error_class"] = type(fe).__name__
+                    _firebase_admin_diagnostic["error_message"] = f"Failed to read file path: {fe}"
+                    
+        # Check if wrapped in outer single quotes: '{"type": ...}'
+        if s.startswith("'") and s.endswith("'"):
+            s = s[1:-1].strip()
+            
+        cred_dict = None
         try:
-            import json
-            cred_dict = json.loads(cred_json)
+            cred_dict = json.loads(s)
+            if isinstance(cred_dict, str):
+                cred_dict = json.loads(cred_dict)
+            _firebase_admin_diagnostic["json_parsed"] = isinstance(cred_dict, dict)
+        except Exception as je:
+            _firebase_admin_diagnostic["status"] = "failed"
+            _firebase_admin_diagnostic["stage"] = "json_parse_failed"
+            _firebase_admin_diagnostic["error_class"] = type(je).__name__
+            _firebase_admin_diagnostic["error_message"] = f"JSON decode error: {je}"
+            app.logger.error(f"Error parsing FIREBASE_SERVICE_ACCOUNT_JSON: {je}")
+            
+        if isinstance(cred_dict, dict):
+            _firebase_admin_diagnostic["has_type"] = bool(cred_dict.get('type'))
+            _firebase_admin_diagnostic["type_value"] = str(cred_dict.get('type'))
             pid = cred_dict.get('project_id')
+            _firebase_admin_diagnostic["project_id_found"] = str(pid) if pid else None
+            _firebase_admin_diagnostic["project_id_match"] = (pid == 'wasteroutelive')
+            _firebase_admin_diagnostic["has_client_email"] = bool(cred_dict.get('client_email'))
+            pk = cred_dict.get('private_key')
+            _firebase_admin_diagnostic["has_private_key"] = bool(pk)
+            _firebase_admin_diagnostic["private_key_length"] = len(pk) if pk else 0
+            
             if pid != 'wasteroutelive':
+                _firebase_admin_diagnostic["status"] = "failed"
+                _firebase_admin_diagnostic["stage"] = "project_id_mismatch"
+                _firebase_admin_diagnostic["error_message"] = f"Project ID '{pid}' does not match required 'wasteroutelive'"
                 app.logger.error(f"Firebase Admin initialization failed: project_id mismatch ('{pid}' != 'wasteroutelive')")
-                return None
-            cred = credentials.Certificate(cred_dict)
-            _firebase_admin_app = firebase_admin.initialize_app(cred)
-            app.logger.info("Firebase Admin initialized from FIREBASE_SERVICE_ACCOUNT_JSON for project wasteroutelive")
-            return _firebase_admin_app
-        except Exception as e:
-            app.logger.error(f"Error initializing Firebase Admin from FIREBASE_SERVICE_ACCOUNT_JSON: {e}")
-            if is_prod:
-                return None
-            
-    if cred_path and os.path.exists(cred_path):
-        try:
-            import json
-            with open(cred_path, 'r', encoding='utf-8') as f:
-                cdata = json.load(f)
-            pid = cdata.get('project_id')
-            if pid != 'wasteroutelive':
-                app.logger.error(f"Firebase Admin initialization failed: project_id mismatch in {cred_path} ('{pid}' != 'wasteroutelive')")
-                return None
-            cred = credentials.Certificate(cred_path)
-            _firebase_admin_app = firebase_admin.initialize_app(cred)
-            app.logger.info(f"Firebase Admin initialized from {cred_path} for project wasteroutelive")
-            return _firebase_admin_app
-        except Exception as e:
-            app.logger.error(f"Error initializing Firebase Admin from {cred_path}: {e}")
-            if is_prod:
-                return None
-            
-    local_sa = os.path.join(os.path.dirname(__file__), 'serviceAccountKey.json')
-    if os.path.exists(local_sa):
-        try:
-            import json
-            with open(local_sa, 'r', encoding='utf-8') as f:
-                cdata = json.load(f)
-            pid = cdata.get('project_id')
-            if pid != 'wasteroutelive':
-                app.logger.error(f"Firebase Admin initialization failed: project_id mismatch in {local_sa}")
-                return None
-            cred = credentials.Certificate(local_sa)
-            _firebase_admin_app = firebase_admin.initialize_app(cred)
-            app.logger.info(f"Firebase Admin initialized from local {local_sa}")
-            return _firebase_admin_app
-        except Exception as e:
-            app.logger.error(f"Error initializing Firebase Admin from {local_sa}: {e}")
-            if is_prod:
-                return None
+                if is_prod:
+                    return None
+            else:
+                # Normalize private key newlines if escaped
+                if pk and isinstance(pk, str) and '\\n' in pk and '\n' not in pk:
+                    cred_dict['private_key'] = pk.replace('\\n', '\n')
+                    
+                try:
+                    cred = credentials.Certificate(cred_dict)
+                    _firebase_admin_diagnostic["cert_created"] = True
+                except Exception as ce:
+                    _firebase_admin_diagnostic["status"] = "failed"
+                    _firebase_admin_diagnostic["stage"] = "cert_creation_failed"
+                    _firebase_admin_diagnostic["error_class"] = type(ce).__name__
+                    _firebase_admin_diagnostic["error_message"] = f"Certificate error: {ce}"
+                    app.logger.error(f"Error creating Certificate from FIREBASE_SERVICE_ACCOUNT_JSON: {ce}")
+                    if is_prod:
+                        return None
+                        
+                if _firebase_admin_diagnostic["cert_created"]:
+                    try:
+                        _firebase_admin_app = firebase_admin.initialize_app(cred)
+                        _firebase_admin_diagnostic["status"] = "initialized"
+                        _firebase_admin_diagnostic["stage"] = "initialized_from_env_json"
+                        _firebase_admin_diagnostic["app_initialized"] = True
+                        app.logger.info("Firebase Admin successfully initialized from FIREBASE_SERVICE_ACCOUNT_JSON for project wasteroutelive")
+                        return _firebase_admin_app
+                    except Exception as ie:
+                        _firebase_admin_diagnostic["status"] = "failed"
+                        _firebase_admin_diagnostic["stage"] = "initialize_app_failed"
+                        _firebase_admin_diagnostic["error_class"] = type(ie).__name__
+                        _firebase_admin_diagnostic["error_message"] = f"Initialize app error: {ie}"
+                        app.logger.error(f"Error initializing Firebase Admin app: {ie}")
+                        if is_prod:
+                            return None
+
+    # Check potential secret file paths
+    file_candidates = [
+        os.environ.get('FIREBASE_SERVICE_ACCOUNT_PATH'),
+        os.environ.get('GOOGLE_APPLICATION_CREDENTIALS'),
+        '/etc/secrets/FIREBASE_SERVICE_ACCOUNT_JSON',
+        '/etc/secrets/FIREBASE_SERVICE_ACCOUNT_JSON.json',
+        '/etc/secrets/serviceAccountKey.json',
+        os.path.join(os.path.dirname(__file__), 'serviceAccountKey.json')
+    ]
+    for spath in file_candidates:
+        if spath and os.path.exists(spath):
+            try:
+                with open(spath, 'r', encoding='utf-8') as f:
+                    cdata = json.load(f)
+                pid = cdata.get('project_id')
+                if pid == 'wasteroutelive':
+                    cred = credentials.Certificate(spath)
+                    _firebase_admin_app = firebase_admin.initialize_app(cred)
+                    _firebase_admin_diagnostic["status"] = "initialized"
+                    _firebase_admin_diagnostic["stage"] = f"initialized_from_file:{os.path.basename(spath)}"
+                    _firebase_admin_diagnostic["app_initialized"] = True
+                    app.logger.info(f"Firebase Admin initialized from {spath} for project wasteroutelive")
+                    return _firebase_admin_app
+            except Exception as fe:
+                app.logger.error(f"Error initializing Firebase Admin from {spath}: {fe}")
 
     # Production gate: Fail closed if no valid service account is provided in production
     if is_prod:
+        _firebase_admin_diagnostic["status"] = "failed"
+        _firebase_admin_diagnostic["stage"] = "fail_closed_in_production"
+        if not _firebase_admin_diagnostic["error_message"]:
+            _firebase_admin_diagnostic["error_message"] = "Missing or invalid Firebase service account credentials. Ephemeral key fallback is strictly forbidden in production."
         app.logger.critical("PRODUCTION ERROR: Missing or invalid Firebase service account credentials. Ephemeral key fallback is strictly forbidden in production. Failing closed.")
         return None
             
@@ -1112,7 +1209,11 @@ def api_firebase_custom_token():
     try:
         custom_token, claims = create_firebase_custom_token(user)
         if not custom_token:
-            return jsonify({'error': 'Firebase Admin service unavailable'}), 503
+            diag = get_firebase_admin_diagnostic()
+            return jsonify({
+                'error': 'Firebase Admin service unavailable',
+                'diagnostic': diag
+            }), 503
         return jsonify({
             'success': True,
             'firebase_custom_token': custom_token,
