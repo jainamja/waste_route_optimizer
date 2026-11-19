@@ -960,6 +960,14 @@ _firebase_admin_diagnostic = {
     "env_var_present": False,
     "env_var_length": 0,
     "env_var_trimmed_length": 0,
+    "first_char_repr": None,
+    "last_char_repr": None,
+    "starts_with_brace": False,
+    "ends_with_brace": False,
+    "has_begin_private_key": False,
+    "has_end_private_key": False,
+    "looks_like_assignment": False,
+    "newline_count": 0,
     "is_file_path": False,
     "file_path_exists": False,
     "json_parsed": False,
@@ -1014,7 +1022,24 @@ def get_firebase_admin_app():
     if raw_cred and raw_cred.strip():
         s = raw_cred.strip()
         _firebase_admin_diagnostic["env_var_trimmed_length"] = len(s)
+        _firebase_admin_diagnostic["first_char_repr"] = repr(s[0]) if s else None
+        _firebase_admin_diagnostic["last_char_repr"] = repr(s[-1]) if s else None
+        _firebase_admin_diagnostic["starts_with_brace"] = s.startswith('{')
+        _firebase_admin_diagnostic["ends_with_brace"] = s.endswith('}')
+        _firebase_admin_diagnostic["has_begin_private_key"] = ('BEGIN PRIVATE KEY' in s)
+        _firebase_admin_diagnostic["has_end_private_key"] = ('END PRIVATE KEY' in s)
+        _firebase_admin_diagnostic["newline_count"] = s.count('\n')
         
+        # Check if user entered key assignment e.g. FIREBASE_SERVICE_ACCOUNT_JSON={...} or export ...
+        if s.startswith('export '):
+            s = s[7:].strip()
+        if '=' in s[:45]:
+            _firebase_admin_diagnostic["looks_like_assignment"] = True
+            parts = s.split('=', 1)
+            candidate = parts[1].strip()
+            if candidate.startswith(('{', "'", '"', '/')):
+                s = candidate
+
         # Check if user entered a file path instead of raw JSON
         if s.endswith('.json') or os.path.exists(s) or s.startswith('/etc/secrets/') or (len(s) > 1 and s[1] == ':'):
             _firebase_admin_diagnostic["is_file_path"] = True
