@@ -943,6 +943,7 @@ def get_firebase_admin_app():
         _firebase_admin_app = firebase_admin.get_app()
         return _firebase_admin_app
         
+    is_prod = bool(os.environ.get('RENDER') or os.environ.get('DATABASE_URL') or os.environ.get('FLASK_ENV') == 'production' or os.environ.get('ENV') == 'production')
     cred_json = os.environ.get('FIREBASE_SERVICE_ACCOUNT_JSON')
     cred_path = os.environ.get('FIREBASE_SERVICE_ACCOUNT_PATH') or os.environ.get('GOOGLE_APPLICATION_CREDENTIALS')
     
@@ -950,33 +951,62 @@ def get_firebase_admin_app():
         try:
             import json
             cred_dict = json.loads(cred_json)
+            pid = cred_dict.get('project_id')
+            if pid != 'wasteroutelive':
+                app.logger.error(f"Firebase Admin initialization failed: project_id mismatch ('{pid}' != 'wasteroutelive')")
+                return None
             cred = credentials.Certificate(cred_dict)
             _firebase_admin_app = firebase_admin.initialize_app(cred)
-            app.logger.info("Firebase Admin initialized from FIREBASE_SERVICE_ACCOUNT_JSON")
+            app.logger.info("Firebase Admin initialized from FIREBASE_SERVICE_ACCOUNT_JSON for project wasteroutelive")
             return _firebase_admin_app
         except Exception as e:
             app.logger.error(f"Error initializing Firebase Admin from FIREBASE_SERVICE_ACCOUNT_JSON: {e}")
+            if is_prod:
+                return None
             
     if cred_path and os.path.exists(cred_path):
         try:
+            import json
+            with open(cred_path, 'r', encoding='utf-8') as f:
+                cdata = json.load(f)
+            pid = cdata.get('project_id')
+            if pid != 'wasteroutelive':
+                app.logger.error(f"Firebase Admin initialization failed: project_id mismatch in {cred_path} ('{pid}' != 'wasteroutelive')")
+                return None
             cred = credentials.Certificate(cred_path)
             _firebase_admin_app = firebase_admin.initialize_app(cred)
-            app.logger.info(f"Firebase Admin initialized from {cred_path}")
+            app.logger.info(f"Firebase Admin initialized from {cred_path} for project wasteroutelive")
             return _firebase_admin_app
         except Exception as e:
             app.logger.error(f"Error initializing Firebase Admin from {cred_path}: {e}")
+            if is_prod:
+                return None
             
     local_sa = os.path.join(os.path.dirname(__file__), 'serviceAccountKey.json')
     if os.path.exists(local_sa):
         try:
+            import json
+            with open(local_sa, 'r', encoding='utf-8') as f:
+                cdata = json.load(f)
+            pid = cdata.get('project_id')
+            if pid != 'wasteroutelive':
+                app.logger.error(f"Firebase Admin initialization failed: project_id mismatch in {local_sa}")
+                return None
             cred = credentials.Certificate(local_sa)
             _firebase_admin_app = firebase_admin.initialize_app(cred)
             app.logger.info(f"Firebase Admin initialized from local {local_sa}")
             return _firebase_admin_app
         except Exception as e:
             app.logger.error(f"Error initializing Firebase Admin from {local_sa}: {e}")
+            if is_prod:
+                return None
+
+    # Production gate: Fail closed if no valid service account is provided in production
+    if is_prod:
+        app.logger.critical("PRODUCTION ERROR: Missing or invalid Firebase service account credentials. Ephemeral key fallback is strictly forbidden in production. Failing closed.")
+        return None
             
-    # Ephemeral RSA certificate for dev / testing environments
+    # Ephemeral RSA certificate ONLY for local development / testing environments
     try:
         from cryptography.hazmat.primitives.asymmetric import rsa
         from cryptography.hazmat.primitives import serialization
@@ -998,7 +1028,7 @@ def get_firebase_admin_app():
         }
         cred = credentials.Certificate(ephemeral_sa)
         _firebase_admin_app = firebase_admin.initialize_app(cred)
-        app.logger.info("Firebase Admin initialized with ephemeral RSA development certificate")
+        app.logger.info("Firebase Admin initialized with ephemeral RSA development certificate (dev/test environment only)")
         return _firebase_admin_app
     except Exception as e:
         app.logger.error(f"Failed to initialize fallback Firebase Admin app: {e}")
@@ -1019,14 +1049,14 @@ def create_firebase_custom_token(user):
     claims = {}
     if user.role == 'ADMIN':
         claims['role'] = 'ADMIN'
-        claims['admin_id'] = user.id
+        claims['admin_id'] = str(user.id)
     elif user.role == 'DRIVER':
         claims['role'] = 'DRIVER'
-        claims['driver_id'] = user.id
+        claims['driver_id'] = str(user.id)
         if user.truck_id is None:
             ensure_driver_truck_assignments()
             db.session.refresh(user)
-        claims['truck_id'] = user.truck_id
+        claims['truck_id'] = str(user.truck_id) if user.truck_id is not None else None
     else:
         raise ValueError(f"Unauthorized role '{user.role}' for Firebase access")
         

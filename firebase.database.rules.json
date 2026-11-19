@@ -4,64 +4,133 @@
     ".write": false,
 
     "trucks": {
-      ".read": "auth != null && auth.token.role === 'ADMIN'",
+      ".read": "auth != null && (auth.token.role === 'ADMIN' || auth.token.role === 'admin')",
       "$truckId": {
-        ".read": "auth != null && (auth.token.role === 'ADMIN' || (auth.token.role === 'DRIVER' && auth.token.truck_id == $truckId))",
-        ".write": "auth != null && (auth.token.role === 'ADMIN' || (auth.token.role === 'DRIVER' && auth.token.truck_id == $truckId))",
+        ".read": "auth != null && (auth.token.role === 'ADMIN' || auth.token.role === 'admin' || (auth.token.role === 'DRIVER' && (auth.token.truck_id == $truckId || auth.token.truck_id == '' + $truckId)))",
+        ".write": "auth != null && (auth.token.role === 'ADMIN' || auth.token.role === 'admin')",
         
-        "currentLat": { ".validate": "newData.val() == null || (newData.isNumber() && newData.val() >= -90 && newData.val() <= 90)" },
-        "currentLng": { ".validate": "newData.val() == null || (newData.isNumber() && newData.val() >= -180 && newData.val() <= 180)" },
-        "lat": { ".validate": "newData.val() == null || (newData.isNumber() && newData.val() >= -90 && newData.val() <= 90)" },
-        "lng": { ".validate": "newData.val() == null || (newData.isNumber() && newData.val() >= -180 && newData.val() <= 180)" },
-        "speed": { ".validate": "newData.val() == null || (newData.isNumber() && newData.val() >= 0 && newData.val() <= 300)" },
-        "heading": { ".validate": "newData.val() == null || (newData.isNumber() && newData.val() >= 0 && newData.val() <= 360)" },
-        "accuracy": { ".validate": "newData.val() == null || (newData.isNumber() && newData.val() >= 0)" },
-        "status": { ".validate": "newData.isString() && (newData.val() === 'online' || newData.val() === 'offline' || newData.val() === 'active')" },
-        "lastUpdated": { ".validate": "newData.val() == null || newData.isNumber() || newData.isString()" },
-        "timestamp": { ".validate": "newData.val() == null || newData.isNumber() || newData.isString()" },
-        "truckId": { ".validate": "newData.val() == null || newData.val() == $truckId" },
-        "driverId": { ".validate": "newData.val() == null || auth.token.role === 'ADMIN' || (auth.token.role === 'DRIVER' && auth.token.driver_id == newData.val())" },
-        "driverName": { ".validate": "newData.val() == null || newData.isString()" },
-        "name": { ".validate": "newData.val() == null || newData.isString()" },
+        "currentLat": {
+          ".write": "auth != null && (auth.token.role === 'ADMIN' || auth.token.role === 'admin' || (auth.token.role === 'DRIVER' && (auth.token.truck_id == $truckId || auth.token.truck_id == '' + $truckId)))",
+          ".validate": "newData.val() == null || (newData.isNumber() && newData.val() >= -90.0 && newData.val() <= 90.0)"
+        },
+        "currentLng": {
+          ".write": "auth != null && (auth.token.role === 'ADMIN' || auth.token.role === 'admin' || (auth.token.role === 'DRIVER' && (auth.token.truck_id == $truckId || auth.token.truck_id == '' + $truckId)))",
+          ".validate": "newData.val() == null || (newData.isNumber() && newData.val() >= -180.0 && newData.val() <= 180.0)"
+        },
+        "lat": {
+          ".write": "auth != null && (auth.token.role === 'ADMIN' || auth.token.role === 'admin' || (auth.token.role === 'DRIVER' && (auth.token.truck_id == $truckId || auth.token.truck_id == '' + $truckId)))",
+          ".validate": "newData.val() == null || (newData.isNumber() && newData.val() >= -90.0 && newData.val() <= 90.0)"
+        },
+        "lng": {
+          ".write": "auth != null && (auth.token.role === 'ADMIN' || auth.token.role === 'admin' || (auth.token.role === 'DRIVER' && (auth.token.truck_id == $truckId || auth.token.truck_id == '' + $truckId)))",
+          ".validate": "newData.val() == null || (newData.isNumber() && newData.val() >= -180.0 && newData.val() <= 180.0)"
+        },
+        "speed": {
+          ".write": "auth != null && (auth.token.role === 'ADMIN' || auth.token.role === 'admin' || (auth.token.role === 'DRIVER' && (auth.token.truck_id == $truckId || auth.token.truck_id == '' + $truckId)))",
+          ".validate": "newData.val() == null || (newData.isNumber() && newData.val() >= 0 && newData.val() <= 300)"
+        },
+        "heading": {
+          ".write": "auth != null && (auth.token.role === 'ADMIN' || auth.token.role === 'admin' || (auth.token.role === 'DRIVER' && (auth.token.truck_id == $truckId || auth.token.truck_id == '' + $truckId)))",
+          ".validate": "newData.val() == null || (newData.isNumber() && newData.val() >= 0 && newData.val() <= 360)"
+        },
+        "accuracy": {
+          ".write": "auth != null && (auth.token.role === 'ADMIN' || auth.token.role === 'admin' || (auth.token.role === 'DRIVER' && (auth.token.truck_id == $truckId || auth.token.truck_id == '' + $truckId)))",
+          ".validate": "newData.val() == null || (newData.isNumber() && newData.val() >= 0)"
+        },
+        "status": {
+          ".write": "auth != null && (auth.token.role === 'ADMIN' || auth.token.role === 'admin' || (auth.token.role === 'DRIVER' && (auth.token.truck_id == $truckId || auth.token.truck_id == '' + $truckId)))",
+          ".validate": "newData.isString() && (newData.val() === 'online' || newData.val() === 'offline' || newData.val() === 'active')"
+        },
+        "lastUpdated": {
+          ".write": "auth != null && (auth.token.role === 'ADMIN' || auth.token.role === 'admin' || (auth.token.role === 'DRIVER' && (auth.token.truck_id == $truckId || auth.token.truck_id == '' + $truckId)))",
+          ".validate": "newData.val() == null || newData.isNumber() || newData.isString()"
+        },
+        "lastStopAction": {
+          ".write": "auth != null && (auth.token.role === 'ADMIN' || auth.token.role === 'admin' || (auth.token.role === 'DRIVER' && (auth.token.truck_id == $truckId || auth.token.truck_id == '' + $truckId)))",
+          ".validate": "newData.val() == null || newData.isNumber()"
+        },
+        "timestamp": {
+          ".write": "auth != null && (auth.token.role === 'ADMIN' || auth.token.role === 'admin' || (auth.token.role === 'DRIVER' && (auth.token.truck_id == $truckId || auth.token.truck_id == '' + $truckId)))",
+          ".validate": "newData.val() == null || newData.isNumber() || newData.isString()"
+        },
         
         "latest_alert": {
-          ".read": "auth != null && (auth.token.role === 'ADMIN' || (auth.token.role === 'DRIVER' && auth.token.truck_id == $truckId))",
-          ".write": "auth != null && (auth.token.role === 'ADMIN' || (auth.token.role === 'DRIVER' && auth.token.truck_id == $truckId))",
-          "read": { ".validate": "newData.isBoolean()" },
-          "text": { ".validate": "auth.token.role === 'ADMIN' ? newData.isString() : data.val() === newData.val()" },
-          "timestamp": { ".validate": "newData.isNumber()" }
+          ".read": "auth != null && (auth.token.role === 'ADMIN' || auth.token.role === 'admin' || (auth.token.role === 'DRIVER' && (auth.token.truck_id == $truckId || auth.token.truck_id == '' + $truckId)))",
+          ".write": "auth != null && (auth.token.role === 'ADMIN' || auth.token.role === 'admin')",
+          "read": {
+            ".write": "auth != null && (auth.token.role === 'ADMIN' || auth.token.role === 'admin' || (auth.token.role === 'DRIVER' && (auth.token.truck_id == $truckId || auth.token.truck_id == '' + $truckId)))",
+            ".validate": "newData.isBoolean()"
+          }
+        },
+        
+        "messages": {
+          "$messageId": {
+            ".write": "auth != null && (auth.token.role === 'ADMIN' || auth.token.role === 'admin' || (auth.token.role === 'DRIVER' && (auth.token.truck_id == $truckId || auth.token.truck_id == '' + $truckId) && newData.child('sender').val() === 'driver'))",
+            ".validate": "newData.hasChildren(['sender', 'text', 'timestamp'])"
+          }
         }
       }
     },
 
     "driver_locations": {
-      ".read": "auth != null && auth.token.role === 'ADMIN'",
+      ".read": "auth != null && (auth.token.role === 'ADMIN' || auth.token.role === 'admin')",
       "$driverId": {
-        ".read": "auth != null && (auth.token.role === 'ADMIN' || (auth.token.role === 'DRIVER' && auth.token.driver_id == $driverId))",
-        ".write": "auth != null && (auth.token.role === 'ADMIN' || (auth.token.role === 'DRIVER' && auth.token.driver_id == $driverId))",
+        ".read": "auth != null && (auth.token.role === 'ADMIN' || auth.token.role === 'admin' || (auth.token.role === 'DRIVER' && (auth.token.driver_id == $driverId || auth.token.driver_id == '' + $driverId)))",
+        ".write": "auth != null && (auth.token.role === 'ADMIN' || auth.token.role === 'admin')",
         
-        "currentLat": { ".validate": "newData.val() == null || (newData.isNumber() && newData.val() >= -90 && newData.val() <= 90)" },
-        "currentLng": { ".validate": "newData.val() == null || (newData.isNumber() && newData.val() >= -180 && newData.val() <= 180)" },
-        "speed": { ".validate": "newData.val() == null || (newData.isNumber() && newData.val() >= 0 && newData.val() <= 300)" },
-        "heading": { ".validate": "newData.val() == null || (newData.isNumber() && newData.val() >= 0 && newData.val() <= 360)" },
-        "accuracy": { ".validate": "newData.val() == null || (newData.isNumber() && newData.val() >= 0)" },
-        "status": { ".validate": "newData.isString() && (newData.val() === 'online' || newData.val() === 'offline' || newData.val() === 'active')" },
-        "lastUpdated": { ".validate": "newData.val() == null || newData.isNumber() || newData.isString()" },
-        "timestamp": { ".validate": "newData.val() == null || newData.isNumber() || newData.isString()" },
-        "truckId": { ".validate": "newData.val() == null || auth.token.role === 'ADMIN' || auth.token.truck_id == newData.val()" },
-        "driverId": { ".validate": "newData.val() == null || auth.token.role === 'ADMIN' || auth.token.driver_id == $driverId" }
+        "currentLat": {
+          ".write": "auth != null && (auth.token.role === 'ADMIN' || auth.token.role === 'admin' || (auth.token.role === 'DRIVER' && (auth.token.driver_id == $driverId || auth.token.driver_id == '' + $driverId)))",
+          ".validate": "newData.val() == null || (newData.isNumber() && newData.val() >= -90.0 && newData.val() <= 90.0)"
+        },
+        "currentLng": {
+          ".write": "auth != null && (auth.token.role === 'ADMIN' || auth.token.role === 'admin' || (auth.token.role === 'DRIVER' && (auth.token.driver_id == $driverId || auth.token.driver_id == '' + $driverId)))",
+          ".validate": "newData.val() == null || (newData.isNumber() && newData.val() >= -180.0 && newData.val() <= 180.0)"
+        },
+        "speed": {
+          ".write": "auth != null && (auth.token.role === 'ADMIN' || auth.token.role === 'admin' || (auth.token.role === 'DRIVER' && (auth.token.driver_id == $driverId || auth.token.driver_id == '' + $driverId)))",
+          ".validate": "newData.val() == null || (newData.isNumber() && newData.val() >= 0 && newData.val() <= 300)"
+        },
+        "heading": {
+          ".write": "auth != null && (auth.token.role === 'ADMIN' || auth.token.role === 'admin' || (auth.token.role === 'DRIVER' && (auth.token.driver_id == $driverId || auth.token.driver_id == '' + $driverId)))",
+          ".validate": "newData.val() == null || (newData.isNumber() && newData.val() >= 0 && newData.val() <= 360)"
+        },
+        "accuracy": {
+          ".write": "auth != null && (auth.token.role === 'ADMIN' || auth.token.role === 'admin' || (auth.token.role === 'DRIVER' && (auth.token.driver_id == $driverId || auth.token.driver_id == '' + $driverId)))",
+          ".validate": "newData.val() == null || (newData.isNumber() && newData.val() >= 0)"
+        },
+        "status": {
+          ".write": "auth != null && (auth.token.role === 'ADMIN' || auth.token.role === 'admin' || (auth.token.role === 'DRIVER' && (auth.token.driver_id == $driverId || auth.token.driver_id == '' + $driverId)))",
+          ".validate": "newData.isString() && (newData.val() === 'online' || newData.val() === 'offline' || newData.val() === 'active')"
+        },
+        "lastUpdated": {
+          ".write": "auth != null && (auth.token.role === 'ADMIN' || auth.token.role === 'admin' || (auth.token.role === 'DRIVER' && (auth.token.driver_id == $driverId || auth.token.driver_id == '' + $driverId)))",
+          ".validate": "newData.val() == null || newData.isNumber() || newData.isString()"
+        },
+        "lastStopAction": {
+          ".write": "auth != null && (auth.token.role === 'ADMIN' || auth.token.role === 'admin' || (auth.token.role === 'DRIVER' && (auth.token.driver_id == $driverId || auth.token.driver_id == '' + $driverId)))",
+          ".validate": "newData.val() == null || newData.isNumber()"
+        },
+        "timestamp": {
+          ".write": "auth != null && (auth.token.role === 'ADMIN' || auth.token.role === 'admin' || (auth.token.role === 'DRIVER' && (auth.token.driver_id == $driverId || auth.token.driver_id == '' + $driverId)))",
+          ".validate": "newData.val() == null || newData.isNumber() || newData.isString()"
+        },
+        "routeCompleted": {
+          ".write": "auth != null && (auth.token.role === 'ADMIN' || auth.token.role === 'admin' || (auth.token.role === 'DRIVER' && (auth.token.driver_id == $driverId || auth.token.driver_id == '' + $driverId)))",
+          ".validate": "newData.val() == null || newData.isBoolean()"
+        }
       }
     },
 
     "routes": {
-      ".read": "auth != null && auth.token.role === 'ADMIN'",
-      "route_$truckId": {
-        ".read": "auth != null && (auth.token.role === 'ADMIN' || (auth.token.role === 'DRIVER' && auth.token.truck_id == $truckId))",
-        ".write": "auth != null && auth.token.role === 'ADMIN'",
+      ".read": "auth != null && (auth.token.role === 'ADMIN' || auth.token.role === 'admin')",
+      "$routeKey": {
+        ".read": "auth != null && (auth.token.role === 'ADMIN' || auth.token.role === 'admin' || (auth.token.role === 'DRIVER' && ($routeKey === 'route_' + auth.token.truck_id || $routeKey === 'route_' + auth.token.truck_id + '')))",
+        ".write": "auth != null && (auth.token.role === 'ADMIN' || auth.token.role === 'admin')",
         "stops": {
           "$stopId": {
-            ".write": "auth != null && (auth.token.role === 'ADMIN' || (auth.token.role === 'DRIVER' && auth.token.truck_id == $truckId))",
+            ".write": "auth != null && (auth.token.role === 'ADMIN' || auth.token.role === 'admin')",
             "status": {
+              ".write": "auth != null && (auth.token.role === 'ADMIN' || auth.token.role === 'admin' || (auth.token.role === 'DRIVER' && ($routeKey === 'route_' + auth.token.truck_id || $routeKey === 'route_' + auth.token.truck_id + '')))",
               ".validate": "newData.isString() && (newData.val() === 'PENDING' || newData.val() === 'COMPLETED' || newData.val() === 'SKIPPED' || newData.val() === 'CANCELLED')"
             }
           }
@@ -69,9 +138,14 @@
       }
     },
 
+    "system_status": {
+      ".read": "auth != null && (auth.token.role === 'ADMIN' || auth.token.role === 'admin')",
+      ".write": "auth != null && (auth.token.role === 'ADMIN' || auth.token.role === 'admin')"
+    },
+
     "settings": {
-      ".read": "auth != null && auth.token.role === 'ADMIN'",
-      ".write": "auth != null && auth.token.role === 'ADMIN'"
+      ".read": "auth != null && (auth.token.role === 'ADMIN' || auth.token.role === 'admin')",
+      ".write": "auth != null && (auth.token.role === 'ADMIN' || auth.token.role === 'admin')"
     }
   }
 }

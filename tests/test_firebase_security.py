@@ -38,6 +38,10 @@ class RuleContext:
                 return str(self.val) == str(other)
             def __ne__(self, other):
                 return not self.__eq__(other)
+            def __add__(self, other):
+                return str(self.val) + str(other)
+            def __radd__(self, other):
+                return str(other) + str(self.val)
             def __str__(self):
                 return str(self.val)
             def __repr__(self):
@@ -212,15 +216,15 @@ class TestFirebaseSecurity(unittest.TestCase):
         # Verify claims returned by server
         claims = data['claims']
         self.assertEqual(claims['role'], 'DRIVER')
-        self.assertEqual(claims['driver_id'], self.driver1.id)
-        self.assertEqual(claims['truck_id'], 71)
+        self.assertEqual(str(claims['driver_id']), str(self.driver1.id))
+        self.assertEqual(str(claims['truck_id']), '71')
 
         # Decode JWT (unverified signature to inspect payload structure)
         payload = jwt.decode(custom_token, options={'verify_signature': False})
         self.assertEqual(payload['uid'], f"user_{self.driver1.id}")
         self.assertEqual(payload['claims']['role'], 'DRIVER')
-        self.assertEqual(payload['claims']['truck_id'], 71)
-        self.assertEqual(payload['claims']['driver_id'], self.driver1.id)
+        self.assertEqual(str(payload['claims']['truck_id']), '71')
+        self.assertEqual(str(payload['claims']['driver_id']), str(self.driver1.id))
         self.assertEqual(payload['aud'], 'https://identitytoolkit.googleapis.com/google.identity.identitytoolkit.v1.IdentityToolkit')
         self.assertTrue(payload['exp'] > payload['iat'])
 
@@ -236,12 +240,12 @@ class TestFirebaseSecurity(unittest.TestCase):
         data = res.get_json()
         # Server must strictly enforce database-backed claims
         self.assertEqual(data['claims']['role'], 'DRIVER')
-        self.assertEqual(data['claims']['truck_id'], 71)
-        self.assertEqual(data['claims']['driver_id'], self.driver1.id)
+        self.assertEqual(str(data['claims']['truck_id']), '71')
+        self.assertEqual(str(data['claims']['driver_id']), str(self.driver1.id))
 
         payload = jwt.decode(data['firebase_custom_token'], options={'verify_signature': False})
         self.assertEqual(payload['claims']['role'], 'DRIVER')
-        self.assertEqual(payload['claims']['truck_id'], 71)
+        self.assertEqual(str(payload['claims']['truck_id']), '71')
 
     def test_driver_truck_reassignment_updates_token_claims(self):
         token = generate_auth_token(self.driver1)
@@ -256,7 +260,7 @@ class TestFirebaseSecurity(unittest.TestCase):
         )
         self.assertEqual(res.status_code, 200)
         data = res.get_json()
-        self.assertEqual(data['claims']['truck_id'], 75)
+        self.assertEqual(str(data['claims']['truck_id']), '75')
 
         # Restore truck_id
         self.driver1.truck_id = 71
@@ -271,7 +275,7 @@ class TestFirebaseSecurity(unittest.TestCase):
         self.assertEqual(res.status_code, 200)
         data = res.get_json()
         self.assertEqual(data['claims']['role'], 'ADMIN')
-        self.assertEqual(data['claims']['admin_id'], self.admin.id)
+        self.assertEqual(str(data['claims']['admin_id']), str(self.admin.id))
 
         payload = jwt.decode(data['firebase_custom_token'], options={'verify_signature': False})
         self.assertEqual(payload['claims']['role'], 'ADMIN')
@@ -295,12 +299,16 @@ class TestFirebaseSecurity(unittest.TestCase):
         self.assertFalse(ctx_truck.evaluate_rule_expr(truck_rule['.write']))
 
         # Routes read/write
-        route_rule = self.rules_json['routes']['route_$truckId']
-        ctx_route = RuleContext(auth=None, path_vars={'truckId': '71'})
+        route_rule = self.rules_json['routes']['$routeKey']
+        ctx_route = RuleContext(auth=None, path_vars={'routeKey': 'route_71'})
         self.assertFalse(ctx_route.evaluate_rule_expr(route_rule['.read']))
         self.assertFalse(ctx_route.evaluate_rule_expr(route_rule['.write']))
 
-        # Settings
+        # System status & settings
+        system_status_rule = self.rules_json['system_status']
+        self.assertFalse(ctx.evaluate_rule_expr(system_status_rule['.read']))
+        self.assertFalse(ctx.evaluate_rule_expr(system_status_rule['.write']))
+
         settings_rule = self.rules_json['settings']
         self.assertFalse(ctx.evaluate_rule_expr(settings_rule['.read']))
         self.assertFalse(ctx.evaluate_rule_expr(settings_rule['.write']))
@@ -308,21 +316,26 @@ class TestFirebaseSecurity(unittest.TestCase):
     def test_rules_driver_can_read_and_write_own_truck_gps(self):
         driver1_auth = {
             'uid': f'user_{self.driver1.id}',
-            'token': {'role': 'DRIVER', 'truck_id': 71, 'driver_id': self.driver1.id}
+            'token': {'role': 'DRIVER', 'truck_id': '71', 'driver_id': str(self.driver1.id)}
         }
         ctx_own = RuleContext(auth=driver1_auth, path_vars={'truckId': '71'})
         truck_rule = self.rules_json['trucks']['$truckId']
 
         # Reading own truck -> ALLOWED
         self.assertTrue(ctx_own.evaluate_rule_expr(truck_rule['.read']))
-        # Writing to own truck -> ALLOWED
-        self.assertTrue(ctx_own.evaluate_rule_expr(truck_rule['.write']))
+        # Writing to truck root -> DENIED (Admin only; driver cannot overwrite truck configuration)
+        self.assertFalse(ctx_own.evaluate_rule_expr(truck_rule['.write']))
+        # Writing to permitted GPS telemetry fields -> ALLOWED
+        self.assertTrue(ctx_own.evaluate_rule_expr(truck_rule['currentLat']['.write']))
+        self.assertTrue(ctx_own.evaluate_rule_expr(truck_rule['currentLng']['.write']))
+        self.assertTrue(ctx_own.evaluate_rule_expr(truck_rule['speed']['.write']))
+        self.assertTrue(ctx_own.evaluate_rule_expr(truck_rule['status']['.write']))
 
     def test_rules_driver_cannot_access_or_modify_other_truck_gps(self):
         # Driver 1 (truck 71) attempts to access Truck 72
         driver1_auth = {
             'uid': f'user_{self.driver1.id}',
-            'token': {'role': 'DRIVER', 'truck_id': 71, 'driver_id': self.driver1.id}
+            'token': {'role': 'DRIVER', 'truck_id': '71', 'driver_id': str(self.driver1.id)}
         }
         ctx_other = RuleContext(auth=driver1_auth, path_vars={'truckId': '72'})
         truck_rule = self.rules_json['trucks']['$truckId']
@@ -331,11 +344,12 @@ class TestFirebaseSecurity(unittest.TestCase):
         self.assertFalse(ctx_other.evaluate_rule_expr(truck_rule['.read']))
         # Writing to other truck -> DENIED
         self.assertFalse(ctx_other.evaluate_rule_expr(truck_rule['.write']))
+        self.assertFalse(ctx_other.evaluate_rule_expr(truck_rule['currentLat']['.write']))
 
     def test_rules_driver_cannot_read_all_trucks_or_routes(self):
         driver1_auth = {
             'uid': f'user_{self.driver1.id}',
-            'token': {'role': 'DRIVER', 'truck_id': 71, 'driver_id': self.driver1.id}
+            'token': {'role': 'DRIVER', 'truck_id': '71', 'driver_id': str(self.driver1.id)}
         }
         ctx = RuleContext(auth=driver1_auth)
 
@@ -343,6 +357,9 @@ class TestFirebaseSecurity(unittest.TestCase):
         self.assertFalse(ctx.evaluate_rule_expr(self.rules_json['trucks']['.read']))
         # Listing all routes -> DENIED
         self.assertFalse(ctx.evaluate_rule_expr(self.rules_json['routes']['.read']))
+        # Reading/writing system status -> DENIED
+        self.assertFalse(ctx.evaluate_rule_expr(self.rules_json['system_status']['.read']))
+        self.assertFalse(ctx.evaluate_rule_expr(self.rules_json['system_status']['.write']))
         # Reading/writing settings -> DENIED
         self.assertFalse(ctx.evaluate_rule_expr(self.rules_json['settings']['.read']))
         self.assertFalse(ctx.evaluate_rule_expr(self.rules_json['settings']['.write']))
@@ -351,7 +368,7 @@ class TestFirebaseSecurity(unittest.TestCase):
         truck_rule = self.rules_json['trucks']['$truckId']
         driver1_auth = {
             'uid': f'user_{self.driver1.id}',
-            'token': {'role': 'DRIVER', 'truck_id': 71, 'driver_id': self.driver1.id}
+            'token': {'role': 'DRIVER', 'truck_id': '71', 'driver_id': str(self.driver1.id)}
         }
         ctx = RuleContext(auth=driver1_auth, path_vars={'truckId': '71'})
 
@@ -378,10 +395,10 @@ class TestFirebaseSecurity(unittest.TestCase):
     def test_rules_driver_can_update_own_route_stop_status_only(self):
         driver1_auth = {
             'uid': f'user_{self.driver1.id}',
-            'token': {'role': 'DRIVER', 'truck_id': 71, 'driver_id': self.driver1.id}
+            'token': {'role': 'DRIVER', 'truck_id': '71', 'driver_id': str(self.driver1.id)}
         }
-        ctx_own = RuleContext(auth=driver1_auth, path_vars={'truckId': '71', 'stopId': '1001'})
-        route_rule = self.rules_json['routes']['route_$truckId']
+        ctx_own = RuleContext(auth=driver1_auth, path_vars={'routeKey': 'route_71', 'stopId': '1001'})
+        route_rule = self.rules_json['routes']['$routeKey']
         stop_rule = route_rule['stops']['$stopId']
 
         # Driver can read own route
@@ -390,8 +407,11 @@ class TestFirebaseSecurity(unittest.TestCase):
         # Driver cannot delete or overwrite root route node
         self.assertFalse(ctx_own.evaluate_rule_expr(route_rule['.write']))
 
+        # Driver cannot overwrite stop node
+        self.assertFalse(ctx_own.evaluate_rule_expr(stop_rule['.write']))
+
         # Driver CAN update stop status
-        self.assertTrue(ctx_own.evaluate_rule_expr(stop_rule['.write']))
+        self.assertTrue(ctx_own.evaluate_rule_expr(stop_rule['status']['.write']))
 
         # Stop status validations
         self.assertTrue(ctx_own.evaluate_rule_expr(stop_rule['status']['.validate'], value='COMPLETED'))
@@ -403,26 +423,26 @@ class TestFirebaseSecurity(unittest.TestCase):
         # Driver 1 attempts to update Truck 72 stop
         driver1_auth = {
             'uid': f'user_{self.driver1.id}',
-            'token': {'role': 'DRIVER', 'truck_id': 71, 'driver_id': self.driver1.id}
+            'token': {'role': 'DRIVER', 'truck_id': '71', 'driver_id': str(self.driver1.id)}
         }
-        ctx_other = RuleContext(auth=driver1_auth, path_vars={'truckId': '72', 'stopId': '2001'})
-        route_rule = self.rules_json['routes']['route_$truckId']
+        ctx_other = RuleContext(auth=driver1_auth, path_vars={'routeKey': 'route_72', 'stopId': '2001'})
+        route_rule = self.rules_json['routes']['$routeKey']
         stop_rule = route_rule['stops']['$stopId']
 
         # Reading other route -> DENIED
         self.assertFalse(ctx_other.evaluate_rule_expr(route_rule['.read']))
         # Updating other stop -> DENIED
-        self.assertFalse(ctx_other.evaluate_rule_expr(stop_rule['.write']))
+        self.assertFalse(ctx_other.evaluate_rule_expr(stop_rule['status']['.write']))
 
     def test_rules_admin_can_access_all_trucks_and_routes(self):
         admin_auth = {
             'uid': f'user_{self.admin.id}',
-            'token': {'role': 'ADMIN', 'admin_id': self.admin.id}
+            'token': {'role': 'ADMIN', 'admin_id': str(self.admin.id)}
         }
         ctx_trucks = RuleContext(auth=admin_auth)
         ctx_truck71 = RuleContext(auth=admin_auth, path_vars={'truckId': '71'})
         ctx_routes = RuleContext(auth=admin_auth)
-        ctx_route71 = RuleContext(auth=admin_auth, path_vars={'truckId': '71'})
+        ctx_route71 = RuleContext(auth=admin_auth, path_vars={'routeKey': 'route_71'})
 
         # Admin can read all trucks
         self.assertTrue(ctx_trucks.evaluate_rule_expr(self.rules_json['trucks']['.read']))
@@ -434,26 +454,32 @@ class TestFirebaseSecurity(unittest.TestCase):
         # Admin can read all routes
         self.assertTrue(ctx_routes.evaluate_rule_expr(self.rules_json['routes']['.read']))
         # Admin can write any route
-        self.assertTrue(ctx_route71.evaluate_rule_expr(self.rules_json['routes']['route_$truckId']['.write']))
+        self.assertTrue(ctx_route71.evaluate_rule_expr(self.rules_json['routes']['$routeKey']['.write']))
 
-        # Admin can read and write settings
+        # Admin can read and write settings & system_status
+        self.assertTrue(ctx_trucks.evaluate_rule_expr(self.rules_json['system_status']['.read']))
+        self.assertTrue(ctx_trucks.evaluate_rule_expr(self.rules_json['system_status']['.write']))
         self.assertTrue(ctx_trucks.evaluate_rule_expr(self.rules_json['settings']['.read']))
         self.assertTrue(ctx_trucks.evaluate_rule_expr(self.rules_json['settings']['.write']))
 
     def test_rules_driver_locations_isolated_by_driver_id(self):
         d1_auth = {
             'uid': f'user_{self.driver1.id}',
-            'token': {'role': 'DRIVER', 'driver_id': self.driver1.id, 'truck_id': 71}
+            'token': {'role': 'DRIVER', 'driver_id': str(self.driver1.id), 'truck_id': '71'}
         }
         loc_rule = self.rules_json['driver_locations']['$driverId']
 
         ctx_own = RuleContext(auth=d1_auth, path_vars={'driverId': str(self.driver1.id)})
         self.assertTrue(ctx_own.evaluate_rule_expr(loc_rule['.read']))
-        self.assertTrue(ctx_own.evaluate_rule_expr(loc_rule['.write']))
+        # Parent driver location write is Admin only (driver cannot delete or overwrite root node)
+        self.assertFalse(ctx_own.evaluate_rule_expr(loc_rule['.write']))
+        # Telemetry child field write is allowed
+        self.assertTrue(ctx_own.evaluate_rule_expr(loc_rule['currentLat']['.write']))
 
         ctx_other = RuleContext(auth=d1_auth, path_vars={'driverId': str(self.driver2.id)})
         self.assertFalse(ctx_other.evaluate_rule_expr(loc_rule['.read']))
         self.assertFalse(ctx_other.evaluate_rule_expr(loc_rule['.write']))
+        self.assertFalse(ctx_other.evaluate_rule_expr(loc_rule['currentLat']['.write']))
 
 if __name__ == '__main__':
     unittest.main()

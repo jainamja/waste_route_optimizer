@@ -1449,23 +1449,35 @@
                 }
                 window.lastGpsCoords = { lat, lng };
 
-                const gpsPayload = {
-                    currentLat: lat,
-                    currentLng: lng,
-                    heading: heading !== null ? Math.round(heading) : 0,
-                    speed: Math.round(speed * 3.6 * 10) / 10,
-                    accuracy: pos.coords.accuracy || 0,
-                    lastUpdated: firebase.database.ServerValue.TIMESTAMP,
-                    timestamp: firebase.database.ServerValue.TIMESTAMP,
-                    truckId: truckId,
-                    driverId: driverId,
-                    status: 'online'
-                };
+                const roundedHeading = heading !== null ? Math.round(heading) : 0;
+                const roundedSpeed = Math.round(speed * 3.6 * 10) / 10;
+                const acc = pos.coords.accuracy || 0;
+                const nowTs = firebase.database.ServerValue.TIMESTAMP;
 
-                // Atomic multi-node write updating both driver_locations and trucks simultaneously
+                // Atomic multi-node write targeting exact permitted telemetry leaf fields
                 const multiUpdates = {};
-                if (driverId) multiUpdates[`driver_locations/${driverId}`] = gpsPayload;
-                if (truckId) multiUpdates[`trucks/${truckId}`] = gpsPayload;
+                if (truckId) {
+                    multiUpdates[`trucks/${truckId}/currentLat`] = lat;
+                    multiUpdates[`trucks/${truckId}/currentLng`] = lng;
+                    multiUpdates[`trucks/${truckId}/lat`] = lat;
+                    multiUpdates[`trucks/${truckId}/lng`] = lng;
+                    multiUpdates[`trucks/${truckId}/heading`] = roundedHeading;
+                    multiUpdates[`trucks/${truckId}/speed`] = roundedSpeed;
+                    multiUpdates[`trucks/${truckId}/accuracy`] = acc;
+                    multiUpdates[`trucks/${truckId}/lastUpdated`] = nowTs;
+                    multiUpdates[`trucks/${truckId}/timestamp`] = nowTs;
+                    multiUpdates[`trucks/${truckId}/status`] = 'online';
+                }
+                if (driverId) {
+                    multiUpdates[`driver_locations/${driverId}/currentLat`] = lat;
+                    multiUpdates[`driver_locations/${driverId}/currentLng`] = lng;
+                    multiUpdates[`driver_locations/${driverId}/heading`] = roundedHeading;
+                    multiUpdates[`driver_locations/${driverId}/speed`] = roundedSpeed;
+                    multiUpdates[`driver_locations/${driverId}/accuracy`] = acc;
+                    multiUpdates[`driver_locations/${driverId}/lastUpdated`] = nowTs;
+                    multiUpdates[`driver_locations/${driverId}/timestamp`] = nowTs;
+                    multiUpdates[`driver_locations/${driverId}/status`] = 'online';
+                }
                 db.ref().update(multiUpdates).catch(err => console.error("GPS write multi-node error:", err));
             };
 

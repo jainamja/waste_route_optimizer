@@ -351,9 +351,9 @@ public class LocationService extends Service {
 
                 long now = System.currentTimeMillis();
                 String singlePayload = String.format(Locale.US,
-                        "{\"currentLat\": %.6f, \"currentLng\": %.6f, \"speed\": %.2f, \"heading\": %.2f, \"accuracy\": %.1f, \"lastUpdated\": %d, \"timestamp\": %d, \"status\": \"online\", \"truckId\": \"%s\", \"driverId\": \"%s\"}",
+                        "{\"currentLat\": %.6f, \"currentLng\": %.6f, \"speed\": %.2f, \"heading\": %.2f, \"accuracy\": %.1f, \"lastUpdated\": %d, \"timestamp\": %d, \"status\": \"online\"}",
                         loc.getLatitude(), loc.getLongitude(), loc.getSpeed(), loc.getBearing(), loc.getAccuracy(),
-                        now, now, effectiveTruckId, effectiveDriverId);
+                        now, now);
 
                 // Direct PATCH to scoped truck node (matches restricted Firebase Security Rules)
                 patchToFirebase("https://wasteroutelive-default-rtdb.firebaseio.com/trucks/" + effectiveTruckId + ".json?auth=" + idToken, singlePayload);
