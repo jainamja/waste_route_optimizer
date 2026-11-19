@@ -65,8 +65,27 @@
         
         "messages": {
           "$messageId": {
-            ".write": "auth != null && (auth.token.role === 'ADMIN' || auth.token.role === 'admin' || (auth.token.role === 'DRIVER' && (auth.token.truck_id == $truckId || auth.token.truck_id == '' + $truckId) && newData.child('sender').val() === 'driver'))",
-            ".validate": "newData.hasChildren(['sender', 'text', 'timestamp'])"
+            ".write": "auth != null && (auth.token.role === 'ADMIN' || auth.token.role === 'admin' || (auth.token.role === 'DRIVER' && (auth.token.truck_id == $truckId || auth.token.truck_id == '' + $truckId) && (!data.exists() && newData.child('sender').val() === 'driver')))",
+            ".validate": "newData.hasChildren(['sender', 'text', 'timestamp'])",
+            "sender": {
+              ".validate": "newData.isString() && (newData.val() === 'driver' || newData.val() === 'admin')"
+            },
+            "senderName": {
+              ".validate": "newData.val() == null || (newData.isString() && newData.val().length <= 100)"
+            },
+            "text": {
+              ".validate": "newData.isString() && newData.val().length > 0 && newData.val().length <= 1000"
+            },
+            "timestamp": {
+              ".validate": "newData.isNumber() && newData.val() > 0"
+            },
+            "read": {
+              ".write": "auth != null && (auth.token.role === 'ADMIN' || auth.token.role === 'admin' || (auth.token.role === 'DRIVER' && (auth.token.truck_id == $truckId || auth.token.truck_id == '' + $truckId)))",
+              ".validate": "newData.isBoolean()"
+            },
+            "$other": {
+              ".validate": false
+            }
           }
         }
       }

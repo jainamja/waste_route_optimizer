@@ -227,6 +227,80 @@ async function runEmulatorTestSuite() {
             await assertSucceeds(driver1ReassignedTo2.ref("routes/route_2/stops/201/status").set("COMPLETED"));
         });
 
+        // Test 17: Messaging security - driver creation, isolation, and sender integrity
+        await check("17. Driver can post message on assigned truck, blocked from other trucks/spoofing", async () => {
+            // Driver 1 posts valid message to assigned truck 1
+            await assertSucceeds(driver1.ref("trucks/1/messages/msg_d1").set({
+                sender: "driver",
+                senderName: "Driver One",
+                text: "En route to next stop",
+                timestamp: Date.now(),
+                read: false
+            }));
+            // Driver 1 blocked from posting to truck 2
+            await assertFails(driver1.ref("trucks/2/messages/msg_d1_bad").set({
+                sender: "driver",
+                senderName: "Driver One",
+                text: "Intruder",
+                timestamp: Date.now(),
+                read: false
+            }));
+            // Driver 1 blocked from spoofing sender as admin
+            await assertFails(driver1.ref("trucks/1/messages/msg_spoof").set({
+                sender: "admin",
+                senderName: "Dispatch",
+                text: "Fake dispatch order",
+                timestamp: Date.now(),
+                read: false
+            }));
+        });
+
+        // Test 18: Messaging security - overwrite denial, payload validation, and mark read
+        await check("18. Driver cannot overwrite messages or send bad payloads; can mark read", async () => {
+            // Admin posts dispatch message
+            await assertSucceeds(admin.ref("trucks/1/messages/msg_adm").set({
+                sender: "admin",
+                senderName: "Dispatch",
+                text: "Urgent pickup scheduled",
+                timestamp: Date.now(),
+                read: false
+            }));
+            // Driver 1 blocked from overwriting admin message
+            await assertFails(driver1.ref("trucks/1/messages/msg_adm").set({
+                sender: "driver",
+                senderName: "Driver One",
+                text: "Admin message destroyed",
+                timestamp: Date.now(),
+                read: true
+            }));
+            // Driver 1 blocked from overwriting own existing message
+            await assertFails(driver1.ref("trucks/1/messages/msg_d1").set({
+                sender: "driver",
+                senderName: "Driver One",
+                text: "Tampered after sending",
+                timestamp: Date.now(),
+                read: true
+            }));
+            // Driver 1 can mark incoming admin message as read
+            await assertSucceeds(driver1.ref("trucks/1/messages/msg_adm/read").set(true));
+            // Driver 1 blocked from sending oversized text (>1000 chars)
+            await assertFails(driver1.ref("trucks/1/messages/msg_huge").set({
+                sender: "driver",
+                senderName: "Driver One",
+                text: "A".repeat(1001),
+                timestamp: Date.now(),
+                read: false
+            }));
+            // Driver 1 blocked from sending invalid timestamp or unexpected fields
+            await assertFails(driver1.ref("trucks/1/messages/msg_malformed").set({
+                sender: "driver",
+                senderName: "Driver One",
+                text: "Normal text",
+                timestamp: "bad_time",
+                injected_key: "malicious"
+            }));
+        });
+
     } finally {
         await testEnv.cleanup();
     }
