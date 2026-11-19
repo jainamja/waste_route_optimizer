@@ -9,4 +9,5 @@ requests
 Flask-SQLAlchemy
 psycopg2-binary
 flask-cors
+firebase-admin
 

@@ -1296,10 +1296,12 @@
                     }
                     let effectiveDriverId = (driverId || truckId || '').toString();
                     let effectiveTruckId = (truckId || driverId || '').toString();
+                    let effectiveFlaskToken = (window.currentDriverToken || localStorage.getItem('driver_token') || '').toString();
                     await window.Capacitor.Plugins.BackgroundLocation.start({
                         driverId: effectiveDriverId,
                         truckId: effectiveTruckId,
-                        idToken: token
+                        idToken: token,
+                        flaskToken: effectiveFlaskToken
                     });
                     console.log("[BACKGROUND] Foreground Service active for truck " + effectiveTruckId);
                 } catch(err) {
@@ -1792,10 +1794,22 @@
                 driverId = token;
                 window.currentTruckId = truckId;
                 window.currentDriverId = driverId;
+                window.currentDriverToken = token;
                 window.currentDriverName = data.driver_name || ('Driver ' + driverId);
                 window.hasAssignedRoute = Boolean(data.has_assigned_route);
                 document.getElementById('login-overlay').style.display = 'none';
                 document.getElementById('truck-title').innerText = "Truck " + truckId;
+
+                // Secure Firebase Custom Token authentication
+                if (data.firebase_custom_token) {
+                    try {
+                        let cred = await firebase.auth().signInWithCustomToken(data.firebase_custom_token);
+                        window.currentToken = await cred.user.getIdToken();
+                        console.log("[FIREBASE] Authenticated with verified server-side claims for Truck " + truckId);
+                    } catch(fbAuthErr) {
+                        console.warn("[FIREBASE] Custom token auth warning:", fbAuthErr);
+                    }
+                }
                 
                 // If backend confirms no route assigned, immediately show clean standby state
                 if (!data.has_assigned_route) {
@@ -2524,6 +2538,15 @@
                 let data = await res.json();
                 
                 if(data.success) {
+                    if (data.firebase_custom_token) {
+                        try {
+                            let cred = await firebase.auth().signInWithCustomToken(data.firebase_custom_token);
+                            window.currentToken = await cred.user.getIdToken();
+                            console.log("[FIREBASE] Signed in with custom token from login");
+                        } catch(fbAuthErr) {
+                            console.warn("[FIREBASE] Login custom token auth warning:", fbAuthErr);
+                        }
+                    }
                     if (data.role === 'ADMIN') {
                         if (window.Capacitor && window.Capacitor.Plugins && window.Capacitor.Plugins.Preferences) {
                             await window.Capacitor.Plugins.Preferences.remove({ key: 'driver_token' });
@@ -2564,22 +2587,15 @@
             if (user) {
                 try {
                     window.currentToken = await user.getIdToken();
+                    if (window.Capacitor && window.Capacitor.Plugins && window.Capacitor.Plugins.BackgroundLocation) {
+                        window.Capacitor.Plugins.BackgroundLocation.updateToken({ idToken: window.currentToken }).catch(e=>{});
+                    }
                 } catch(e) {}
             }
         });
 
-        firebase.auth().signInAnonymously().then(async (userCredential) => {
-            if (userCredential && userCredential.user) {
-                try {
-                    window.currentToken = await userCredential.user.getIdToken();
-                } catch(e) {}
-            }
-            initApp();
-        }).catch(err => {
-            console.error("Firebase auth failed:", err);
-            document.getElementById('truck-title').innerText = "Auth Error";
-            document.getElementById('current-stop-container').innerHTML = `<div style="text-align:center; color:#e11d48; padding:20px;"><b>Connection issue:</b><br>Try refreshing the page.</div>`;
-        });
+        // Initialize application flow
+        initApp();
 
     
         // Hide splash screen after animation completes (run immediately on script load)

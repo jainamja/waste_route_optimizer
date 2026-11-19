@@ -39,6 +39,7 @@ public class BackgroundLocationPlugin extends Plugin {
         String driverId = call.getString("driverId");
         String truckId = call.getString("truckId");
         String idToken = call.getString("idToken");
+        String flaskToken = call.getString("flaskToken");
 
         if (driverId == null && truckId != null) {
             driverId = truckId;
@@ -58,6 +59,9 @@ public class BackgroundLocationPlugin extends Plugin {
         if (idToken != null && !idToken.isEmpty()) {
             intent.putExtra("idToken", idToken);
         }
+        if (flaskToken != null && !flaskToken.isEmpty()) {
+            intent.putExtra("flaskToken", flaskToken);
+        }
 
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             getContext().startForegroundService(intent);
@@ -65,6 +69,22 @@ public class BackgroundLocationPlugin extends Plugin {
             getContext().startService(intent);
         }
 
+        call.resolve();
+    }
+
+    @PluginMethod
+    public void updateToken(PluginCall call) {
+        String idToken = call.getString("idToken");
+        String flaskToken = call.getString("flaskToken");
+        Intent intent = new Intent(getContext(), LocationService.class);
+        intent.setAction("UPDATE_TOKEN");
+        if (idToken != null && !idToken.isEmpty()) intent.putExtra("idToken", idToken);
+        if (flaskToken != null && !flaskToken.isEmpty()) intent.putExtra("flaskToken", flaskToken);
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            getContext().startForegroundService(intent);
+        } else {
+            getContext().startService(intent);
+        }
         call.resolve();
     }
 

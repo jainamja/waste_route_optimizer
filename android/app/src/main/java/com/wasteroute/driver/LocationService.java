@@ -50,6 +50,7 @@ public class LocationService extends Service {
     private String driverId;
     private String truckId;
     private String idToken;
+    private String flaskToken;
     private long tokenExpiresAt = 0;
     private final ExecutorService locationExecutor = Executors.newSingleThreadExecutor();
     private final String CHANNEL_ID = "RouteTrackingChannel";
@@ -70,11 +71,31 @@ public class LocationService extends Service {
     @Override
     public int onStartCommand(Intent intent, int flags, int startId) {
         if (intent != null) {
+            if ("UPDATE_TOKEN".equals(intent.getAction())) {
+                if (intent.hasExtra("idToken")) {
+                    String t = intent.getStringExtra("idToken");
+                    if (t != null && !t.isEmpty()) {
+                        idToken = t;
+                        tokenExpiresAt = System.currentTimeMillis() + 3300 * 1000;
+                    }
+                }
+                if (intent.hasExtra("flaskToken")) {
+                    flaskToken = intent.getStringExtra("flaskToken");
+                }
+                Log.i(TAG, "LocationService received token update from app");
+                return START_STICKY;
+            }
             if (intent.hasExtra("driverId")) driverId = intent.getStringExtra("driverId");
             if (intent.hasExtra("truckId")) truckId = intent.getStringExtra("truckId");
             if (intent.hasExtra("idToken")) {
                 String token = intent.getStringExtra("idToken");
-                if (token != null && !token.isEmpty()) idToken = token;
+                if (token != null && !token.isEmpty()) {
+                    idToken = token;
+                    tokenExpiresAt = System.currentTimeMillis() + 3300 * 1000;
+                }
+            }
+            if (intent.hasExtra("flaskToken")) {
+                flaskToken = intent.getStringExtra("flaskToken");
             }
         }
         if (driverId == null && truckId != null) driverId = truckId;
@@ -334,13 +355,13 @@ public class LocationService extends Service {
                         loc.getLatitude(), loc.getLongitude(), loc.getSpeed(), loc.getBearing(), loc.getAccuracy(),
                         now, now, effectiveTruckId, effectiveDriverId);
 
-                // Single atomic root PATCH updating both driver_locations and trucks in 1 HTTP roundtrip
-                String multiPathJson = String.format(Locale.US,
-                        "{\"driver_locations/%s\": %s, \"trucks/%s\": %s}",
-                        effectiveDriverId, singlePayload,
-                        effectiveTruckId, singlePayload);
+                // Direct PATCH to scoped truck node (matches restricted Firebase Security Rules)
+                patchToFirebase("https://wasteroutelive-default-rtdb.firebaseio.com/trucks/" + effectiveTruckId + ".json?auth=" + idToken, singlePayload);
 
-                patchToFirebase("https://wasteroutelive-default-rtdb.firebaseio.com/.json?auth=" + idToken, multiPathJson);
+                // Also update driver_locations node if effectiveDriverId is available
+                if (effectiveDriverId != null && !effectiveDriverId.isEmpty() && !effectiveDriverId.equals(effectiveTruckId)) {
+                    patchToFirebase("https://wasteroutelive-default-rtdb.firebaseio.com/driver_locations/" + effectiveDriverId + ".json?auth=" + idToken, singlePayload);
+                }
 
             } catch (Exception e) {
                 Log.e(TAG, "sendLocationToFirebase error", e);
@@ -365,8 +386,8 @@ public class LocationService extends Service {
             }
 
             int code = conn.getResponseCode();
-            if (code == 401) {
-                Log.w(TAG, "Firebase 401 Unauthorized - clearing token to refresh");
+            if (code == 401 || code == 403) {
+                Log.w(TAG, "Firebase " + code + " Unauthorized/Forbidden - clearing token to refresh");
                 idToken = null;
                 tokenExpiresAt = 0;
             } else if (code >= 200 && code < 300) {
@@ -384,39 +405,70 @@ public class LocationService extends Service {
         if (idToken != null && !idToken.isEmpty() && System.currentTimeMillis() < tokenExpiresAt) {
             return;
         }
-        try {
-            URL url = new URL("https://identitytoolkit.googleapis.com/v1/accounts:signUp?key=AIzaSyAhLnjh0gRa2pf29G90zr-6AMcjLjbQpPg");
-            HttpURLConnection conn = (HttpURLConnection) url.openConnection();
-            conn.setRequestMethod("POST");
-            conn.setRequestProperty("Content-Type", "application/json");
-            conn.setRequestProperty("Connection", "keep-alive");
-            conn.setConnectTimeout(5000);
-            conn.setReadTimeout(5000);
-            conn.setDoOutput(true);
 
-            String reqBody = "{\"returnSecureToken\":true}";
-            try (OutputStream os = conn.getOutputStream()) {
-                os.write(reqBody.getBytes("utf-8"));
-            }
+        // Secure refresh: Request a verified custom token from Flask backend using driver auth credentials
+        if (flaskToken != null && !flaskToken.isEmpty()) {
+            try {
+                URL backendUrl = new URL("https://waste-route-optimizer-190z.onrender.com/api/firebase_custom_token");
+                HttpURLConnection bConn = (HttpURLConnection) backendUrl.openConnection();
+                bConn.setRequestMethod("GET");
+                bConn.setRequestProperty("Authorization", "Bearer " + flaskToken);
+                bConn.setRequestProperty("Connection", "close");
+                bConn.setConnectTimeout(5000);
+                bConn.setReadTimeout(5000);
 
-            int respCode = conn.getResponseCode();
-            if (respCode == 200) {
-                try (InputStream is = conn.getInputStream();
-                     Scanner scanner = new Scanner(is, "UTF-8").useDelimiter("\\A")) {
-                    String respStr = scanner.hasNext() ? scanner.next() : "";
-                    JSONObject jsonObj = new JSONObject(respStr);
-                    idToken = jsonObj.getString("idToken");
-                    long expiresInSec = jsonObj.optLong("expiresIn", 3600);
-                    tokenExpiresAt = System.currentTimeMillis() + (expiresInSec - 120) * 1000;
-                    Log.i(TAG, "Acquired fresh Firebase anonymous token, expires in " + expiresInSec + "s");
+                int bCode = bConn.getResponseCode();
+                if (bCode == 200) {
+                    try (InputStream is = bConn.getInputStream();
+                         Scanner s = new Scanner(is, "UTF-8").useDelimiter("\\A")) {
+                        String bResp = s.hasNext() ? s.next() : "";
+                        JSONObject bObj = new JSONObject(bResp);
+                        String customToken = bObj.optString("firebase_custom_token", "");
+
+                        if (!customToken.isEmpty()) {
+                            // Exchange custom token for Google ID token containing verified claims
+                            URL authUrl = new URL("https://identitytoolkit.googleapis.com/v1/accounts:signInWithCustomToken?key=AIzaSyAhLnjh0gRa2pf29G90zr-6AMcjLjbQpPg");
+                            HttpURLConnection aConn = (HttpURLConnection) authUrl.openConnection();
+                            aConn.setRequestMethod("POST");
+                            aConn.setRequestProperty("Content-Type", "application/json");
+                            aConn.setConnectTimeout(5000);
+                            aConn.setReadTimeout(5000);
+                            aConn.setDoOutput(true);
+
+                            JSONObject exchangeReq = new JSONObject();
+                            exchangeReq.put("token", customToken);
+                            exchangeReq.put("returnSecureToken", true);
+
+                            try (OutputStream os = aConn.getOutputStream()) {
+                                os.write(exchangeReq.toString().getBytes("utf-8"));
+                            }
+
+                            int aCode = aConn.getResponseCode();
+                            if (aCode == 200) {
+                                try (InputStream ais = aConn.getInputStream();
+                                     Scanner as = new Scanner(ais, "UTF-8").useDelimiter("\\A")) {
+                                    String aResp = as.hasNext() ? as.next() : "";
+                                    JSONObject aObj = new JSONObject(aResp);
+                                    idToken = aObj.getString("idToken");
+                                    long expiresInSec = aObj.optLong("expiresIn", 3600);
+                                    tokenExpiresAt = System.currentTimeMillis() + (expiresInSec - 180) * 1000;
+                                    Log.i(TAG, "Acquired fresh verified Firebase custom ID token, expires in " + expiresInSec + "s");
+                                    bConn.disconnect();
+                                    aConn.disconnect();
+                                    return;
+                                }
+                            }
+                            aConn.disconnect();
+                        }
+                    }
                 }
-            } else {
-                Log.w(TAG, "Identity toolkit returned: " + respCode);
+                bConn.disconnect();
+            } catch (Exception e) {
+                Log.w(TAG, "Failed to refresh custom token via backend: " + e.getMessage());
             }
-            conn.disconnect();
-        } catch (Exception e) {
-            Log.e(TAG, "Failed to acquire anonymous token", e);
         }
+
+        Log.w(TAG, "No valid ID token or flaskToken available - waiting for webview update");
     }
 
     private void createNotificationChannels() {

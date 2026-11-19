@@ -472,7 +472,17 @@
         let driversLoaded = false;
         let routesData = {};
 
-        firebase.auth().signInAnonymously().then(() => {
+        fetch('/api/firebase_custom_token')
+            .then(r => r.json())
+            .then(d => {
+                if (d.firebase_custom_token) {
+                    return firebase.auth().signInWithCustomToken(d.firebase_custom_token);
+                }
+            })
+            .catch(err => {
+                console.warn("[FIREBASE] Admin custom token auth warning:", err);
+            })
+            .then(() => {
             if (!window.liveTrucks) window.liveTrucks = {};
 
             function mergeTruckData(key, data) {

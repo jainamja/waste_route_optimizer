@@ -925,6 +925,146 @@ def verify_auth_token(token_str, max_age=86400):
     except Exception:
         return None
 
+_firebase_admin_app = None
+
+def get_firebase_admin_app():
+    global _firebase_admin_app
+    if _firebase_admin_app is not None:
+        return _firebase_admin_app
+        
+    try:
+        import firebase_admin
+        from firebase_admin import credentials
+    except ImportError:
+        app.logger.warning("firebase_admin package not installed")
+        return None
+        
+    if firebase_admin._apps:
+        _firebase_admin_app = firebase_admin.get_app()
+        return _firebase_admin_app
+        
+    cred_json = os.environ.get('FIREBASE_SERVICE_ACCOUNT_JSON')
+    cred_path = os.environ.get('FIREBASE_SERVICE_ACCOUNT_PATH') or os.environ.get('GOOGLE_APPLICATION_CREDENTIALS')
+    
+    if cred_json:
+        try:
+            import json
+            cred_dict = json.loads(cred_json)
+            cred = credentials.Certificate(cred_dict)
+            _firebase_admin_app = firebase_admin.initialize_app(cred)
+            app.logger.info("Firebase Admin initialized from FIREBASE_SERVICE_ACCOUNT_JSON")
+            return _firebase_admin_app
+        except Exception as e:
+            app.logger.error(f"Error initializing Firebase Admin from FIREBASE_SERVICE_ACCOUNT_JSON: {e}")
+            
+    if cred_path and os.path.exists(cred_path):
+        try:
+            cred = credentials.Certificate(cred_path)
+            _firebase_admin_app = firebase_admin.initialize_app(cred)
+            app.logger.info(f"Firebase Admin initialized from {cred_path}")
+            return _firebase_admin_app
+        except Exception as e:
+            app.logger.error(f"Error initializing Firebase Admin from {cred_path}: {e}")
+            
+    local_sa = os.path.join(os.path.dirname(__file__), 'serviceAccountKey.json')
+    if os.path.exists(local_sa):
+        try:
+            cred = credentials.Certificate(local_sa)
+            _firebase_admin_app = firebase_admin.initialize_app(cred)
+            app.logger.info(f"Firebase Admin initialized from local {local_sa}")
+            return _firebase_admin_app
+        except Exception as e:
+            app.logger.error(f"Error initializing Firebase Admin from {local_sa}: {e}")
+            
+    # Ephemeral RSA certificate for dev / testing environments
+    try:
+        from cryptography.hazmat.primitives.asymmetric import rsa
+        from cryptography.hazmat.primitives import serialization
+        key = rsa.generate_private_key(public_exponent=65537, key_size=2048)
+        pem = key.private_bytes(
+            encoding=serialization.Encoding.PEM,
+            format=serialization.PrivateFormat.PKCS8,
+            encryption_algorithm=serialization.NoEncryption()
+        ).decode('utf-8')
+        ephemeral_sa = {
+            'type': 'service_account',
+            'project_id': 'wasteroutelive',
+            'private_key_id': 'ephemeral_dev_key',
+            'private_key': pem,
+            'client_email': 'firebase-adminsdk-live@wasteroutelive.iam.gserviceaccount.com',
+            'client_id': '100000000000000000000',
+            'auth_uri': 'https://accounts.google.com/o/oauth2/auth',
+            'token_uri': 'https://oauth2.googleapis.com/token'
+        }
+        cred = credentials.Certificate(ephemeral_sa)
+        _firebase_admin_app = firebase_admin.initialize_app(cred)
+        app.logger.info("Firebase Admin initialized with ephemeral RSA development certificate")
+        return _firebase_admin_app
+    except Exception as e:
+        app.logger.error(f"Failed to initialize fallback Firebase Admin app: {e}")
+        return None
+
+def create_firebase_custom_token(user):
+    """
+    Generates a cryptographically signed Firebase Custom Token containing verified server-side claims.
+    Never trusts client-supplied parameters - always derives claims directly from the authenticated User database record.
+    """
+    admin_app = get_firebase_admin_app()
+    if not admin_app:
+        return None, {}
+        
+    from firebase_admin import auth as fb_auth
+    
+    uid = f"user_{user.id}"
+    claims = {}
+    if user.role == 'ADMIN':
+        claims['role'] = 'ADMIN'
+        claims['admin_id'] = user.id
+    elif user.role == 'DRIVER':
+        claims['role'] = 'DRIVER'
+        claims['driver_id'] = user.id
+        if user.truck_id is None:
+            ensure_driver_truck_assignments()
+            db.session.refresh(user)
+        claims['truck_id'] = user.truck_id
+    else:
+        raise ValueError(f"Unauthorized role '{user.role}' for Firebase access")
+        
+    token_bytes = fb_auth.create_custom_token(uid, developer_claims=claims, app=admin_app)
+    token_str = token_bytes.decode('utf-8') if isinstance(token_bytes, bytes) else token_bytes
+    return token_str, claims
+
+@app.route('/api/firebase_custom_token', methods=['GET', 'POST'])
+def api_firebase_custom_token():
+    auth_header = request.headers.get('Authorization', '')
+    token = None
+    if auth_header.startswith('Bearer '):
+        token = auth_header[7:].strip()
+    token = token or request.headers.get('X-Driver-Token') or request.headers.get('X-Admin-Token') or request.args.get('token')
+    
+    user = None
+    if token:
+        user = verify_auth_token(token)
+    elif session.get('user_id'):
+        user = db.session.get(User, session.get('user_id'))
+        
+    if not user:
+        return jsonify({'error': 'Unauthorized: Valid authentication token required'}), 401
+        
+    try:
+        custom_token, claims = create_firebase_custom_token(user)
+        if not custom_token:
+            return jsonify({'error': 'Firebase Admin service unavailable'}), 503
+        return jsonify({
+            'success': True,
+            'firebase_custom_token': custom_token,
+            'uid': f"user_{user.id}",
+            'claims': claims
+        })
+    except Exception as e:
+        app.logger.error(f"Error generating Firebase custom token: {e}")
+        return jsonify({'error': 'Failed to generate Firebase custom token', 'details': str(e)}), 500
+
 def login_required(f):
     @wraps(f)
     def decorated_function(*args, **kwargs):
@@ -1550,12 +1690,19 @@ def driver_login():
         return jsonify({'error': f"Incorrect password for user '{user.username}'. Please check your password."}), 401
     
     auth_token = generate_auth_token(user)
+    fb_custom_token = None
+    try:
+        fb_custom_token, _ = create_firebase_custom_token(user)
+    except Exception as fb_err:
+        app.logger.warning(f"Could not generate Firebase custom token for login: {fb_err}")
+
     if user.role == 'ADMIN':
         session['user_id'] = user.id
         return jsonify({
             'success': True,
             'role': 'ADMIN',
             'token': auth_token,
+            'firebase_custom_token': fb_custom_token,
             'user_id': user.id,
             'name': user.name or 'Admin',
             'username': user.username,
@@ -1567,6 +1714,7 @@ def driver_login():
             'success': True,
             'role': 'DRIVER',
             'token': auth_token,
+            'firebase_custom_token': fb_custom_token,
             'user_id': user.id,
             'name': user.name,
             'username': user.username,
@@ -1636,12 +1784,19 @@ def app_user_info():
     if user_id:
         user = db.session.get(User, int(user_id))
         if user:
+            fb_custom_token = None
+            try:
+                fb_custom_token, _ = create_firebase_custom_token(user)
+            except Exception:
+                pass
             return jsonify({
                 'authenticated': True,
                 'id': user.id,
                 'username': user.username,
                 'role': user.role,
-                'name': user.name
+                'name': user.name,
+                'truck_id': user.truck_id,
+                'firebase_custom_token': fb_custom_token
             })
     return jsonify({'authenticated': False}), 401
 
@@ -2281,6 +2436,11 @@ def resolve_token():
             return jsonify({'error': 'Invalid or expired token'}), 401
 
         if driver.role == 'ADMIN':
+            fb_custom_token = None
+            try:
+                fb_custom_token, _ = create_firebase_custom_token(driver)
+            except Exception:
+                pass
             return jsonify({
                 'is_admin': True,
                 'role': 'ADMIN',
@@ -2290,7 +2450,8 @@ def resolve_token():
                 'has_assigned_route': False,
                 'assigned_template_id': None,
                 'assigned_template_name': None,
-                'stop_count': 0
+                'stop_count': 0,
+                'firebase_custom_token': fb_custom_token
             })
         if driver.role == 'DRIVER':
             # Check if this driver currently has an assigned template/route in SQL
@@ -2321,6 +2482,12 @@ def resolve_token():
                 except:
                     pass
 
+            fb_custom_token = None
+            try:
+                fb_custom_token, _ = create_firebase_custom_token(driver)
+            except Exception:
+                pass
+
             return jsonify({
                 'truck_id': str(driver.truck_id) if driver.truck_id is not None else None,
                 'driver_name': driver.name or driver.username,
@@ -2328,7 +2495,8 @@ def resolve_token():
                 'has_assigned_route': has_assigned_route,
                 'assigned_template_id': driver.assigned_template_id if has_assigned_route else None,
                 'assigned_template_name': assigned_tmpl_name,
-                'stop_count': cust_count
+                'stop_count': cust_count,
+                'firebase_custom_token': fb_custom_token
             })
         return jsonify({'error': 'Unauthorized role'}), 403
     except Exception:

@@ -723,8 +723,18 @@
         let liveTruckMarkers = {};
 
         function startLiveTracking() {
-            firebase.auth().signInAnonymously().then(() => {
-                db.ref('trucks').on('value', snap => {
+            fetch('/api/firebase_custom_token')
+                .then(r => r.json())
+                .then(d => {
+                    if (d.firebase_custom_token) {
+                        return firebase.auth().signInWithCustomToken(d.firebase_custom_token);
+                    }
+                })
+                .catch(err => {
+                    console.warn("[FIREBASE] Admin custom token auth warning:", err);
+                })
+                .then(() => {
+                    db.ref('trucks').on('value', snap => {
                     if(!map) return;
                     let trucks = snap.val();
                     if(!trucks) return;
