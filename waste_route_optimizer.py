@@ -26,13 +26,41 @@ def get_firebase_token():
     if _firebase_token_cache["token"] and time.time() < _firebase_token_cache["expires"]:
         return _firebase_token_cache["token"]
         
+    # Attempt 1: Authenticate with verified ADMIN role via Firebase Admin SDK
+    admin_app = get_firebase_admin_app()
+    if admin_app:
+        try:
+            from firebase_admin import auth as fb_auth
+            token_bytes = fb_auth.create_custom_token(
+                "server_admin",
+                developer_claims={"role": "ADMIN", "admin_id": "0"},
+                app=admin_app
+            )
+            custom_token = token_bytes.decode('utf-8') if isinstance(token_bytes, bytes) else token_bytes
+            
+            API_KEY = os.environ.get('FIREBASE_API_KEY', 'AIzaSyAhLnjh0gRa2pf29G90zr-6AMcjLjbQpPg')
+            auth_url = f"https://identitytoolkit.googleapis.com/v1/accounts:signInWithCustomToken?key={API_KEY}"
+            auth_res = requests.post(auth_url, json={"token": custom_token, "returnSecureToken": True}, timeout=6)
+            if auth_res.status_code == 200:
+                _firebase_token_cache["token"] = auth_res.json().get('idToken')
+                _firebase_token_cache["expires"] = time.time() + 3000 # 50 minutes
+                return _firebase_token_cache["token"]
+            else:
+                app.logger.warning(f"Failed to exchange admin custom token: {auth_res.status_code} {auth_res.text}")
+        except Exception as e:
+            app.logger.warning(f"Firebase Admin token minting failed in get_firebase_token: {e}")
+
+    # Attempt 2: Fallback to anonymous auth only if Admin SDK credentials are not yet configured
     API_KEY = os.environ.get('FIREBASE_API_KEY', 'AIzaSyAhLnjh0gRa2pf29G90zr-6AMcjLjbQpPg')
     auth_url = f"https://identitytoolkit.googleapis.com/v1/accounts:signUp?key={API_KEY}"
-    auth_res = requests.post(auth_url, json={"returnSecureToken": True})
-    if auth_res.status_code == 200:
-        _firebase_token_cache["token"] = auth_res.json().get('idToken')
-        _firebase_token_cache["expires"] = time.time() + 3000 # 50 minutes
-        return _firebase_token_cache["token"]
+    try:
+        auth_res = requests.post(auth_url, json={"returnSecureToken": True}, timeout=6)
+        if auth_res.status_code == 200:
+            _firebase_token_cache["token"] = auth_res.json().get('idToken')
+            _firebase_token_cache["expires"] = time.time() + 3000 # 50 minutes
+            return _firebase_token_cache["token"]
+    except Exception:
+        pass
     return None
 
 app = Flask(__name__)
