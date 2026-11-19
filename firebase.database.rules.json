@@ -80,7 +80,7 @@
               ".validate": "newData.isNumber() && newData.val() > 0"
             },
             "read": {
-              ".write": "auth != null && (auth.token.role === 'ADMIN' || auth.token.role === 'admin' || (auth.token.role === 'DRIVER' && (auth.token.truck_id == $truckId || auth.token.truck_id == '' + $truckId)))",
+              ".write": "auth != null && (auth.token.role === 'ADMIN' || auth.token.role === 'admin' || (auth.token.role === 'DRIVER' && (auth.token.truck_id == $truckId || auth.token.truck_id == '' + $truckId) && newData.val() === true))",
               ".validate": "newData.isBoolean()"
             },
             "$other": {

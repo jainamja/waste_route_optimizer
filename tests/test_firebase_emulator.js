@@ -227,63 +227,134 @@ async function runEmulatorTestSuite() {
             await assertSucceeds(driver1ReassignedTo2.ref("routes/route_2/stops/201/status").set("COMPLETED"));
         });
 
-        // Test 17: Messaging security - driver creation, isolation, and sender integrity
-        await check("17. Driver can post message on assigned truck, blocked from other trucks/spoofing", async () => {
-            // Driver 1 posts valid message to assigned truck 1
+        // -------------------------------------------------------------------------
+        // Messaging Security & Read Acknowledgment Tests (10 Specific Cases)
+        // -------------------------------------------------------------------------
+
+        // Case 1: Assigned driver creates a valid message
+        await check("17. Case 1: Assigned driver creates a valid message", async () => {
             await assertSucceeds(driver1.ref("trucks/1/messages/msg_d1").set({
                 sender: "driver",
                 senderName: "Driver One",
-                text: "En route to next stop",
-                timestamp: Date.now(),
-                read: false
-            }));
-            // Driver 1 blocked from posting to truck 2
-            await assertFails(driver1.ref("trucks/2/messages/msg_d1_bad").set({
-                sender: "driver",
-                senderName: "Driver One",
-                text: "Intruder",
-                timestamp: Date.now(),
-                read: false
-            }));
-            // Driver 1 blocked from spoofing sender as admin
-            await assertFails(driver1.ref("trucks/1/messages/msg_spoof").set({
-                sender: "admin",
-                senderName: "Dispatch",
-                text: "Fake dispatch order",
+                text: "En route to stop 101",
                 timestamp: Date.now(),
                 read: false
             }));
         });
 
-        // Test 18: Messaging security - overwrite denial, payload validation, and mark read
-        await check("18. Driver cannot overwrite messages or send bad payloads; can mark read", async () => {
-            // Admin posts dispatch message
-            await assertSucceeds(admin.ref("trucks/1/messages/msg_adm").set({
+        // Case 2: Assigned driver marks an admin message as read
+        await check("18. Case 2: Assigned driver marks an admin message as read", async () => {
+            await assertSucceeds(admin.ref("trucks/1/messages/msg_adm_1").set({
                 sender: "admin",
                 senderName: "Dispatch",
-                text: "Urgent pickup scheduled",
+                text: "Pickup priority updated",
                 timestamp: Date.now(),
                 read: false
             }));
-            // Driver 1 blocked from overwriting admin message
-            await assertFails(driver1.ref("trucks/1/messages/msg_adm").set({
+            await assertSucceeds(driver1.ref("trucks/1/messages/msg_adm_1/read").set(true));
+        });
+
+        // Case 3: Assigned driver cannot mark an admin message unread
+        await check("19. Case 3: Assigned driver cannot mark an admin message unread", async () => {
+            // Cannot change previously read (true) message back to false
+            await assertFails(driver1.ref("trucks/1/messages/msg_adm_1/read").set(false));
+            // Cannot set false on a fresh unread message
+            await assertSucceeds(admin.ref("trucks/1/messages/msg_adm_2").set({
+                sender: "admin",
+                senderName: "Dispatch",
+                text: "Route alert",
+                timestamp: Date.now(),
+                read: false
+            }));
+            await assertFails(driver1.ref("trucks/1/messages/msg_adm_2/read").set(false));
+        });
+
+        // Case 4: Assigned driver cannot change the text of an existing message
+        await check("20. Case 4: Assigned driver cannot change the text of an existing message", async () => {
+            // Cannot alter text of admin message
+            await assertFails(driver1.ref("trucks/1/messages/msg_adm_1/text").set("Tampered admin text"));
+            // Cannot alter text of own existing message
+            await assertFails(driver1.ref("trucks/1/messages/msg_d1/text").set("Tampered driver text"));
+            // Cannot overwrite message via set
+            await assertFails(driver1.ref("trucks/1/messages/msg_adm_1").set({
                 sender: "driver",
                 senderName: "Driver One",
-                text: "Admin message destroyed",
+                text: "Overwritten message",
                 timestamp: Date.now(),
                 read: true
             }));
-            // Driver 1 blocked from overwriting own existing message
-            await assertFails(driver1.ref("trucks/1/messages/msg_d1").set({
+        });
+
+        // Case 5: Assigned driver cannot change the sender of an existing message
+        await check("21. Case 5: Assigned driver cannot change the sender of an existing message", async () => {
+            // Cannot change admin message sender
+            await assertFails(driver1.ref("trucks/1/messages/msg_adm_1/sender").set("driver"));
+            // Cannot change own message sender
+            await assertFails(driver1.ref("trucks/1/messages/msg_d1/sender").set("admin"));
+        });
+
+        // Case 6: Assigned driver cannot delete an existing message
+        await check("22. Case 6: Assigned driver cannot delete an existing message", async () => {
+            // Cannot delete admin message
+            await assertFails(driver1.ref("trucks/1/messages/msg_adm_1").remove());
+            // Cannot delete own message
+            await assertFails(driver1.ref("trucks/1/messages/msg_d1").remove());
+            // Cannot delete read property
+            await assertFails(driver1.ref("trucks/1/messages/msg_adm_1/read").remove());
+        });
+
+        // Case 7: Assigned driver cannot acknowledge another truck's message
+        await check("23. Case 7: Assigned driver cannot acknowledge another truck's message", async () => {
+            await assertSucceeds(admin.ref("trucks/2/messages/msg_adm_t2").set({
+                sender: "admin",
+                senderName: "Dispatch",
+                text: "Truck 2 exclusive order",
+                timestamp: Date.now(),
+                read: false
+            }));
+            // Driver 1 (assigned to truck 1) blocked from acknowledging truck 2 message
+            await assertFails(driver1.ref("trucks/2/messages/msg_adm_t2/read").set(true));
+            // Driver 1 blocked from posting to truck 2
+            await assertFails(driver1.ref("trucks/2/messages/msg_d1_bad").set({
                 sender: "driver",
                 senderName: "Driver One",
-                text: "Tampered after sending",
+                text: "Intruder text",
                 timestamp: Date.now(),
-                read: true
+                read: false
             }));
-            // Driver 1 can mark incoming admin message as read
-            await assertSucceeds(driver1.ref("trucks/1/messages/msg_adm/read").set(true));
-            // Driver 1 blocked from sending oversized text (>1000 chars)
+        });
+
+        // Case 8: Admin can create, edit, acknowledge, and delete messages
+        await check("24. Case 8: Admin can create, edit, acknowledge, and delete messages", async () => {
+            // Admin creates message
+            await assertSucceeds(admin.ref("trucks/1/messages/msg_adm_crud").set({
+                sender: "admin",
+                senderName: "Dispatch",
+                text: "Original message text",
+                timestamp: Date.now(),
+                read: false
+            }));
+            // Admin edits message text
+            await assertSucceeds(admin.ref("trucks/1/messages/msg_adm_crud/text").set("Updated text by Admin"));
+            // Admin acknowledges (read = true)
+            await assertSucceeds(admin.ref("trucks/1/messages/msg_adm_crud/read").set(true));
+            // Admin un-acknowledges (read = false)
+            await assertSucceeds(admin.ref("trucks/1/messages/msg_adm_crud/read").set(false));
+            // Admin deletes message
+            await assertSucceeds(admin.ref("trucks/1/messages/msg_adm_crud").remove());
+        });
+
+        // Case 9: Invalid message fields and oversized messages are rejected
+        await check("25. Case 9: Invalid message fields and oversized messages are rejected", async () => {
+            // Empty text rejected
+            await assertFails(driver1.ref("trucks/1/messages/msg_empty").set({
+                sender: "driver",
+                senderName: "Driver One",
+                text: "",
+                timestamp: Date.now(),
+                read: false
+            }));
+            // Oversized text (>1000 chars) rejected
             await assertFails(driver1.ref("trucks/1/messages/msg_huge").set({
                 sender: "driver",
                 senderName: "Driver One",
@@ -291,13 +362,49 @@ async function runEmulatorTestSuite() {
                 timestamp: Date.now(),
                 read: false
             }));
-            // Driver 1 blocked from sending invalid timestamp or unexpected fields
-            await assertFails(driver1.ref("trucks/1/messages/msg_malformed").set({
+            // Negative timestamp rejected
+            await assertFails(driver1.ref("trucks/1/messages/msg_bad_time").set({
                 sender: "driver",
                 senderName: "Driver One",
-                text: "Normal text",
+                text: "Valid text",
+                timestamp: -1,
+                read: false
+            }));
+            // String timestamp rejected
+            await assertFails(driver1.ref("trucks/1/messages/msg_str_time").set({
+                sender: "driver",
+                senderName: "Driver One",
+                text: "Valid text",
                 timestamp: "bad_time",
-                injected_key: "malicious"
+                read: false
+            }));
+            // Invalid sender rejected
+            await assertFails(driver1.ref("trucks/1/messages/msg_bad_sender").set({
+                sender: "imposter",
+                senderName: "Driver One",
+                text: "Valid text",
+                timestamp: Date.now(),
+                read: false
+            }));
+            // Oversized senderName (>100 chars) rejected
+            await assertFails(driver1.ref("trucks/1/messages/msg_huge_name").set({
+                sender: "driver",
+                senderName: "B".repeat(101),
+                text: "Valid text",
+                timestamp: Date.now(),
+                read: false
+            }));
+        });
+
+        // Case 10: Unknown message fields are rejected
+        await check("26. Case 10: Unknown message fields are rejected ($other: false)", async () => {
+            await assertFails(driver1.ref("trucks/1/messages/msg_injected").set({
+                sender: "driver",
+                senderName: "Driver One",
+                text: "Valid text",
+                timestamp: Date.now(),
+                read: false,
+                injected_field: "malicious_payload"
             }));
         });
 
