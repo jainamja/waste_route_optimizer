@@ -11,6 +11,9 @@ uploads/
 !.env.example
 app.db
 *.backup
+backup*.json
+*.backup*
+proposed_hardened_rules.json
 *.log
 .pytest_cache/
 jdk17_new/
