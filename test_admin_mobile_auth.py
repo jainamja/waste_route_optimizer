@@ -54,9 +54,14 @@ class TestAdminMobileAuth(unittest.TestCase):
         data = res.get_json()
         self.assertTrue(data['success'])
         self.assertEqual(data['role'], 'ADMIN')
-        self.assertEqual(data['token'], str(self.admin.id))
+        self.assertEqual(data['user_id'], self.admin.id)
+        self.assertTrue(len(data['token']) > 15, "Token must be a secure signed token string, not raw integer ID")
+        from waste_route_optimizer import verify_auth_token
+        auth_user = verify_auth_token(data['token'])
+        self.assertIsNotNone(auth_user)
+        self.assertEqual(auth_user.id, self.admin.id)
         self.assertIn('auth_url', data)
-        self.assertIn(str(self.admin.id), data['auth_url'])
+        self.assertIn(data['token'], data['auth_url'])
 
     def test_case_insensitive_and_whitespace_admin_login(self):
         # Capitalized username with leading/trailing spaces and password with accidental space
@@ -68,7 +73,11 @@ class TestAdminMobileAuth(unittest.TestCase):
         data = res.get_json()
         self.assertTrue(data['success'])
         self.assertEqual(data['role'], 'ADMIN')
-        self.assertEqual(data['token'], str(self.admin.id))
+        self.assertEqual(data['user_id'], self.admin.id)
+        from waste_route_optimizer import verify_auth_token
+        auth_user = verify_auth_token(data['token'])
+        self.assertIsNotNone(auth_user)
+        self.assertEqual(auth_user.id, self.admin.id)
 
     def test_driver_login_via_mobile_endpoint(self):
         res = self.client.post('/api/driver_login', json={
@@ -79,8 +88,12 @@ class TestAdminMobileAuth(unittest.TestCase):
         data = res.get_json()
         self.assertTrue(data['success'])
         self.assertEqual(data['role'], 'DRIVER')
-        self.assertEqual(data['token'], str(self.driver.id))
+        self.assertEqual(data['user_id'], self.driver.id)
         self.assertEqual(data['truck_id'], '99')
+        from waste_route_optimizer import verify_auth_token
+        auth_driver = verify_auth_token(data['token'])
+        self.assertIsNotNone(auth_driver)
+        self.assertEqual(auth_driver.id, self.driver.id)
 
     def test_invalid_login_credentials(self):
         res = self.client.post('/api/driver_login', json={

@@ -54,12 +54,16 @@ def handle_exception(e):
     if isinstance(e, HTTPException):
         return e
     import traceback
-    return jsonify({'error': str(e), 'traceback': traceback.format_exc()}), 500
+    app.logger.error(f"Unhandled exception: {e}\n{traceback.format_exc()}")
+    if app.debug or app.testing:
+        return jsonify({'error': str(e), 'traceback': traceback.format_exc()}), 500
+    return jsonify({'error': 'An internal server error occurred. Please contact the administrator.'}), 500
 
 
 
 CORS(app)
 app.config['UPLOAD_FOLDER'] = 'uploads'
+app.config['MAX_CONTENT_LENGTH'] = 16 * 1024 * 1024  # 16 MB upload limit
 
 # Automatically use PostgreSQL if DATABASE_URL is set, otherwise fall back to local SQLite
 database_url = os.environ.get('DATABASE_URL')
@@ -79,15 +83,20 @@ db = SQLAlchemy(app)
 
 
 app.secret_key = os.environ.get('SECRET_KEY', '7b4e2f91a5c84d3e0f6b2d1c9e8a7f4b3e2d1c0a9b8e7f6d5c4b3a2e1f0d9c8b')
-if os.environ.get('RENDER') or os.environ.get('DATABASE_URL'):
-    app.config.update(
-        SESSION_COOKIE_SECURE=True,
-        SESSION_COOKIE_SAMESITE='None'
-    )
+app.config.update(
+    SESSION_COOKIE_HTTPONLY=True,
+    SESSION_COOKIE_SECURE=bool(os.environ.get('RENDER') or os.environ.get('DATABASE_URL')),
+    SESSION_COOKIE_SAMESITE='None' if (os.environ.get('RENDER') or os.environ.get('DATABASE_URL')) else 'Lax'
+)
 
 @app.after_request
 def add_security_headers(response):
-    response.headers.pop('X-Frame-Options', None)
+    response.headers['X-Content-Type-Options'] = 'nosniff'
+    response.headers['X-XSS-Protection'] = '1; mode=block'
+    response.headers['Referrer-Policy'] = 'strict-origin-when-cross-origin'
+    response.headers['Content-Security-Policy'] = (
+        "frame-ancestors 'self' capacitor://localhost http://localhost https://waste-route-optimizer-190z.onrender.com;"
+    )
     return response
 
 os.makedirs(app.config['UPLOAD_FOLDER'], exist_ok=True)
@@ -119,8 +128,8 @@ class Customer(db.Model):
     location_url = db.Column(db.Text)
     lat = db.Column(db.Float)
     lng = db.Column(db.Float)
-    status = db.Column(db.String(50), default='PENDING')
-    truck_id = db.Column(db.Integer)
+    status = db.Column(db.String(50), default='PENDING', index=True)
+    truck_id = db.Column(db.Integer, index=True)
     stop_number = db.Column(db.Integer)
     confirmation = db.Column(db.String(20), default='NOT_CONFIRMED')
     deliver_bag = db.Column(db.Boolean, default=False)
@@ -142,12 +151,19 @@ class SavedTemplate(db.Model):
     created_at = db.Column(db.DateTime, server_default=db.func.now())
     metadata_json = db.Column(db.Text)
     customers_json = db.Column(db.Text)
-    is_assigned_instance = db.Column(db.Boolean, default=False)
+    is_assigned_instance = db.Column(db.Boolean, default=False, index=True)
 
 with app.app_context():
     db.create_all()
     
     from sqlalchemy import text
+    try:
+        db.session.execute(text("CREATE INDEX IF NOT EXISTS ix_customers_truck_id ON customers (truck_id);"))
+        db.session.execute(text("CREATE INDEX IF NOT EXISTS ix_customers_status ON customers (status);"))
+        db.session.execute(text("CREATE INDEX IF NOT EXISTS ix_saved_templates_assigned ON saved_templates (is_assigned_instance);"))
+        db.session.commit()
+    except Exception:
+        db.session.rollback()
     try:
         db.session.execute(text('ALTER TABLE users ADD COLUMN truck_id INTEGER;'))
         db.session.commit()
@@ -840,19 +856,60 @@ def read_data_file(filepath):
 
 from functools import wraps
 from flask import session, redirect, url_for, request
+from itsdangerous import URLSafeTimedSerializer, BadSignature, SignatureExpired
+
+def get_auth_serializer():
+    return URLSafeTimedSerializer(app.secret_key, salt='tt-auth-token-v1')
+
+def generate_auth_token(user):
+    s = get_auth_serializer()
+    return s.dumps({
+        'user_id': user.id,
+        'username': user.username,
+        'role': user.role,
+        'truck_id': user.truck_id
+    })
+
+def verify_auth_token(token_str, max_age=86400 * 30):
+    if not token_str:
+        return None
+    token_str = str(token_str).strip()
+    
+    # 1. Cryptographically verify signed token
+    s = get_auth_serializer()
+    try:
+        data = s.loads(token_str, max_age=max_age)
+        uid = data.get('user_id')
+        user = db.session.get(User, uid)
+        if user and user.role == data.get('role'):
+            return user
+    except (BadSignature, SignatureExpired):
+        pass
+    except Exception:
+        pass
+
+    # 2. Backward compatibility fallback for legacy numeric IDs
+    try:
+        uid = int(token_str)
+        user = db.session.get(User, uid)
+        if user:
+            return user
+    except (ValueError, TypeError):
+        pass
+    except Exception:
+        pass
+
+    return None
 
 def login_required(f):
     @wraps(f)
     def decorated_function(*args, **kwargs):
         admin_token = request.args.get('admin_token') or request.headers.get('X-Admin-Token')
         if admin_token:
-            try:
-                admin_user = db.session.get(User, int(admin_token))
-                if admin_user and admin_user.role == 'ADMIN':
-                    session['user_id'] = admin_user.id
-                    return f(*args, **kwargs)
-            except Exception:
-                pass
+            admin_user = verify_auth_token(admin_token)
+            if admin_user and admin_user.role == 'ADMIN':
+                session['user_id'] = admin_user.id
+                return f(*args, **kwargs)
         if 'user_id' not in session:
             if request.is_json or request.path.startswith('/api/'):
                 return jsonify({'error': 'Unauthorized'}), 401
@@ -1194,6 +1251,11 @@ def upload():
     if 'file' not in request.files: return "No file part", 400
     file = request.files['file']
     if file.filename == '': return "No selected file", 400
+
+    ext = os.path.splitext(file.filename)[1].lower()
+    ALLOWED_EXTENSIONS = {'.xlsx', '.xls', '.csv', '.docx'}
+    if ext not in ALLOWED_EXTENSIONS:
+        return jsonify({'error': f"File format '{ext}' is not supported. Allowed formats: {', '.join(sorted(ALLOWED_EXTENSIONS))}"}), 400
         
     start_coords_json = request.form.get('start_coords_json')
     end_coords_json = request.form.get('end_coords_json')
@@ -1444,22 +1506,25 @@ def driver_login():
         print(f"[AUTH LOGIN] Password mismatch for user '{user.username}'")
         return jsonify({'error': f"Incorrect password for user '{user.username}'. Please check your password."}), 401
     
+    auth_token = generate_auth_token(user)
     if user.role == 'ADMIN':
         session['user_id'] = user.id
         return jsonify({
             'success': True,
             'role': 'ADMIN',
-            'token': str(user.id),
+            'token': auth_token,
+            'user_id': user.id,
             'name': user.name or 'Admin',
             'username': user.username,
             'redirect_url': '/dashboard',
-            'auth_url': f"/api/admin_token_auth?token={user.id}&next=/dashboard"
+            'auth_url': f"/api/admin_token_auth?token={auth_token}&next=/dashboard"
         })
     elif user.role == 'DRIVER':
         return jsonify({
             'success': True,
             'role': 'DRIVER',
-            'token': str(user.id),
+            'token': auth_token,
+            'user_id': user.id,
             'name': user.name,
             'username': user.username,
             'truck_id': str(user.truck_id) if user.truck_id is not None else None
@@ -1508,16 +1573,13 @@ def admin_token_auth():
     token = request.args.get('token')
     next_url = request.args.get('next', '/dashboard')
     if token:
-        try:
-            admin_user = db.session.get(User, int(token))
-            if admin_user and admin_user.role == 'ADMIN':
-                session['user_id'] = admin_user.id
-                sep = '&' if '?' in next_url else '?'
-                if 'admin_token=' not in next_url:
-                    next_url = f"{next_url}{sep}admin_token={admin_user.id}"
-                return redirect(next_url)
-        except Exception:
-            pass
+        admin_user = verify_auth_token(token)
+        if admin_user and admin_user.role == 'ADMIN':
+            session['user_id'] = admin_user.id
+            sep = '&' if '?' in next_url else '?'
+            if 'admin_token=' not in next_url:
+                next_url = f"{next_url}{sep}admin_token={token}"
+            return redirect(next_url)
     return redirect(url_for('login'))
 
 @app.route('/api/app_user_info')
@@ -1525,12 +1587,9 @@ def app_user_info():
     user_id = session.get('user_id')
     admin_token = request.args.get('admin_token') or request.headers.get('X-Admin-Token')
     if admin_token:
-        try:
-            admin_user = db.session.get(User, int(admin_token))
-            if admin_user and admin_user.role == 'ADMIN':
-                user_id = admin_user.id
-        except Exception:
-            pass
+        admin_user = verify_auth_token(admin_token)
+        if admin_user and admin_user.role == 'ADMIN':
+            user_id = admin_user.id
     if user_id:
         user = db.session.get(User, int(user_id))
         if user:
@@ -2174,8 +2233,7 @@ def resolve_token():
         return jsonify({'error': 'Missing token'}), 400
         
     try:
-        user_id = int(token)
-        driver = db.session.get(User, user_id)
+        driver = verify_auth_token(token)
         if driver and driver.role == 'ADMIN':
             return jsonify({
                 'is_admin': True,
@@ -3540,8 +3598,31 @@ def mark_stop_status():
     truck_id = data.get('truck_id')
     driver_id = data.get('driver_id')
     stop_id = data.get('stop_id')
-    status = data.get('status', 'COMPLETED')
+    status = (data.get('status') or 'COMPLETED').upper()
     updates = data.get('updates') or {}
+
+    VALID_STOP_STATUSES = {'COMPLETED', 'SKIPPED', 'PENDING'}
+    if status not in VALID_STOP_STATUSES:
+        return jsonify({'error': f"Invalid stop status '{status}'. Valid statuses: {sorted(list(VALID_STOP_STATUSES))}"}), 400
+
+    # Authenticate caller
+    auth_header = request.headers.get('Authorization', '')
+    token = None
+    if auth_header.startswith('Bearer '):
+        token = auth_header[7:].strip()
+    token = token or request.headers.get('X-Driver-Token') or request.args.get('token') or (str(driver_id) if driver_id else None)
+    
+    caller = None
+    if token:
+        caller = verify_auth_token(token)
+    elif session.get('user_id'):
+        caller = db.session.get(User, session.get('user_id'))
+
+    if not caller:
+        return jsonify({'error': 'Unauthorized: Valid driver or admin authentication required'}), 401
+
+    if caller.role != 'ADMIN' and truck_id and caller.truck_id and int(caller.truck_id) != int(truck_id):
+        return jsonify({'error': 'Forbidden: Driver is not assigned to this truck'}), 403
     
     stop_ids_to_update = set()
     if stop_id:
@@ -3559,7 +3640,10 @@ def mark_stop_status():
                 pass
                 
     if stop_ids_to_update:
-        Customer.query.filter(Customer.id.in_(list(stop_ids_to_update))).update({'status': status}, synchronize_session=False)
+        q = Customer.query.filter(Customer.id.in_(list(stop_ids_to_update)))
+        if caller.role != 'ADMIN' and truck_id:
+            q = q.filter(Customer.truck_id == int(truck_id))
+        q.update({'status': status}, synchronize_session=False)
         db.session.commit()
         
     now_ms = int(time.time() * 1000)

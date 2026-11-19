@@ -7,8 +7,15 @@ android/
 uploads/
 *.zip
 .env
+.env.*
+!.env.example
 app.db
 *.backup
 *.log
 .pytest_cache/
 jdk17_new/
+master_audit_prompt.txt
+scratch_audit.py
+scratch/
+*.tmp
+.DS_Store
