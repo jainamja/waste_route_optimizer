@@ -39,6 +39,8 @@ async function runEmulatorTestSuite() {
         const admin = testEnv.authenticatedContext("admin_user", { role: "ADMIN", admin_id: "99" }).database(DB_URL);
         const driver1 = testEnv.authenticatedContext("driver_1", { role: "DRIVER", driver_id: "1", truck_id: "1" }).database(DB_URL);
         const driver2 = testEnv.authenticatedContext("driver_2", { role: "DRIVER", driver_id: "2", truck_id: "2" }).database(DB_URL);
+        const driverUnassigned = testEnv.authenticatedContext("driver_unassigned", { role: "DRIVER", driver_id: "3", truck_id: null }).database(DB_URL);
+        const driver1ReassignedTo2 = testEnv.authenticatedContext("driver_1_reassigned", { role: "DRIVER", driver_id: "1", truck_id: "2" }).database(DB_URL);
 
         // Pre-seed baseline data via Admin
         await admin.ref("trucks/1").set({
@@ -198,6 +200,31 @@ async function runEmulatorTestSuite() {
             await assertFails(driver1.ref("driver_locations/1/unapproved_field").set(123));
             await assertFails(driver1.ref("arbitrary_root_node").set({ hacked: true }));
             await assertFails(driver1.ref("injections").set("malicious"));
+        });
+
+        // Test 15: Unassigned driver is denied access to trucks and routes
+        await check("15. Unassigned driver (truck_id: null) rejected from trucks, routes, and telemetry", async () => {
+            await assertFails(driverUnassigned.ref("trucks/1").get());
+            await assertFails(driverUnassigned.ref("trucks/1/currentLat").set(28.5355));
+            await assertFails(driverUnassigned.ref("trucks/2").get());
+            await assertFails(driverUnassigned.ref("trucks/2/currentLat").set(28.6139));
+            await assertFails(driverUnassigned.ref("routes/route_1").get());
+            await assertFails(driverUnassigned.ref("routes/route_1/stops/101/status").set("COMPLETED"));
+            await assertFails(driverUnassigned.ref("routes/route_2/stops/201/status").set("COMPLETED"));
+            await assertFails(driverUnassigned.ref("driver_locations/1/currentLat").set(28.5355));
+            // But can write to its own driver_locations/3
+            await assertSucceeds(driverUnassigned.ref("driver_locations/3/currentLat").set(28.5355));
+            await assertSucceeds(driverUnassigned.ref("driver_locations/3/status").set("online"));
+        });
+
+        // Test 16: Driver-to-truck reassignment enforces new truck boundaries immediately
+        await check("16. Driver reassignment updates write access (Truck 1 denied, Truck 2 permitted)", async () => {
+            // Driver 1 freshly reassigned to Truck 2
+            await assertFails(driver1ReassignedTo2.ref("trucks/1/currentLat").set(28.5356));
+            await assertFails(driver1ReassignedTo2.ref("routes/route_1/stops/101/status").set("COMPLETED"));
+            await assertSucceeds(driver1ReassignedTo2.ref("trucks/2/currentLat").set(28.6140));
+            await assertSucceeds(driver1ReassignedTo2.ref("trucks/2/currentLng").set(77.2091));
+            await assertSucceeds(driver1ReassignedTo2.ref("routes/route_2/stops/201/status").set("COMPLETED"));
         });
 
     } finally {
