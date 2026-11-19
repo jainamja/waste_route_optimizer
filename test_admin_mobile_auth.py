@@ -105,9 +105,11 @@ class TestAdminMobileAuth(unittest.TestCase):
         self.assertIn('error', data)
 
     def test_admin_token_auth_redirect(self):
-        res = self.client.get(f'/api/admin_token_auth?token={self.admin.id}&next=/dashboard')
+        from waste_route_optimizer import generate_auth_token
+        token = generate_auth_token(self.admin)
+        res = self.client.get(f'/api/admin_token_auth?token={token}&next=/dashboard')
         self.assertEqual(res.status_code, 302)
-        self.assertIn(f'/dashboard?admin_token={self.admin.id}', res.headers.get('Location', ''))
+        self.assertIn(f'/dashboard?admin_token={token}', res.headers.get('Location', ''))
         
         # Verify session was set
         with self.client.session_transaction() as sess:
@@ -118,22 +120,40 @@ class TestAdminMobileAuth(unittest.TestCase):
         res_unauth = self.client.get('/api/templates')
         self.assertEqual(res_unauth.status_code, 401)
 
-        # With admin_token query parameter -> 200 OK
-        res_auth = self.client.get(f'/api/templates?admin_token={self.admin.id}')
+        from waste_route_optimizer import generate_auth_token
+        token = generate_auth_token(self.admin)
+        # With valid signed admin_token query parameter -> 200 OK
+        res_auth = self.client.get(f'/api/templates?admin_token={token}')
         self.assertEqual(res_auth.status_code, 200)
 
+        # Raw integer ID MUST fail with 401
+        res_raw_id = self.client.get(f'/api/templates?admin_token={self.admin.id}')
+        self.assertEqual(res_raw_id.status_code, 401)
+
     def test_protected_endpoint_with_admin_token_header(self):
-        # With X-Admin-Token header -> 200 OK
-        res_header = self.client.get('/api/templates', headers={'X-Admin-Token': str(self.admin.id)})
+        from waste_route_optimizer import generate_auth_token
+        token = generate_auth_token(self.admin)
+        # With valid signed X-Admin-Token header -> 200 OK
+        res_header = self.client.get('/api/templates', headers={'X-Admin-Token': token})
         self.assertEqual(res_header.status_code, 200)
 
+        # Raw integer ID in header MUST fail with 401
+        res_raw_header = self.client.get('/api/templates', headers={'X-Admin-Token': str(self.admin.id)})
+        self.assertEqual(res_raw_header.status_code, 401)
+
     def test_app_user_info_endpoint(self):
-        res = self.client.get(f'/api/app_user_info?admin_token={self.admin.id}')
+        from waste_route_optimizer import generate_auth_token
+        token = generate_auth_token(self.admin)
+        res = self.client.get(f'/api/app_user_info?admin_token={token}')
         self.assertEqual(res.status_code, 200)
         data = res.get_json()
         self.assertTrue(data['authenticated'])
         self.assertEqual(data['role'], 'ADMIN')
         self.assertEqual(data['username'], 'test_admin')
+
+        # Raw integer ID MUST fail with 401
+        res_raw = self.client.get(f'/api/app_user_info?admin_token={self.admin.id}')
+        self.assertEqual(res_raw.status_code, 401)
 
 if __name__ == '__main__':
     unittest.main()

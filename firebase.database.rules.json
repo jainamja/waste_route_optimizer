@@ -1,0 +1,33 @@
+{
+  "rules": {
+    ".read": false,
+    ".write": false,
+    "trucks": {
+      "$truckId": {
+        ".read": "auth != null && (auth.token.role === 'ADMIN' || auth.token.truck_id == $truckId)",
+        ".write": "auth != null && (auth.token.role === 'ADMIN' || auth.token.truck_id == $truckId)",
+        "lat": { ".validate": "newData.isNumber() && newData.val() >= -90 && newData.val() <= 90" },
+        "lng": { ".validate": "newData.isNumber() && newData.val() >= -180 && newData.val() <= 180" },
+        "status": { ".validate": "newData.isString()" },
+        "lastUpdated": { ".validate": "newData.isNumber() || newData.isString()" }
+      }
+    },
+    "routes": {
+      "route_$truckId": {
+        ".read": "auth != null && (auth.token.role === 'ADMIN' || auth.token.truck_id == $truckId)",
+        ".write": "auth != null && (auth.token.role === 'ADMIN' || auth.token.truck_id == $truckId)",
+        "stops": {
+          "$stopId": {
+            "status": {
+              ".validate": "newData.isString() && (newData.val() === 'PENDING' || newData.val() === 'COMPLETED' || newData.val() === 'SKIPPED' || newData.val() === 'CANCELLED')"
+            }
+          }
+        }
+      }
+    },
+    "settings": {
+      ".read": "auth != null && auth.token.role === 'ADMIN'",
+      ".write": "auth != null && auth.token.role === 'ADMIN'"
+    }
+  }
+}

@@ -861,45 +861,69 @@ from itsdangerous import URLSafeTimedSerializer, BadSignature, SignatureExpired
 def get_auth_serializer():
     return URLSafeTimedSerializer(app.secret_key, salt='tt-auth-token-v1')
 
+def get_token_fingerprint(user):
+    """Derive token fingerprint from SHA-256 of password hash so password reset instantly invalidates old tokens."""
+    import hashlib
+    return hashlib.sha256((user.password_hash or '').encode('utf-8')).hexdigest()[:16]
+
 def generate_auth_token(user):
+    """
+    Generates a cryptographically signed, timestamped, tamper-proof auth token.
+    Contains user identity and session fingerprint.
+    """
     s = get_auth_serializer()
     return s.dumps({
         'user_id': user.id,
         'username': user.username,
         'role': user.role,
-        'truck_id': user.truck_id
+        'fp': get_token_fingerprint(user)
     })
 
-def verify_auth_token(token_str, max_age=86400 * 30):
+def verify_auth_token(token_str, max_age=86400):
+    """
+    Cryptographically verifies an authentication token.
+    
+    STRICT PRODUCTION SECURITY RULES:
+    1. Unconditionally rejects raw numeric IDs or pure digit strings (predictable IDs can NEVER authenticate).
+    2. Validates HMAC cryptographic signature and ensures token is within validity window (default 24h).
+    3. Re-queries the live user record from the database to ensure user exists and is active.
+    4. Compares session fingerprint with live password hash - automatically invalidates tokens if password changed.
+    5. Checks live role - sensitive authorization decisions always use current database state.
+    """
     if not token_str:
         return None
     token_str = str(token_str).strip()
     
-    # 1. Cryptographically verify signed token
+    # Strictly reject raw integer IDs and pure digit strings
+    if token_str.isdigit():
+        return None
+
+    # Cryptographically verify signed token
     s = get_auth_serializer()
     try:
         data = s.loads(token_str, max_age=max_age)
         uid = data.get('user_id')
-        user = db.session.get(User, uid)
-        if user and user.role == data.get('role'):
-            return user
+        if not uid:
+            return None
+        
+        # Fresh query from database - never rely on stale token payload
+        user = db.session.get(User, int(uid))
+        if not user:
+            return None
+
+        # Check session fingerprint: if password changed, token is revoked
+        if data.get('fp') != get_token_fingerprint(user):
+            return None
+
+        # Verify current server-side role matches token claim
+        if user.role != data.get('role'):
+            return None
+
+        return user
     except (BadSignature, SignatureExpired):
-        pass
+        return None
     except Exception:
-        pass
-
-    # 2. Backward compatibility fallback for legacy numeric IDs
-    try:
-        uid = int(token_str)
-        user = db.session.get(User, uid)
-        if user:
-            return user
-    except (ValueError, TypeError):
-        pass
-    except Exception:
-        pass
-
-    return None
+        return None
 
 def login_required(f):
     @wraps(f)
@@ -910,6 +934,7 @@ def login_required(f):
             if admin_user and admin_user.role == 'ADMIN':
                 session['user_id'] = admin_user.id
                 return f(*args, **kwargs)
+            return jsonify({'error': 'Unauthorized: Invalid or expired admin token'}), 401
         if 'user_id' not in session:
             if request.is_json or request.path.startswith('/api/'):
                 return jsonify({'error': 'Unauthorized'}), 401
@@ -1256,6 +1281,16 @@ def upload():
     ALLOWED_EXTENSIONS = {'.xlsx', '.xls', '.csv', '.docx'}
     if ext not in ALLOWED_EXTENSIONS:
         return jsonify({'error': f"File format '{ext}' is not supported. Allowed formats: {', '.join(sorted(ALLOWED_EXTENSIONS))}"}), 400
+
+    # Content signature & magic bytes validation (anti-spoofing)
+    header_bytes = file.read(16)
+    file.seek(0)
+    if ext in ('.xlsx', '.docx') and not header_bytes.startswith(b'PK\x03\x04'):
+        return jsonify({'error': 'Malformed or spoofed file: missing valid zip container header.'}), 400
+    if ext == '.xls' and not header_bytes.startswith(b'\xd0\xcf\x11\xe0\xa1\xb1\x1a\xe1'):
+        return jsonify({'error': 'Malformed or spoofed file: missing valid compound binary header.'}), 400
+    if ext == '.csv' and b'\x00' in header_bytes:
+        return jsonify({'error': 'Malformed or spoofed CSV file: binary content detected.'}), 400
         
     start_coords_json = request.form.get('start_coords_json')
     end_coords_json = request.form.get('end_coords_json')
@@ -1274,15 +1309,23 @@ def upload():
     start_coords = [ (float(x.split(',')[0]), float(x.split(',')[1])) for x in starts_str ]
     end_coords = [ (float(x.split(',')[0]), float(x.split(',')[1])) for x in ends_str ]
     
-    filename = secure_filename(file.filename)
-    if not filename:
-        ext = os.path.splitext(file.filename)[1]
-        filename = f"upload_fallback{ext}"
-        
-    filepath = os.path.join(app.config['UPLOAD_FOLDER'], filename)
+    import uuid
+    safe_filename = f"upload_{uuid.uuid4().hex}{ext}"
+    filepath = os.path.join(app.config['UPLOAD_FOLDER'], safe_filename)
     file.save(filepath)
     
-    customers_data = read_data_file(filepath)
+    try:
+        customers_data = read_data_file(filepath)
+    except Exception as read_err:
+        app.logger.error(f"Error parsing uploaded file: {read_err}")
+        return jsonify({'error': f"Failed to parse customer file: {str(read_err)}"}), 400
+    finally:
+        try:
+            if os.path.exists(filepath):
+                os.remove(filepath)
+        except Exception:
+            pass
+
     if not customers_data: return "No valid customer data found", 400
         
     valid_customers_data = [c for c in customers_data if c.get('lat') is not None and c.get('lng') is not None and c.get('geocode_quality') != 'FAILED']
@@ -2234,7 +2277,10 @@ def resolve_token():
         
     try:
         driver = verify_auth_token(token)
-        if driver and driver.role == 'ADMIN':
+        if not driver:
+            return jsonify({'error': 'Invalid or expired token'}), 401
+
+        if driver.role == 'ADMIN':
             return jsonify({
                 'is_admin': True,
                 'role': 'ADMIN',
@@ -2246,7 +2292,7 @@ def resolve_token():
                 'assigned_template_name': None,
                 'stop_count': 0
             })
-        if driver and driver.role == 'DRIVER':
+        if driver.role == 'DRIVER':
             # Check if this driver currently has an assigned template/route in SQL
             has_assigned_route = False
             assigned_tmpl_name = None
@@ -2284,10 +2330,11 @@ def resolve_token():
                 'assigned_template_name': assigned_tmpl_name,
                 'stop_count': cust_count
             })
-    except ValueError:
+        return jsonify({'error': 'Unauthorized role'}), 403
+    except Exception:
         pass
         
-    return jsonify({'error': 'Invalid or expired token'}), 404
+    return jsonify({'error': 'Invalid or expired token'}), 401
 
 @app.route('/download_excel')
 @login_required
@@ -2295,10 +2342,21 @@ def download_excel():
     customers = Customer.query.order_by(Customer.truck_id.asc(), Customer.stop_number.asc()).all()
     if not customers: return "No data", 400
     
+    def sanitize_formula_injection(val):
+        if isinstance(val, str) and len(val) > 0 and val[0] in ('=', '+', '-', '@', '\t', '\r'):
+            return f"'{val}"
+        return val
+
     data = [{
-        'truck': c.truck_id, 'stop_number': c.stop_number, 'name': c.name,
-        'phone': c.phone, 'address': c.address, 'location_url': c.location_url,
-        'lat': c.lat, 'lng': c.lng, 'status': c.status
+        'truck': c.truck_id,
+        'stop_number': c.stop_number,
+        'name': sanitize_formula_injection(c.name),
+        'phone': sanitize_formula_injection(c.phone),
+        'address': sanitize_formula_injection(c.address),
+        'location_url': sanitize_formula_injection(c.location_url),
+        'lat': c.lat,
+        'lng': c.lng,
+        'status': c.status
     } for c in customers]
     
     df = pd.DataFrame(data)
@@ -3702,20 +3760,23 @@ def driver_finish_route():
     truck_id = data.get('truck_id')
     driver_id = data.get('driver_id')
     
+    auth_header = request.headers.get('Authorization', '')
+    token = None
+    if auth_header.startswith('Bearer '):
+        token = auth_header[7:].strip()
+    token = token or request.headers.get('X-Driver-Token') or request.args.get('token')
+    
     driver = None
-    if driver_id:
-        try:
-            candidate = db.session.get(User, int(driver_id))
-            if candidate and candidate.role in ('DRIVER', 'ADMIN'):
-                driver = candidate
-        except: pass
+    if token:
+        driver = verify_auth_token(token)
     elif session.get('user_id'):
-        s_user = db.session.get(User, session.get('user_id'))
-        if s_user:
-            driver = s_user
+        driver = db.session.get(User, session.get('user_id'))
             
     if not driver:
         return jsonify({'error': 'Unauthorized: Valid driver credentials required'}), 401
+
+    if driver.role != 'ADMIN' and truck_id and driver.truck_id and int(driver.truck_id) != int(truck_id):
+        return jsonify({'error': 'Forbidden: Driver is not assigned to this truck'}), 403
         
     if driver:
         eff_truck_id = driver.truck_id or truck_id

@@ -30,7 +30,7 @@ class TestSecurityAudit(unittest.TestCase):
             db.session.commit()
         self.admin = admin
 
-        # Driver 1 (truck 10)
+        # Driver 1 (truck 81)
         d1 = User.query.filter_by(username='sec_driver1').first()
         if not d1:
             d1 = User(
@@ -38,15 +38,15 @@ class TestSecurityAudit(unittest.TestCase):
                 password_hash=generate_password_hash('Driver1Pass'),
                 role='DRIVER',
                 name='Security Driver 1',
-                truck_id=10
+                truck_id=81
             )
             db.session.add(d1)
         else:
-            d1.truck_id = 10
+            d1.truck_id = 81
         db.session.commit()
         self.driver1 = d1
 
-        # Driver 2 (truck 20)
+        # Driver 2 (truck 82)
         d2 = User.query.filter_by(username='sec_driver2').first()
         if not d2:
             d2 = User(
@@ -54,11 +54,11 @@ class TestSecurityAudit(unittest.TestCase):
                 password_hash=generate_password_hash('Driver2Pass'),
                 role='DRIVER',
                 name='Security Driver 2',
-                truck_id=20
+                truck_id=82
             )
             db.session.add(d2)
         else:
-            d2.truck_id = 20
+            d2.truck_id = 82
         db.session.commit()
         self.driver2 = d2
 
@@ -73,12 +73,12 @@ class TestSecurityAudit(unittest.TestCase):
                 lat=23.01,
                 lng=72.51,
                 status='PENDING',
-                truck_id=10,
+                truck_id=81,
                 stop_number=1
             )
             db.session.add(c1)
         else:
-            c1.truck_id = 10
+            c1.truck_id = 81
             c1.status = 'PENDING'
 
         c2 = Customer.query.filter_by(id=99002).first()
@@ -91,12 +91,12 @@ class TestSecurityAudit(unittest.TestCase):
                 lat=23.02,
                 lng=72.52,
                 status='PENDING',
-                truck_id=20,
+                truck_id=82,
                 stop_number=1
             )
             db.session.add(c2)
         else:
-            c2.truck_id = 20
+            c2.truck_id = 82
             c2.status = 'PENDING'
 
         db.session.commit()
@@ -105,6 +105,13 @@ class TestSecurityAudit(unittest.TestCase):
 
     def tearDown(self):
         self.ctx.pop()
+
+    @classmethod
+    def tearDownClass(cls):
+        with app.app_context():
+            User.query.filter(User.username.in_(['sec_admin', 'sec_driver1', 'sec_driver2'])).delete()
+            Customer.query.filter(Customer.truck_id.in_([81, 82])).delete()
+            db.session.commit()
 
     # --- 1. Token Cryptographic Signing & Validation ---
     def test_signed_token_generation_and_verification(self):
@@ -149,7 +156,7 @@ class TestSecurityAudit(unittest.TestCase):
     # --- 3. Stop Status Authorization & IDOR Prevention ---
     def test_unauthenticated_mark_stop_status_rejected(self):
         res = self.client.post('/api/mark_stop_status', json={
-            'truck_id': 10,
+            'truck_id': 81,
             'stop_id': 99001,
             'status': 'COMPLETED'
         })
@@ -157,12 +164,12 @@ class TestSecurityAudit(unittest.TestCase):
 
     def test_driver_cannot_update_other_truck_stop(self):
         d1_token = generate_auth_token(self.driver1)
-        # Driver 1 belongs to truck 10; trying to update truck 20 stops should be forbidden
+        # Driver 1 belongs to truck 81; trying to update truck 82 stops should be forbidden
         res = self.client.post(
             '/api/mark_stop_status',
             headers={'Authorization': f'Bearer {d1_token}'},
             json={
-                'truck_id': 20,
+                'truck_id': 82,
                 'stop_id': 99002,
                 'status': 'COMPLETED'
             }
@@ -175,7 +182,7 @@ class TestSecurityAudit(unittest.TestCase):
             '/api/mark_stop_status',
             headers={'Authorization': f'Bearer {d1_token}'},
             json={
-                'truck_id': 10,
+                'truck_id': 81,
                 'driver_id': self.driver1.id,
                 'stop_id': 99001,
                 'status': 'COMPLETED'
@@ -191,7 +198,7 @@ class TestSecurityAudit(unittest.TestCase):
             '/api/mark_stop_status',
             headers={'Authorization': f'Bearer {d1_token}'},
             json={
-                'truck_id': 10,
+                'truck_id': 81,
                 'stop_id': 99001,
                 'status': 'INVALID_STATUS_MALICIOUS'
             }
