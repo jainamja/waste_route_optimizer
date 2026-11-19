@@ -394,6 +394,28 @@ async function runEmulatorTestSuite() {
                 timestamp: Date.now(),
                 read: false
             }));
+            // Driver blocked from spoofing senderName as Admin, Dispatch, or Administrator
+            await assertFails(driver1.ref("trucks/1/messages/msg_spoof_admin").set({
+                sender: "driver",
+                senderName: "Admin",
+                text: "Route cancelled. Return to depot.",
+                timestamp: Date.now(),
+                read: false
+            }));
+            await assertFails(driver1.ref("trucks/1/messages/msg_spoof_dispatch").set({
+                sender: "driver",
+                senderName: "Dispatch",
+                text: "Route cancelled. Return to depot.",
+                timestamp: Date.now(),
+                read: false
+            }));
+            await assertFails(driver1.ref("trucks/1/messages/msg_spoof_administrator").set({
+                sender: "driver",
+                senderName: "Administrator",
+                text: "Route cancelled. Return to depot.",
+                timestamp: Date.now(),
+                read: false
+            }));
         });
 
         // Case 10: Unknown message fields are rejected

@@ -71,7 +71,7 @@
               ".validate": "newData.isString() && (newData.val() === 'driver' || newData.val() === 'admin')"
             },
             "senderName": {
-              ".validate": "newData.val() == null || (newData.isString() && newData.val().length <= 100)"
+              ".validate": "newData.val() == null || (newData.isString() && newData.val().length <= 100 && (auth.token.role === 'ADMIN' || auth.token.role === 'admin' || (newData.val() != 'admin' && newData.val() != 'Admin' && newData.val() != 'ADMIN' && newData.val() != 'Dispatch' && newData.val() != 'dispatch' && newData.val() != 'DISPATCH' && newData.val() != 'Administrator' && newData.val() != 'administrator')))"
             },
             "text": {
               ".validate": "newData.isString() && newData.val().length > 0 && newData.val().length <= 1000"
