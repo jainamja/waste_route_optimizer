@@ -12,6 +12,7 @@ uploads/
 app.db
 *.backup
 backup*.json
+baseline*.json
 *.backup*
 proposed_hardened_rules.json
 *.log
