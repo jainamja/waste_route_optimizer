@@ -49,7 +49,10 @@
         #add-driver-modal, .modal-backdrop { display:none; position:fixed; top:0; left:0; right:0; bottom:0; background:rgba(0,0,0,0.5); z-index:9999; align-items:center; justify-content:center; }
         .modal-content { background:white; padding:32px; border-radius:24px; max-width:400px; width:90%; }
         .modal-content-lg { background:white; padding:32px; border-radius:24px; max-width:520px; width:90%; box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.25); max-height: 90vh; overflow-y: auto; }
+        .modal-content-xl { background:white; padding:32px; border-radius:24px; max-width:820px; width:95%; box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.25); max-height: 90vh; overflow-y: auto; }
         .modal-content input { width: 100%; box-sizing: border-box; padding:12px; margin-bottom:16px; border:1px solid var(--border); border-radius:12px; font-family:'Inter', sans-serif; }
+        .dropzone-area { border: 2px dashed #cbd5e1; border-radius: 16px; padding: 36px 20px; text-align: center; cursor: pointer; transition: all 0.2s; background: #f8fafc; }
+        .dropzone-area:hover, .dropzone-area.dragover { border-color: var(--primary); background: #eff6ff; }
     
         /* Mobile overrides added automatically */
         @media (max-width: 768px) {
@@ -158,7 +161,10 @@
                     <h2>Master Customer List</h2>
                     <p style="margin:4px 0 0 0; color:var(--text-muted); font-size:13px;">Manage all registered customers, add new customers, and add them directly to your saved route templates.</p>
                 </div>
-                <button onclick="openAddCustomerModal()" class="btn btn-primary"><i class="fa-solid fa-user-plus"></i> Add Customer</button>
+                <div style="display:flex; gap:10px; align-items:center;">
+                    <button onclick="openImportModal()" class="btn btn-outline" style="background:white;"><i class="fa-solid fa-file-import"></i> Import Customers</button>
+                    <button onclick="openAddCustomerModal()" class="btn btn-primary"><i class="fa-solid fa-user-plus"></i> Add Customer</button>
+                </div>
             </div>
 
             <!-- Search & Filter Bar -->
@@ -337,6 +343,110 @@
             <div style="display:flex; gap:12px;">
                 <button class="btn btn-primary" id="btn-confirm-add-template" onclick="submitAddCustomerToTemplate()" style="flex:1; justify-content:center;"><i class="fa-solid fa-plus"></i> Add to Template</button>
                 <button class="btn btn-outline" onclick="closeAddToTemplateModal()" style="flex:1; justify-content:center;">Cancel</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Bulk Import Customers Modal -->
+    <div id="import-customers-modal" class="modal-backdrop">
+        <div class="modal-content-xl">
+            <!-- Modal Header -->
+            <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:16px;">
+                <div>
+                    <h3 style="margin:0; font-family:'Manrope', sans-serif; font-size:20px;">Bulk Import Customers</h3>
+                    <p style="color:var(--text-muted); font-size:13px; margin:4px 0 0 0;">Upload customer lists from Excel workbooks or Word documents with live preview and duplicate protection.</p>
+                </div>
+                <button onclick="closeImportModal()" style="background:none; border:none; color:var(--text-muted); cursor:pointer; font-size:18px; padding:4px;"><i class="fa-solid fa-xmark"></i></button>
+            </div>
+
+            <!-- Stage 1: File Upload & Templates -->
+            <div id="import-stage-upload">
+                <div id="import-upload-error" style="display:none; padding:10px 14px; background:#fef2f2; border:1px solid #fecaca; border-radius:8px; color:#b91c1c; font-size:13px; margin-bottom:16px;"></div>
+
+                <!-- Drag & Drop Zone -->
+                <div class="dropzone-area" id="import-dropzone" onclick="document.getElementById('import-file-input').click()" ondragover="handleImportDragOver(event)" ondragleave="handleImportDragLeave(event)" ondrop="handleImportDrop(event)">
+                    <div style="display:flex; justify-content:center; gap:16px; margin-bottom:12px; font-size:36px;">
+                        <i class="fa-solid fa-file-excel" style="color:#107c41;" title="Excel (.xlsx, .xls)"></i>
+                        <i class="fa-solid fa-file-word" style="color:#185abd;" title="Word (.docx)"></i>
+                        <i class="fa-solid fa-file-csv" style="color:#0284c7;" title="CSV (.csv)"></i>
+                    </div>
+                    <div style="font-size:15px; font-weight:700; color:var(--text-main); margin-bottom:4px;">Drag and drop your Excel or Word file here</div>
+                    <div style="font-size:13px; color:var(--text-muted); margin-bottom:14px;">Supported formats: <b>.xlsx</b>, <b>.xls</b>, <b>.docx</b>, <b>.csv</b> (Max 10MB)</div>
+                    <button type="button" class="btn btn-outline" style="background:white; font-size:13px; padding:8px 16px;"><i class="fa-solid fa-folder-open"></i> Browse Files</button>
+                    <input type="file" id="import-file-input" accept=".xlsx,.xls,.docx,.csv" style="display:none;" onchange="handleImportFileSelected(event)">
+                </div>
+
+                <!-- Download Sample Templates Section -->
+                <div style="margin-top:20px; padding:16px; background:#f8fafc; border:1px solid var(--border); border-radius:12px;">
+                    <div style="font-size:13px; font-weight:700; color:var(--text-main); margin-bottom:8px;"><i class="fa-solid fa-download" style="margin-right:6px; color:var(--primary);"></i> Download Sample Import Templates</div>
+                    <p style="font-size:12px; color:var(--text-muted); margin:0 0 12px 0;">Use these pre-formatted templates to ensure proper column names and easy data entry.</p>
+                    <div style="display:flex; gap:12px; flex-wrap:wrap;">
+                        <a href="/api/master_customers/sample_excel" class="btn btn-outline" style="background:white; font-size:13px; padding:8px 14px;" download>
+                            <i class="fa-solid fa-file-excel" style="color:#107c41;"></i> Download Sample Excel (.xlsx)
+                        </a>
+                        <a href="/api/master_customers/sample_word" class="btn btn-outline" style="background:white; font-size:13px; padding:8px 14px;" download>
+                            <i class="fa-solid fa-file-word" style="color:#185abd;"></i> Download Sample Word (.docx)
+                        </a>
+                    </div>
+                </div>
+
+                <div style="display:flex; justify-content:flex-end; margin-top:20px;">
+                    <button class="btn btn-outline" onclick="closeImportModal()">Cancel</button>
+                </div>
+            </div>
+
+            <!-- Stage 2: Preview & Validation Table -->
+            <div id="import-stage-preview" style="display:none;">
+                <div style="display:grid; grid-template-columns:repeat(auto-fit, minmax(130px, 1fr)); gap:12px; margin-bottom:16px;">
+                    <div style="background:#f8fafc; border:1px solid var(--border); border-radius:12px; padding:12px; text-align:center;">
+                        <div style="font-size:12px; color:var(--text-muted); font-weight:600;">Total Detected</div>
+                        <div style="font-size:22px; font-weight:800; color:var(--text-main); margin-top:2px;" id="stat-total-detected">0</div>
+                    </div>
+                    <div style="background:#f0fdf4; border:1px solid #bbf7d0; border-radius:12px; padding:12px; text-align:center;">
+                        <div style="font-size:12px; color:#15803d; font-weight:600;">Ready to Import</div>
+                        <div style="font-size:22px; font-weight:800; color:#15803d; margin-top:2px;" id="stat-valid-count">0</div>
+                    </div>
+                    <div style="background:#fffbeb; border:1px solid #fde68a; border-radius:12px; padding:12px; text-align:center;">
+                        <div style="font-size:12px; color:#b45309; font-weight:600;">Duplicates (Skipped)</div>
+                        <div style="font-size:22px; font-weight:800; color:#b45309; margin-top:2px;" id="stat-duplicate-count">0</div>
+                    </div>
+                    <div style="background:#fef2f2; border:1px solid #fecaca; border-radius:12px; padding:12px; text-align:center;">
+                        <div style="font-size:12px; color:#b91c1c; font-weight:600;">Invalid (Skipped)</div>
+                        <div style="font-size:22px; font-weight:800; color:#b91c1c; margin-top:2px;" id="stat-invalid-count">0</div>
+                    </div>
+                </div>
+
+                <!-- Preview Table -->
+                <div style="border:1px solid var(--border); border-radius:12px; overflow:hidden; max-height:360px; overflow-y:auto; margin-bottom:16px;">
+                    <table style="width:100%; border-collapse:collapse; font-size:13px; text-align:left;">
+                        <thead style="background:#f8fafc; border-bottom:1px solid var(--border); position:sticky; top:0; z-index:2;">
+                            <tr>
+                                <th style="padding:10px 12px; font-weight:700;">#</th>
+                                <th style="padding:10px 12px; font-weight:700;">Customer Name</th>
+                                <th style="padding:10px 12px; font-weight:700;">Address</th>
+                                <th style="padding:10px 12px; font-weight:700;">Phone</th>
+                                <th style="padding:10px 12px; font-weight:700;">Coordinates</th>
+                                <th style="padding:10px 12px; font-weight:700;">Status</th>
+                                <th style="padding:10px 12px; font-weight:700;">Message</th>
+                            </tr>
+                        </thead>
+                        <tbody id="import-preview-tbody">
+                        </tbody>
+                    </table>
+                </div>
+
+                <div style="display:flex; justify-content:space-between; align-items:center; gap:12px;">
+                    <button class="btn btn-outline" onclick="resetImportToUpload()"><i class="fa-solid fa-arrow-left"></i> Choose Another File</button>
+                    <button class="btn btn-primary" id="btn-confirm-import" onclick="confirmImportExecution()"><i class="fa-solid fa-file-circle-check"></i> Import Valid Customers (<span id="btn-valid-count">0</span>)</button>
+                </div>
+            </div>
+
+            <!-- Stage 3: Results -->
+            <div id="import-stage-results" style="display:none; text-align:center; padding:24px 16px;">
+                <div style="font-size:48px; color:#10b981; margin-bottom:12px;"><i class="fa-solid fa-circle-check"></i></div>
+                <h4 style="margin:0 0 8px 0; font-size:18px; font-family:'Manrope', sans-serif;">Import Completed</h4>
+                <p id="import-result-summary" style="font-size:14px; color:var(--text-muted); margin-bottom:20px;">Customers successfully saved to Master Customer database.</p>
+                <button class="btn btn-primary" onclick="closeImportModal()"><i class="fa-solid fa-check"></i> Done</button>
             </div>
         </div>
     </div>
@@ -1008,6 +1118,188 @@ Do you want to proceed and apply these changes permanently?`;
             } finally {
                 btn.disabled = false;
                 btn.innerHTML = '<i class="fa-solid fa-plus"></i> Add to Template';
+            }
+        }
+
+        // ============================================================================
+        // BULK CUSTOMER IMPORT JAVASCRIPT
+        // ============================================================================
+        let currentImportPreview = null;
+
+        function openImportModal() {
+            resetImportToUpload();
+            document.getElementById('import-customers-modal').style.display = 'flex';
+        }
+
+        function closeImportModal() {
+            document.getElementById('import-customers-modal').style.display = 'none';
+            currentImportPreview = null;
+            loadMasterCustomers();
+        }
+
+        function resetImportToUpload() {
+            document.getElementById('import-stage-upload').style.display = 'block';
+            document.getElementById('import-stage-preview').style.display = 'none';
+            document.getElementById('import-stage-results').style.display = 'none';
+            const errDiv = document.getElementById('import-upload-error');
+            if (errDiv) errDiv.style.display = 'none';
+            const fileInput = document.getElementById('import-file-input');
+            if (fileInput) fileInput.value = '';
+            currentImportPreview = null;
+        }
+
+        function handleImportDragOver(e) {
+            e.preventDefault();
+            e.stopPropagation();
+            const dz = document.getElementById('import-dropzone');
+            if (dz) dz.classList.add('dragover');
+        }
+
+        function handleImportDragLeave(e) {
+            e.preventDefault();
+            e.stopPropagation();
+            const dz = document.getElementById('import-dropzone');
+            if (dz) dz.classList.remove('dragover');
+        }
+
+        function handleImportDrop(e) {
+            e.preventDefault();
+            e.stopPropagation();
+            const dz = document.getElementById('import-dropzone');
+            if (dz) dz.classList.remove('dragover');
+            if (e.dataTransfer.files && e.dataTransfer.files.length > 0) {
+                uploadAndPreviewFile(e.dataTransfer.files[0]);
+            }
+        }
+
+        function handleImportFileSelected(e) {
+            if (e.target.files && e.target.files.length > 0) {
+                uploadAndPreviewFile(e.target.files[0]);
+            }
+        }
+
+        async function uploadAndPreviewFile(file) {
+            const errDiv = document.getElementById('import-upload-error');
+            if (errDiv) errDiv.style.display = 'none';
+
+            let ext = file.name.split('.').pop().toLowerCase();
+            if (ext === 'doc') {
+                errDiv.innerText = 'Legacy .doc format is not supported. Please save or convert your document as .docx format and try again.';
+                errDiv.style.display = 'block';
+                return;
+            }
+
+            let formData = new FormData();
+            formData.append('file', file);
+
+            const dropzone = document.getElementById('import-dropzone');
+            const origHtml = dropzone.innerHTML;
+            dropzone.innerHTML = `
+                <div style="font-size:32px; color:var(--primary); margin-bottom:12px;"><i class="fa-solid fa-circle-notch fa-spin"></i></div>
+                <div style="font-size:15px; font-weight:700; color:var(--text-main);">Analyzing ${escapeHtml(file.name)}...</div>
+                <div style="font-size:13px; color:var(--text-muted); margin-top:4px;">Validating columns, coordinate ranges, and checking duplicates...</div>
+            `;
+
+            try {
+                let res = await fetch('/api/master_customers/import_preview', {
+                    method: 'POST',
+                    body: formData
+                });
+                let data = await res.json();
+                dropzone.innerHTML = origHtml;
+
+                if (res.ok && data.success) {
+                    currentImportPreview = data;
+                    renderImportPreviewTable(data);
+                } else {
+                    errDiv.innerText = data.error || 'Failed to preview file.';
+                    errDiv.style.display = 'block';
+                }
+            } catch (e) {
+                dropzone.innerHTML = origHtml;
+                errDiv.innerText = 'Network error: ' + e.message;
+                errDiv.style.display = 'block';
+            }
+        }
+
+        function renderImportPreviewTable(data) {
+            document.getElementById('import-stage-upload').style.display = 'none';
+            document.getElementById('import-stage-preview').style.display = 'block';
+
+            document.getElementById('stat-total-detected').innerText = data.total_detected;
+            document.getElementById('stat-valid-count').innerText = data.valid_count;
+            document.getElementById('stat-duplicate-count').innerText = data.duplicate_count;
+            document.getElementById('stat-invalid-count').innerText = data.invalid_count;
+            document.getElementById('btn-valid-count').innerText = data.ready_to_import_count;
+
+            const btnConfirm = document.getElementById('btn-confirm-import');
+            if (btnConfirm) btnConfirm.disabled = (data.ready_to_import_count === 0);
+
+            const tbody = document.getElementById('import-preview-tbody');
+            let rowsHtml = '';
+
+            (data.rows || []).forEach(r => {
+                let statusBadge = '';
+                if (r.status === 'VALID') {
+                    statusBadge = '<span style="background:#f0fdf4; color:#15803d; padding:2px 8px; border-radius:12px; font-size:11px; font-weight:700;"><i class="fa-solid fa-circle-check"></i> Valid</span>';
+                } else if (r.status === 'DUPLICATE') {
+                    statusBadge = '<span style="background:#fffbeb; color:#b45309; padding:2px 8px; border-radius:12px; font-size:11px; font-weight:700;"><i class="fa-solid fa-triangle-exclamation"></i> Duplicate</span>';
+                } else {
+                    statusBadge = '<span style="background:#fef2f2; color:#b91c1c; padding:2px 8px; border-radius:12px; font-size:11px; font-weight:700;"><i class="fa-solid fa-circle-xmark"></i> Invalid</span>';
+                }
+
+                let coordsText = (r.lat && r.lng) ? `${r.lat.toFixed(4)}, ${r.lng.toFixed(4)}` : '<span style="color:var(--text-muted);">None</span>';
+
+                rowsHtml += `
+                    <tr style="border-bottom:1px solid var(--border); ${r.status !== 'VALID' ? 'background:#fafafa;' : ''}">
+                        <td style="padding:8px 12px; color:var(--text-muted); font-size:12px;">${r.row_num || ''}</td>
+                        <td style="padding:8px 12px; font-weight:600;">${escapeHtml(r.name || '')}</td>
+                        <td style="padding:8px 12px; color:var(--text-main);">${escapeHtml(r.address || '')}</td>
+                        <td style="padding:8px 12px; color:var(--text-muted);">${escapeHtml(r.phone || '')}</td>
+                        <td style="padding:8px 12px; font-size:12px;">${coordsText}</td>
+                        <td style="padding:8px 12px;">${statusBadge}</td>
+                        <td style="padding:8px 12px; font-size:12px; color:${r.status === 'INVALID' ? '#b91c1c' : r.status === 'DUPLICATE' ? '#b45309' : '#15803d'};">${escapeHtml(r.message || '')}</td>
+                    </tr>
+                `;
+            });
+
+            tbody.innerHTML = rowsHtml;
+        }
+
+        async function confirmImportExecution() {
+            if (!currentImportPreview || !currentImportPreview.preview_id) return;
+            const btn = document.getElementById('btn-confirm-import');
+            btn.disabled = true;
+            btn.innerHTML = '<i class="fa-solid fa-circle-notch fa-spin"></i> Importing...';
+
+            try {
+                let res = await fetch('/api/master_customers/import_confirm', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        preview_id: currentImportPreview.preview_id,
+                        skip_duplicates: true
+                    })
+                });
+                let data = await res.json();
+                if (res.ok && data.success) {
+                    document.getElementById('import-stage-preview').style.display = 'none';
+                    document.getElementById('import-stage-results').style.display = 'block';
+                    document.getElementById('import-result-summary').innerHTML = `
+                        <b>${data.imported}</b> customer(s) successfully imported into the Master Customer List.<br>
+                        <span style="font-size:12px; color:var(--text-muted); margin-top:6px; display:inline-block;">
+                            ${data.skipped_duplicates} duplicate(s) skipped &bull; ${data.skipped_invalid} invalid record(s) skipped
+                        </span>
+                    `;
+                } else {
+                    alert('Error during import: ' + (data.error || 'Failed to complete import'));
+                    btn.disabled = false;
+                    btn.innerHTML = '<i class="fa-solid fa-file-circle-check"></i> Import Valid Customers';
+                }
+            } catch (e) {
+                alert('Network error: ' + e.message);
+                btn.disabled = false;
+                btn.innerHTML = '<i class="fa-solid fa-file-circle-check"></i> Import Valid Customers';
             }
         }
 

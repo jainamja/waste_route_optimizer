@@ -6222,6 +6222,614 @@ def add_customer_to_template(template_id):
         'message': f"Added {added_count} customer(s) to '{template.name}'."
     })
 
+# ============================================================================
+# BULK MASTER CUSTOMER IMPORT (EXCEL, WORD, CSV)
+# ============================================================================
+
+import_preview_cache = {}
+
+def normalize_header(header_str):
+    if not header_str:
+        return ''
+    h = str(header_str).strip().lower()
+    return re.sub(r'[\s_\-]+', ' ', h)
+
+def map_column_headers(headers):
+    field_synonyms = {
+        'name': ['customer name', 'name', 'client name', 'customer', 'client', 'full name', 'party name'],
+        'address': ['customer address', 'address', 'location', 'addr', 'street', 'street address', 'site address'],
+        'phone': ['phone', 'mobile', 'contact', 'cell', 'phone number', 'mobile number', 'telephone', 'tel', 'contact number', 'phone no', 'mobile no'],
+        'lat': ['latitude', 'lat'],
+        'lng': ['longitude', 'lng', 'long'],
+        'location_url': ['location url', 'google maps link', 'google maps', 'maps link', 'map link', 'maps', 'location link', 'url', 'map url', 'google map'],
+        'deliver_bag': ['deliver bag', 'bag', 'delivery bag', 'deliver bag?', 'bag deliver', 'bag delivery']
+    }
+    
+    mapping = {}
+    used_indices = set()
+    
+    for field, synonyms in field_synonyms.items():
+        for idx, h in enumerate(headers):
+            if idx in used_indices:
+                continue
+            norm = normalize_header(h)
+            if norm in synonyms:
+                mapping[field] = idx
+                used_indices.add(idx)
+                break
+
+    if 'name' not in mapping:
+        for idx, h in enumerate(headers):
+            if idx in used_indices:
+                continue
+            norm = normalize_header(h)
+            if 'name' in norm:
+                mapping['name'] = idx
+                used_indices.add(idx)
+                break
+
+    if 'address' not in mapping:
+        for idx, h in enumerate(headers):
+            if idx in used_indices:
+                continue
+            norm = normalize_header(h)
+            if 'address' in norm or 'location' in norm:
+                mapping['address'] = idx
+                used_indices.add(idx)
+                break
+
+    return mapping
+
+def parse_uploaded_file(file_bytes, filename):
+    ext = os.path.splitext(filename)[1].lower()
+    if ext == '.doc':
+        raise ValueError("Legacy .doc format is not supported. Please save or convert your document as modern .docx format and try again.")
+    if ext not in ['.xlsx', '.xls', '.docx', '.csv']:
+        raise ValueError(f"Unsupported file format '{ext}'. Supported formats: .xlsx, .xls, .docx, .csv")
+
+    raw_headers = []
+    data_rows = []
+
+    if ext == '.xlsx':
+        import openpyxl, io
+        try:
+            wb = openpyxl.load_workbook(io.BytesIO(file_bytes), data_only=True)
+            sheet = wb.worksheets[0]
+            rows = list(sheet.iter_rows(values_only=True))
+        except Exception as e:
+            raise ValueError(f"Failed to read Excel (.xlsx) file: {str(e)}")
+
+        while rows and all(c is None or str(c).strip() == '' for c in rows[0]):
+            rows.pop(0)
+
+        if not rows:
+            raise ValueError("The uploaded Excel workbook contains no data.")
+
+        raw_headers = [str(c or '').strip() for c in rows[0]]
+        col_mapping = map_column_headers(raw_headers)
+
+        if 'name' not in col_mapping or 'address' not in col_mapping:
+            raise ValueError(f"Could not identify required 'Customer Name' and 'Address' columns from headers: {raw_headers}. Please include 'Customer Name' and 'Address'.")
+
+        for row_idx, r in enumerate(rows[1:], start=2):
+            if all(c is None or str(c).strip() == '' for c in r):
+                continue
+            row_dict = {'_row_num': row_idx}
+            for field, col_idx in col_mapping.items():
+                if col_idx < len(r):
+                    val = r[col_idx]
+                    if isinstance(val, float) and val.is_integer() and field in ['phone']:
+                        val = str(int(val))
+                    elif val is not None:
+                        val = str(val).strip()
+                        if val.endswith('.0') and field in ['phone']:
+                            val = val[:-2]
+                    row_dict[field] = val if val != '' else None
+                else:
+                    row_dict[field] = None
+            data_rows.append(row_dict)
+
+    elif ext == '.xls':
+        import xlrd
+        try:
+            wb = xlrd.open_workbook(file_contents=file_bytes)
+            sheet = wb.sheet_by_index(0)
+            rows = [sheet.row_values(r) for r in range(sheet.nrows)]
+        except Exception as e:
+            raise ValueError(f"Failed to read legacy Excel (.xls) file: {str(e)}")
+
+        while rows and all(c is None or str(c).strip() == '' for c in rows[0]):
+            rows.pop(0)
+
+        if not rows:
+            raise ValueError("The uploaded Excel (.xls) file contains no data.")
+
+        raw_headers = [str(c or '').strip() for c in rows[0]]
+        col_mapping = map_column_headers(raw_headers)
+
+        if 'name' not in col_mapping or 'address' not in col_mapping:
+            raise ValueError(f"Could not identify required 'Customer Name' and 'Address' columns from headers: {raw_headers}. Please include 'Customer Name' and 'Address'.")
+
+        for row_idx, r in enumerate(rows[1:], start=2):
+            if all(c is None or str(c).strip() == '' for c in r):
+                continue
+            row_dict = {'_row_num': row_idx}
+            for field, col_idx in col_mapping.items():
+                if col_idx < len(r):
+                    val = r[col_idx]
+                    if isinstance(val, float) and val.is_integer() and field in ['phone']:
+                        val = str(int(val))
+                    elif val is not None:
+                        val = str(val).strip()
+                        if val.endswith('.0') and field in ['phone']:
+                            val = val[:-2]
+                    row_dict[field] = val if val != '' else None
+                else:
+                    row_dict[field] = None
+            data_rows.append(row_dict)
+
+    elif ext == '.docx':
+        import docx, io
+        try:
+            doc = docx.Document(io.BytesIO(file_bytes))
+        except Exception as e:
+            raise ValueError(f"Failed to read Word (.docx) file: {str(e)}")
+
+        if not doc.tables:
+            raise ValueError("No table found in the Word document. Please format customer records in a table with a header row.")
+
+        target_table = None
+        col_mapping = None
+
+        for tbl in doc.tables:
+            if len(tbl.rows) >= 2:
+                headers = [cell.text.strip() for cell in tbl.rows[0].cells]
+                mapping = map_column_headers(headers)
+                if 'name' in mapping and 'address' in mapping:
+                    target_table = tbl
+                    col_mapping = mapping
+                    raw_headers = headers
+                    break
+
+        if not target_table:
+            raise ValueError("No valid customer table found in Word document. Please ensure the table has a header row with 'Customer Name' and 'Address'.")
+
+        for row_idx, row in enumerate(target_table.rows[1:], start=2):
+            cells = [c.text.strip() for c in row.cells]
+            if all(not c for c in cells):
+                continue
+            row_dict = {'_row_num': row_idx}
+            for field, col_idx in col_mapping.items():
+                if col_idx < len(cells):
+                    val = cells[col_idx].strip()
+                    row_dict[field] = val if val else None
+                else:
+                    row_dict[field] = None
+            data_rows.append(row_dict)
+
+    elif ext == '.csv':
+        import csv, io
+        text_content = None
+        for enc in ['utf-8-sig', 'utf-8', 'latin-1']:
+            try:
+                text_content = file_bytes.decode(enc)
+                break
+            except UnicodeDecodeError:
+                continue
+        if text_content is None:
+            raise ValueError("Unable to decode CSV file text encoding.")
+
+        reader = csv.reader(io.StringIO(text_content))
+        rows = list(reader)
+
+        while rows and all(c is None or str(c).strip() == '' for c in rows[0]):
+            rows.pop(0)
+
+        if not rows:
+            raise ValueError("The uploaded CSV contains no data.")
+
+        raw_headers = [str(c or '').strip() for c in rows[0]]
+        col_mapping = map_column_headers(raw_headers)
+
+        if 'name' not in col_mapping or 'address' not in col_mapping:
+            raise ValueError(f"Could not identify required 'Customer Name' and 'Address' columns from headers: {raw_headers}.")
+
+        for row_idx, r in enumerate(rows[1:], start=2):
+            if all(c is None or str(c).strip() == '' for c in r):
+                continue
+            row_dict = {'_row_num': row_idx}
+            for field, col_idx in col_mapping.items():
+                if col_idx < len(r):
+                    val = r[col_idx].strip()
+                    row_dict[field] = val if val != '' else None
+                else:
+                    row_dict[field] = None
+            data_rows.append(row_dict)
+
+    return raw_headers, data_rows
+
+
+def validate_and_check_duplicates(data_rows):
+    existing_customers = MasterCustomer.query.filter(MasterCustomer.customer_status != 'ARCHIVED').all()
+    existing_name_addr = {
+        (re.sub(r'\s+', ' ', c.name.strip().lower()), re.sub(r'\s+', ' ', c.address.strip().lower())): c.id
+        for c in existing_customers
+    }
+    existing_phones = {}
+    for c in existing_customers:
+        if c.phone:
+            p = re.sub(r'[\s\-\(\)\+]', '', c.phone.strip())
+            if len(p) >= 7:
+                existing_phones[p] = c.id
+
+    seen_in_batch = {}
+    seen_phones_in_batch = {}
+
+    processed_rows = []
+    valid_count = 0
+    duplicate_count = 0
+    invalid_count = 0
+
+    for r in data_rows:
+        row_num = r.get('_row_num', 0)
+        raw_name = (r.get('name') or '').strip()
+        raw_address = (r.get('address') or '').strip()
+        raw_phone = (r.get('phone') or '').strip() or None
+        location_url = (r.get('location_url') or '').strip() or None
+        raw_bag = r.get('deliver_bag')
+        deliver_bag = str(raw_bag).strip().lower() in ['true', '1', 'yes', 'y'] if raw_bag is not None else False
+
+        lat_val = r.get('lat')
+        lng_val = r.get('lng')
+        lat = None
+        lng = None
+        coord_error = None
+
+        if lat_val is not None and str(lat_val).strip() != '':
+            try:
+                lat = float(str(lat_val).strip())
+                if not (-90.0 <= lat <= 90.0):
+                    coord_error = 'Latitude must be between -90 and 90'
+            except (ValueError, TypeError):
+                coord_error = 'Invalid numeric latitude'
+
+        if lng_val is not None and str(lng_val).strip() != '':
+            try:
+                lng = float(str(lng_val).strip())
+                if not (-180.0 <= lng <= 180.0):
+                    coord_error = 'Longitude must be between -180 and 180'
+            except (ValueError, TypeError):
+                coord_error = 'Invalid numeric longitude'
+
+        # Validation checks
+        status = 'VALID'
+        message = 'Ready to import'
+
+        if not raw_name:
+            status = 'INVALID'
+            message = 'Customer name is missing or empty'
+        elif not raw_address:
+            status = 'INVALID'
+            message = 'Customer address is missing or empty'
+        elif coord_error:
+            status = 'INVALID'
+            message = coord_error
+
+        norm_name = re.sub(r'\s+', ' ', raw_name.lower()) if raw_name else ''
+        norm_address = re.sub(r'\s+', ' ', raw_address.lower()) if raw_address else ''
+        norm_phone = re.sub(r'[\s\-\(\)\+]', '', raw_phone) if raw_phone else ''
+        if len(norm_phone) < 7:
+            norm_phone = ''
+
+        # Duplicate checks
+        if status == 'VALID':
+            key_name_addr = (norm_name, norm_address)
+
+            if key_name_addr in seen_in_batch:
+                status = 'DUPLICATE'
+                message = f"Duplicate in file (matches row {seen_in_batch[key_name_addr]})"
+            elif norm_phone and norm_phone in seen_phones_in_batch:
+                status = 'DUPLICATE'
+                message = f"Duplicate phone in file (matches row {seen_phones_in_batch[norm_phone]})"
+            elif key_name_addr in existing_name_addr:
+                status = 'DUPLICATE'
+                message = f"Already exists in Master List (ID: {existing_name_addr[key_name_addr]})"
+            elif norm_phone and norm_phone in existing_phones:
+                status = 'DUPLICATE'
+                message = f"Phone already registered in Master List (ID: {existing_phones[norm_phone]})"
+            else:
+                seen_in_batch[key_name_addr] = row_num
+                if norm_phone:
+                    seen_phones_in_batch[norm_phone] = row_num
+
+        if status == 'VALID':
+            valid_count += 1
+        elif status == 'DUPLICATE':
+            duplicate_count += 1
+        else:
+            invalid_count += 1
+
+        processed_rows.append({
+            'row_num': row_num,
+            'name': raw_name,
+            'address': raw_address,
+            'phone': raw_phone or '',
+            'location_url': location_url or '',
+            'lat': lat,
+            'lng': lng,
+            'deliver_bag': deliver_bag,
+            'status': status,
+            'message': message
+        })
+
+    return {
+        'total_detected': len(processed_rows),
+        'valid_count': valid_count,
+        'duplicate_count': duplicate_count,
+        'invalid_count': invalid_count,
+        'ready_to_import_count': valid_count,
+        'rows': processed_rows
+    }
+
+
+@app.route('/api/master_customers/import_preview', methods=['POST'])
+@admin_required
+def master_customers_import_preview():
+    if 'file' not in request.files:
+        return jsonify({'success': False, 'error': 'No file uploaded'}), 400
+
+    file = request.files['file']
+    if not file or not file.filename:
+        return jsonify({'success': False, 'error': 'Empty filename'}), 400
+
+    file.seek(0, os.SEEK_END)
+    size = file.tell()
+    file.seek(0)
+    if size > 10 * 1024 * 1024:
+        return jsonify({'success': False, 'error': 'File size exceeds maximum limit of 10MB.'}), 400
+
+    file_bytes = file.read()
+    try:
+        raw_headers, data_rows = parse_uploaded_file(file_bytes, file.filename)
+    except ValueError as ve:
+        return jsonify({'success': False, 'error': str(ve)}), 400
+    except Exception as e:
+        return jsonify({'success': False, 'error': f'Failed to parse file: {str(e)}'}), 400
+
+    if not data_rows:
+        return jsonify({'success': False, 'error': 'No data rows found in the uploaded file.'}), 400
+
+    preview_result = validate_and_check_duplicates(data_rows)
+    import uuid
+    preview_id = uuid.uuid4().hex
+    import_preview_cache[preview_id] = {
+        'rows': preview_result['rows'],
+        'filename': file.filename,
+        'timestamp': time.time()
+    }
+
+    now = time.time()
+    for k in list(import_preview_cache.keys()):
+        if now - import_preview_cache[k]['timestamp'] > 3600:
+            import_preview_cache.pop(k, None)
+
+    preview_result['preview_id'] = preview_id
+    preview_result['filename'] = file.filename
+    preview_result['success'] = True
+    return jsonify(preview_result)
+
+
+@app.route('/api/master_customers/import_confirm', methods=['POST'])
+@admin_required
+def master_customers_import_confirm():
+    data = request.json or {}
+    preview_id = data.get('preview_id')
+    rows_to_import = data.get('rows')
+
+    if not rows_to_import and preview_id:
+        cached = import_preview_cache.get(preview_id)
+        if cached:
+            rows_to_import = cached.get('rows')
+
+    if not rows_to_import:
+        return jsonify({'success': False, 'error': 'No customer records provided for import'}), 400
+
+    existing_customers = MasterCustomer.query.filter(MasterCustomer.customer_status != 'ARCHIVED').all()
+    existing_name_addr = {
+        (re.sub(r'\s+', ' ', c.name.strip().lower()), re.sub(r'\s+', ' ', c.address.strip().lower())): c.id
+        for c in existing_customers
+    }
+    existing_phones = {}
+    for c in existing_customers:
+        if c.phone:
+            p = re.sub(r'[\s\-\(\)\+]', '', c.phone.strip())
+            if len(p) >= 7:
+                existing_phones[p] = c.id
+
+    max_master_id = db.session.query(db.func.max(MasterCustomer.id)).scalar() or 0
+    max_cust_id = db.session.query(db.func.max(Customer.id)).scalar() or 0
+    next_id = max(max_master_id, max_cust_id, 0) + 1
+
+    imported_count = 0
+    skipped_duplicates = 0
+    skipped_invalid = 0
+
+    try:
+        with db.session.begin_nested():
+            for r in rows_to_import:
+                if r.get('status') == 'INVALID':
+                    skipped_invalid += 1
+                    continue
+
+                name = (r.get('name') or '').strip()
+                address = (r.get('address') or '').strip()
+                phone = (r.get('phone') or '').strip() or None
+                location_url = (r.get('location_url') or '').strip() or None
+                deliver_bag = bool(r.get('deliver_bag', False))
+
+                if not name or not address:
+                    skipped_invalid += 1
+                    continue
+
+                lat = r.get('lat')
+                lng = r.get('lng')
+                if lat is not None and lat != '':
+                    try:
+                        lat = float(lat)
+                        if not (-90.0 <= lat <= 90.0):
+                            skipped_invalid += 1
+                            continue
+                    except (ValueError, TypeError):
+                        skipped_invalid += 1
+                        continue
+                else:
+                    lat = None
+
+                if lng is not None and lng != '':
+                    try:
+                        lng = float(lng)
+                        if not (-180.0 <= lng <= 180.0):
+                            skipped_invalid += 1
+                            continue
+                    except (ValueError, TypeError):
+                        skipped_invalid += 1
+                        continue
+                else:
+                    lng = None
+
+                norm_name = re.sub(r'\s+', ' ', name.lower())
+                norm_address = re.sub(r'\s+', ' ', address.lower())
+                norm_phone = re.sub(r'[\s\-\(\)\+]', '', phone) if phone else ''
+                if len(norm_phone) < 7:
+                    norm_phone = ''
+
+                if (norm_name, norm_address) in existing_name_addr or (norm_phone and norm_phone in existing_phones):
+                    skipped_duplicates += 1
+                    continue
+
+                new_cust = MasterCustomer(
+                    id=next_id,
+                    name=name,
+                    address=address,
+                    phone=phone,
+                    location_url=location_url,
+                    lat=lat,
+                    lng=lng,
+                    deliver_bag=deliver_bag,
+                    customer_status='ACTIVE',
+                    geocode_quality='EXACT' if (lat is not None and lng is not None) else 'UNKNOWN',
+                    coord_source='IMPORT' if (lat is not None and lng is not None) else 'UNKNOWN',
+                    is_manually_corrected=(lat is not None and lng is not None)
+                )
+                db.session.add(new_cust)
+                existing_name_addr[(norm_name, norm_address)] = next_id
+                if norm_phone:
+                    existing_phones[norm_phone] = next_id
+                next_id += 1
+                imported_count += 1
+
+        db.session.commit()
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({'success': False, 'error': f'Database error during import: {str(e)}'}), 500
+
+    if preview_id:
+        import_preview_cache.pop(preview_id, None)
+
+    return jsonify({
+        'success': True,
+        'imported': imported_count,
+        'skipped_duplicates': skipped_duplicates,
+        'skipped_invalid': skipped_invalid,
+        'message': f'Successfully imported {imported_count} customer(s).'
+    })
+
+
+@app.route('/api/master_customers/sample_excel', methods=['GET'])
+@admin_required
+def master_customers_sample_excel():
+    import openpyxl, io
+    from openpyxl.styles import Font, PatternFill, Alignment
+
+    wb = openpyxl.Workbook()
+    ws = wb.active
+    ws.title = "Customers"
+
+    headers = ['Customer Name', 'Address', 'Phone', 'Latitude', 'Longitude', 'Location URL', 'Deliver Bag']
+    ws.append(headers)
+
+    sample_rows = [
+        ['Green Leaf Cafe', '123 Main St, Sector 5', '9876543210', 23.0225, 72.5714, 'https://maps.google.com/?q=23.0225,72.5714', 'Yes'],
+        ['Sunrise Organic Store', '45 Park Avenue, Block B', '9876543211', 23.0330, 72.5850, '', 'No'],
+        ['Heritage Grand Hotel', '78 Heritage Marg', '9876543212', 23.0415, 72.5620, '', 'Yes']
+    ]
+    for row in sample_rows:
+        ws.append(row)
+
+    header_font = Font(name='Arial', size=11, bold=True, color='FFFFFF')
+    header_fill = PatternFill(start_color='1D4ED8', end_color='1D4ED8', fill_type='solid')
+    for cell in ws[1]:
+        cell.font = header_font
+        cell.fill = header_fill
+        cell.alignment = Alignment(horizontal='center', vertical='center')
+
+    for col in ws.columns:
+        max_len = max(len(str(cell.value or '')) for cell in col)
+        col_letter = col[0].column_letter
+        ws.column_dimensions[col_letter].width = max(max_len + 4, 14)
+
+    buf = io.BytesIO()
+    wb.save(buf)
+    buf.seek(0)
+    return send_file(
+        buf,
+        as_attachment=True,
+        download_name='sample_customers.xlsx',
+        mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+    )
+
+
+@app.route('/api/master_customers/sample_word', methods=['GET'])
+@admin_required
+def master_customers_sample_word():
+    import docx, io
+
+    doc = docx.Document()
+    doc.add_heading("TrashTrekyx — Master Customer Import Template", level=1)
+    p = doc.add_paragraph("Instructions: Enter your customer details in the table below. Do not alter the header row. Each following row represents a customer record.")
+    p.runs[0].font.size = docx.shared.Pt(10)
+    p.runs[0].font.italic = True
+
+    headers = ['Customer Name', 'Address', 'Phone', 'Latitude', 'Longitude', 'Location URL', 'Deliver Bag']
+    table = doc.add_table(rows=1, cols=len(headers))
+    table.style = 'Table Grid'
+
+    hdr_cells = table.rows[0].cells
+    for idx, h in enumerate(headers):
+        hdr_cells[idx].text = h
+        for p in hdr_cells[idx].paragraphs:
+            for run in p.runs:
+                run.font.bold = True
+
+    sample_rows = [
+        ['Royal Greens Residency', '88 Riverfront Blvd, Phase 1', '9876543213', '23.0510', '72.5430', '', 'Yes'],
+        ['Blue Horizon Mart', '12 Commercial Complex, Sola', '9876543214', '23.0620', '72.5310', '', 'No']
+    ]
+    for r in sample_rows:
+        row_cells = table.add_row().cells
+        for idx, val in enumerate(r):
+            row_cells[idx].text = val
+
+    buf = io.BytesIO()
+    doc.save(buf)
+    buf.seek(0)
+    return send_file(
+        buf,
+        as_attachment=True,
+        download_name='sample_customers.docx',
+        mimetype='application/vnd.openxmlformats-officedocument.wordprocessingml.document'
+    )
+
 @app.route('/api/dynamic_recalculate', methods=['POST'])
 @login_required
 def dynamic_recalculate():
