@@ -1,1 +1,1 @@
-web: gunicorn -c gunicorn.conf.py waste_route_optimizer:app
+web: gunicorn -c gunicorn.conf.py --workers 1 --threads 4 waste_route_optimizer:app

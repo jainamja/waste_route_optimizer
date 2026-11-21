@@ -43,6 +43,9 @@ async function runEmulatorTestSuite() {
         const driver1ReassignedTo2 = testEnv.authenticatedContext("driver_1_reassigned", { role: "DRIVER", driver_id: "1", truck_id: "2" }).database(DB_URL);
 
         // Pre-seed baseline data via Admin
+        await admin.ref("driver_assignments/1").set(1);
+        await admin.ref("driver_assignments/2").set(2);
+
         await admin.ref("trucks/1").set({
             driverId: "1",
             driverName: "Driver One",
@@ -75,13 +78,16 @@ async function runEmulatorTestSuite() {
         });
 
         // Test 1: Unauthenticated access is denied everywhere
-        await check("1. Unauthenticated read / write denied on trucks, routes, status", async () => {
+        await check("1. Unauthenticated read / write denied on trucks, routes, status, driver_assignments", async () => {
             await assertFails(unauth.ref("trucks/1").get());
             await assertFails(unauth.ref("trucks/1/currentLat").set(28.5));
             await assertFails(unauth.ref("routes/route_1").get());
             await assertFails(unauth.ref("routes/route_1/stops/101/status").set("COMPLETED"));
             await assertFails(unauth.ref("driver_locations/1").get());
             await assertFails(unauth.ref("system_status").get());
+            await assertFails(unauth.ref("driver_assignments").get());
+            await assertFails(unauth.ref("driver_assignments/1").get());
+            await assertFails(unauth.ref("driver_assignments/1").set(1));
         });
 
         // Test 2: Driver can read assigned truck
@@ -217,14 +223,36 @@ async function runEmulatorTestSuite() {
             await assertSucceeds(driverUnassigned.ref("driver_locations/3/status").set("online"));
         });
 
-        // Test 16: Driver-to-truck reassignment enforces new truck boundaries immediately
-        await check("16. Driver reassignment updates write access (Truck 1 denied, Truck 2 permitted)", async () => {
-            // Driver 1 freshly reassigned to Truck 2
-            await assertFails(driver1ReassignedTo2.ref("trucks/1/currentLat").set(28.5356));
-            await assertFails(driver1ReassignedTo2.ref("routes/route_1/stops/101/status").set("COMPLETED"));
-            await assertSucceeds(driver1ReassignedTo2.ref("trucks/2/currentLat").set(28.6140));
-            await assertSucceeds(driver1ReassignedTo2.ref("trucks/2/currentLng").set(77.2091));
-            await assertSucceeds(driver1ReassignedTo2.ref("routes/route_2/stops/201/status").set("COMPLETED"));
+        // Test 16: Immediate Driver Reassignment Revocation using the original unexpired token
+        await check("16. Immediate driver reassignment revocation using stale/original token", async () => {
+            // Baseline: Driver 1 is assigned to Truck 1 in driver_assignments/1: 1
+            // driver1 context holds original token (driver_id: "1", truck_id: "1")
+            await assertSucceeds(driver1.ref("trucks/1/currentLat").set(28.5356));
+            await assertSucceeds(driver1.ref("routes/route_1/stops/101/status").set("COMPLETED"));
+            await assertFails(driver1.ref("trucks/2/currentLat").set(28.6140));
+
+            // Admin immediately reassigns Driver 1 to Truck 2 in RTDB
+            await assertSucceeds(admin.ref("driver_assignments/1").set(2));
+
+            // CRITICAL VERIFICATION: Driver 1 uses the EXACT SAME UNEXPIRED TOKEN (truck_id: "1")!
+            // Access to Truck 1 is IMMEDIATELY REVOKED (0ms delay)
+            await assertFails(driver1.ref("trucks/1/currentLat").set(28.5357));
+            await assertFails(driver1.ref("routes/route_1/stops/101/status").set("PENDING"));
+
+            // Access to Truck 2 is IMMEDIATELY GRANTED based on authoritative RTDB assignment
+            await assertSucceeds(driver1.ref("trucks/2/currentLat").set(28.6140));
+            await assertSucceeds(driver1.ref("routes/route_2/stops/201/status").set("COMPLETED"));
+
+            // Admin unassigns Driver 1 by deleting driver_assignments/1
+            await assertSucceeds(admin.ref("driver_assignments/1").remove());
+
+            // Driver 1 with same token cannot write to either Truck 1 or Truck 2
+            await assertFails(driver1.ref("trucks/1/currentLat").set(28.5358));
+            await assertFails(driver1.ref("trucks/2/currentLat").set(28.6141));
+
+            // Restore Driver 1 to Truck 1 for subsequent messaging test suite
+            await assertSucceeds(admin.ref("driver_assignments/1").set(1));
+            await assertSucceeds(driver1.ref("trucks/1/currentLat").set(28.5355));
         });
 
         // -------------------------------------------------------------------------
@@ -428,6 +456,33 @@ async function runEmulatorTestSuite() {
                 read: false,
                 injected_field: "malicious_payload"
             }));
+        });
+
+        // Test 27: driver_assignments access control and schema validation
+        await check("27. Driver assignments node access control and schema validation", async () => {
+            // Driver cannot write to any driver_assignment
+            await assertFails(driver1.ref("driver_assignments/1").set(2));
+            await assertFails(driver1.ref("driver_assignments/2").set(1));
+            await assertFails(driver1.ref("driver_assignments/1").remove());
+            await assertFails(driver1.ref("driver_assignments").set({ "1": 1 }));
+
+            // Driver cannot read other driver's assignment or list all assignments
+            await assertFails(driver1.ref("driver_assignments").get());
+            await assertFails(driver1.ref("driver_assignments/2").get());
+
+            // Driver can read their own assignment
+            await assertSucceeds(driver1.ref("driver_assignments/1").get());
+
+            // Admin has full control
+            await assertSucceeds(admin.ref("driver_assignments").get());
+            await assertSucceeds(admin.ref("driver_assignments/3").set(3));
+            await assertSucceeds(admin.ref("driver_assignments/3").remove());
+
+            // Schema validation: negative numbers or invalid values rejected
+            await assertFails(admin.ref("driver_assignments/1").set(-1));
+            await assertFails(admin.ref("driver_assignments/1").set(0));
+            await assertFails(admin.ref("driver_assignments/1").set(""));
+            await assertFails(admin.ref("driver_assignments/1").set("A".repeat(25)));
         });
 
     } finally {

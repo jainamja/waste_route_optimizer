@@ -3,69 +3,78 @@
     ".read": false,
     ".write": false,
 
+    "driver_assignments": {
+      ".read": "auth != null && (auth.token.role === 'ADMIN' || auth.token.role === 'admin')",
+      "$driverId": {
+        ".read": "auth != null && (auth.token.role === 'ADMIN' || auth.token.role === 'admin' || (auth.token.role === 'DRIVER' && (auth.token.driver_id == $driverId || auth.token.driver_id == '' + $driverId)))",
+        ".write": "auth != null && (auth.token.role === 'ADMIN' || auth.token.role === 'admin')",
+        ".validate": "newData.val() == null || (newData.isNumber() && newData.val() > 0) || (newData.isString() && newData.val().length > 0 && newData.val().length <= 20)"
+      }
+    },
+
     "trucks": {
       ".read": "auth != null && (auth.token.role === 'ADMIN' || auth.token.role === 'admin')",
       "$truckId": {
-        ".read": "auth != null && (auth.token.role === 'ADMIN' || auth.token.role === 'admin' || (auth.token.role === 'DRIVER' && (auth.token.truck_id == $truckId || auth.token.truck_id == '' + $truckId)))",
+        ".read": "auth != null && (auth.token.role === 'ADMIN' || auth.token.role === 'admin' || (auth.token.role === 'DRIVER' && auth.token.driver_id != null && root.child('driver_assignments').child(auth.token.driver_id).val() != null && ($truckId === '' + root.child('driver_assignments').child(auth.token.driver_id).val() || $truckId == root.child('driver_assignments').child(auth.token.driver_id).val())))",
         ".write": "auth != null && (auth.token.role === 'ADMIN' || auth.token.role === 'admin')",
         
         "currentLat": {
-          ".write": "auth != null && (auth.token.role === 'ADMIN' || auth.token.role === 'admin' || (auth.token.role === 'DRIVER' && (auth.token.truck_id == $truckId || auth.token.truck_id == '' + $truckId)))",
+          ".write": "auth != null && (auth.token.role === 'ADMIN' || auth.token.role === 'admin' || (auth.token.role === 'DRIVER' && auth.token.driver_id != null && root.child('driver_assignments').child(auth.token.driver_id).val() != null && ($truckId === '' + root.child('driver_assignments').child(auth.token.driver_id).val() || $truckId == root.child('driver_assignments').child(auth.token.driver_id).val())))",
           ".validate": "newData.val() == null || (newData.isNumber() && newData.val() >= -90.0 && newData.val() <= 90.0)"
         },
         "currentLng": {
-          ".write": "auth != null && (auth.token.role === 'ADMIN' || auth.token.role === 'admin' || (auth.token.role === 'DRIVER' && (auth.token.truck_id == $truckId || auth.token.truck_id == '' + $truckId)))",
+          ".write": "auth != null && (auth.token.role === 'ADMIN' || auth.token.role === 'admin' || (auth.token.role === 'DRIVER' && auth.token.driver_id != null && root.child('driver_assignments').child(auth.token.driver_id).val() != null && ($truckId === '' + root.child('driver_assignments').child(auth.token.driver_id).val() || $truckId == root.child('driver_assignments').child(auth.token.driver_id).val())))",
           ".validate": "newData.val() == null || (newData.isNumber() && newData.val() >= -180.0 && newData.val() <= 180.0)"
         },
         "lat": {
-          ".write": "auth != null && (auth.token.role === 'ADMIN' || auth.token.role === 'admin' || (auth.token.role === 'DRIVER' && (auth.token.truck_id == $truckId || auth.token.truck_id == '' + $truckId)))",
+          ".write": "auth != null && (auth.token.role === 'ADMIN' || auth.token.role === 'admin' || (auth.token.role === 'DRIVER' && auth.token.driver_id != null && root.child('driver_assignments').child(auth.token.driver_id).val() != null && ($truckId === '' + root.child('driver_assignments').child(auth.token.driver_id).val() || $truckId == root.child('driver_assignments').child(auth.token.driver_id).val())))",
           ".validate": "newData.val() == null || (newData.isNumber() && newData.val() >= -90.0 && newData.val() <= 90.0)"
         },
         "lng": {
-          ".write": "auth != null && (auth.token.role === 'ADMIN' || auth.token.role === 'admin' || (auth.token.role === 'DRIVER' && (auth.token.truck_id == $truckId || auth.token.truck_id == '' + $truckId)))",
+          ".write": "auth != null && (auth.token.role === 'ADMIN' || auth.token.role === 'admin' || (auth.token.role === 'DRIVER' && auth.token.driver_id != null && root.child('driver_assignments').child(auth.token.driver_id).val() != null && ($truckId === '' + root.child('driver_assignments').child(auth.token.driver_id).val() || $truckId == root.child('driver_assignments').child(auth.token.driver_id).val())))",
           ".validate": "newData.val() == null || (newData.isNumber() && newData.val() >= -180.0 && newData.val() <= 180.0)"
         },
         "speed": {
-          ".write": "auth != null && (auth.token.role === 'ADMIN' || auth.token.role === 'admin' || (auth.token.role === 'DRIVER' && (auth.token.truck_id == $truckId || auth.token.truck_id == '' + $truckId)))",
+          ".write": "auth != null && (auth.token.role === 'ADMIN' || auth.token.role === 'admin' || (auth.token.role === 'DRIVER' && auth.token.driver_id != null && root.child('driver_assignments').child(auth.token.driver_id).val() != null && ($truckId === '' + root.child('driver_assignments').child(auth.token.driver_id).val() || $truckId == root.child('driver_assignments').child(auth.token.driver_id).val())))",
           ".validate": "newData.val() == null || (newData.isNumber() && newData.val() >= 0 && newData.val() <= 300)"
         },
         "heading": {
-          ".write": "auth != null && (auth.token.role === 'ADMIN' || auth.token.role === 'admin' || (auth.token.role === 'DRIVER' && (auth.token.truck_id == $truckId || auth.token.truck_id == '' + $truckId)))",
+          ".write": "auth != null && (auth.token.role === 'ADMIN' || auth.token.role === 'admin' || (auth.token.role === 'DRIVER' && auth.token.driver_id != null && root.child('driver_assignments').child(auth.token.driver_id).val() != null && ($truckId === '' + root.child('driver_assignments').child(auth.token.driver_id).val() || $truckId == root.child('driver_assignments').child(auth.token.driver_id).val())))",
           ".validate": "newData.val() == null || (newData.isNumber() && newData.val() >= 0 && newData.val() <= 360)"
         },
         "accuracy": {
-          ".write": "auth != null && (auth.token.role === 'ADMIN' || auth.token.role === 'admin' || (auth.token.role === 'DRIVER' && (auth.token.truck_id == $truckId || auth.token.truck_id == '' + $truckId)))",
+          ".write": "auth != null && (auth.token.role === 'ADMIN' || auth.token.role === 'admin' || (auth.token.role === 'DRIVER' && auth.token.driver_id != null && root.child('driver_assignments').child(auth.token.driver_id).val() != null && ($truckId === '' + root.child('driver_assignments').child(auth.token.driver_id).val() || $truckId == root.child('driver_assignments').child(auth.token.driver_id).val())))",
           ".validate": "newData.val() == null || (newData.isNumber() && newData.val() >= 0)"
         },
         "status": {
-          ".write": "auth != null && (auth.token.role === 'ADMIN' || auth.token.role === 'admin' || (auth.token.role === 'DRIVER' && (auth.token.truck_id == $truckId || auth.token.truck_id == '' + $truckId)))",
+          ".write": "auth != null && (auth.token.role === 'ADMIN' || auth.token.role === 'admin' || (auth.token.role === 'DRIVER' && auth.token.driver_id != null && root.child('driver_assignments').child(auth.token.driver_id).val() != null && ($truckId === '' + root.child('driver_assignments').child(auth.token.driver_id).val() || $truckId == root.child('driver_assignments').child(auth.token.driver_id).val())))",
           ".validate": "newData.isString() && (newData.val() === 'online' || newData.val() === 'offline' || newData.val() === 'active')"
         },
         "lastUpdated": {
-          ".write": "auth != null && (auth.token.role === 'ADMIN' || auth.token.role === 'admin' || (auth.token.role === 'DRIVER' && (auth.token.truck_id == $truckId || auth.token.truck_id == '' + $truckId)))",
+          ".write": "auth != null && (auth.token.role === 'ADMIN' || auth.token.role === 'admin' || (auth.token.role === 'DRIVER' && auth.token.driver_id != null && root.child('driver_assignments').child(auth.token.driver_id).val() != null && ($truckId === '' + root.child('driver_assignments').child(auth.token.driver_id).val() || $truckId == root.child('driver_assignments').child(auth.token.driver_id).val())))",
           ".validate": "newData.val() == null || newData.isNumber() || newData.isString()"
         },
         "lastStopAction": {
-          ".write": "auth != null && (auth.token.role === 'ADMIN' || auth.token.role === 'admin' || (auth.token.role === 'DRIVER' && (auth.token.truck_id == $truckId || auth.token.truck_id == '' + $truckId)))",
+          ".write": "auth != null && (auth.token.role === 'ADMIN' || auth.token.role === 'admin' || (auth.token.role === 'DRIVER' && auth.token.driver_id != null && root.child('driver_assignments').child(auth.token.driver_id).val() != null && ($truckId === '' + root.child('driver_assignments').child(auth.token.driver_id).val() || $truckId == root.child('driver_assignments').child(auth.token.driver_id).val())))",
           ".validate": "newData.val() == null || newData.isNumber()"
         },
         "timestamp": {
-          ".write": "auth != null && (auth.token.role === 'ADMIN' || auth.token.role === 'admin' || (auth.token.role === 'DRIVER' && (auth.token.truck_id == $truckId || auth.token.truck_id == '' + $truckId)))",
+          ".write": "auth != null && (auth.token.role === 'ADMIN' || auth.token.role === 'admin' || (auth.token.role === 'DRIVER' && auth.token.driver_id != null && root.child('driver_assignments').child(auth.token.driver_id).val() != null && ($truckId === '' + root.child('driver_assignments').child(auth.token.driver_id).val() || $truckId == root.child('driver_assignments').child(auth.token.driver_id).val())))",
           ".validate": "newData.val() == null || newData.isNumber() || newData.isString()"
         },
         
         "latest_alert": {
-          ".read": "auth != null && (auth.token.role === 'ADMIN' || auth.token.role === 'admin' || (auth.token.role === 'DRIVER' && (auth.token.truck_id == $truckId || auth.token.truck_id == '' + $truckId)))",
+          ".read": "auth != null && (auth.token.role === 'ADMIN' || auth.token.role === 'admin' || (auth.token.role === 'DRIVER' && auth.token.driver_id != null && root.child('driver_assignments').child(auth.token.driver_id).val() != null && ($truckId === '' + root.child('driver_assignments').child(auth.token.driver_id).val() || $truckId == root.child('driver_assignments').child(auth.token.driver_id).val())))",
           ".write": "auth != null && (auth.token.role === 'ADMIN' || auth.token.role === 'admin')",
           "read": {
-            ".write": "auth != null && (auth.token.role === 'ADMIN' || auth.token.role === 'admin' || (auth.token.role === 'DRIVER' && (auth.token.truck_id == $truckId || auth.token.truck_id == '' + $truckId)))",
+            ".write": "auth != null && (auth.token.role === 'ADMIN' || auth.token.role === 'admin' || (auth.token.role === 'DRIVER' && auth.token.driver_id != null && root.child('driver_assignments').child(auth.token.driver_id).val() != null && ($truckId === '' + root.child('driver_assignments').child(auth.token.driver_id).val() || $truckId == root.child('driver_assignments').child(auth.token.driver_id).val())))",
             ".validate": "newData.isBoolean()"
           }
         },
         
         "messages": {
           "$messageId": {
-            ".write": "auth != null && (auth.token.role === 'ADMIN' || auth.token.role === 'admin' || (auth.token.role === 'DRIVER' && (auth.token.truck_id == $truckId || auth.token.truck_id == '' + $truckId) && (!data.exists() && newData.child('sender').val() === 'driver')))",
+            ".write": "auth != null && (auth.token.role === 'ADMIN' || auth.token.role === 'admin' || (auth.token.role === 'DRIVER' && auth.token.driver_id != null && root.child('driver_assignments').child(auth.token.driver_id).val() != null && ($truckId === '' + root.child('driver_assignments').child(auth.token.driver_id).val() || $truckId == root.child('driver_assignments').child(auth.token.driver_id).val()) && (!data.exists() && newData.child('sender').val() === 'driver')))",
             ".validate": "newData.hasChildren(['sender', 'text', 'timestamp'])",
             "sender": {
               ".validate": "newData.isString() && (newData.val() === 'driver' || newData.val() === 'admin')"
@@ -80,7 +89,7 @@
               ".validate": "newData.isNumber() && newData.val() > 0"
             },
             "read": {
-              ".write": "auth != null && (auth.token.role === 'ADMIN' || auth.token.role === 'admin' || (auth.token.role === 'DRIVER' && (auth.token.truck_id == $truckId || auth.token.truck_id == '' + $truckId) && newData.val() === true))",
+              ".write": "auth != null && (auth.token.role === 'ADMIN' || auth.token.role === 'admin' || (auth.token.role === 'DRIVER' && auth.token.driver_id != null && root.child('driver_assignments').child(auth.token.driver_id).val() != null && ($truckId === '' + root.child('driver_assignments').child(auth.token.driver_id).val() || $truckId == root.child('driver_assignments').child(auth.token.driver_id).val()) && newData.val() === true))",
               ".validate": "newData.isBoolean()"
             },
             "$other": {
@@ -143,13 +152,13 @@
     "routes": {
       ".read": "auth != null && (auth.token.role === 'ADMIN' || auth.token.role === 'admin')",
       "$routeKey": {
-        ".read": "auth != null && (auth.token.role === 'ADMIN' || auth.token.role === 'admin' || (auth.token.role === 'DRIVER' && ($routeKey === 'route_' + auth.token.truck_id || $routeKey === 'route_' + auth.token.truck_id + '')))",
+        ".read": "auth != null && (auth.token.role === 'ADMIN' || auth.token.role === 'admin' || (auth.token.role === 'DRIVER' && auth.token.driver_id != null && root.child('driver_assignments').child(auth.token.driver_id).val() != null && $routeKey === 'route_' + root.child('driver_assignments').child(auth.token.driver_id).val()))",
         ".write": "auth != null && (auth.token.role === 'ADMIN' || auth.token.role === 'admin')",
         "stops": {
           "$stopId": {
             ".write": "auth != null && (auth.token.role === 'ADMIN' || auth.token.role === 'admin')",
             "status": {
-              ".write": "auth != null && (auth.token.role === 'ADMIN' || auth.token.role === 'admin' || (auth.token.role === 'DRIVER' && ($routeKey === 'route_' + auth.token.truck_id || $routeKey === 'route_' + auth.token.truck_id + '')))",
+              ".write": "auth != null && (auth.token.role === 'ADMIN' || auth.token.role === 'admin' || (auth.token.role === 'DRIVER' && auth.token.driver_id != null && root.child('driver_assignments').child(auth.token.driver_id).val() != null && $routeKey === 'route_' + root.child('driver_assignments').child(auth.token.driver_id).val()))",
               ".validate": "newData.isString() && (newData.val() === 'PENDING' || newData.val() === 'COMPLETED' || newData.val() === 'SKIPPED' || newData.val() === 'CANCELLED')"
             }
           }

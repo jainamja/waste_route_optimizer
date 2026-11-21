@@ -22,4 +22,7 @@ master_audit_prompt.txt
 scratch_audit.py
 scratch/
 *.tmp
+*.sync.lock
+*.lock
+instance/backups/
 .DS_Store

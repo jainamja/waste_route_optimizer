@@ -12,11 +12,12 @@ from waste_route_optimizer import (
 
 class RuleContext:
     """Helper to simulate Firebase Realtime Database Security Rule evaluations."""
-    def __init__(self, auth=None, path_vars=None, current_data=None, new_data=None):
+    def __init__(self, auth=None, path_vars=None, current_data=None, new_data=None, root_data=None):
         self.auth = auth
         self.path_vars = path_vars or {}
         self.current_data = current_data
         self.new_data = new_data
+        self.root_data = root_data
 
     def evaluate_rule_expr(self, expr_str, value=None):
         if expr_str is False:
@@ -82,10 +83,36 @@ class RuleContext:
                     return any(k in self._val for k in keys)
                 return False
 
+        class RootSnap:
+            def __init__(self, val):
+                self._val = val
+            def child(self, key):
+                if hasattr(key, 'val'):
+                    key = key.val
+                k = str(key)
+                if isinstance(self._val, dict):
+                    return RootSnap(self._val.get(k))
+                return RootSnap(None)
+            def val(self):
+                if hasattr(self._val, 'val'):
+                    return self._val.val
+                return self._val
+            def exists(self):
+                return self._val is not None
+
+        root_dict = dict(self.root_data) if isinstance(self.root_data, dict) else {}
+        if 'driver_assignments' not in root_dict and self.auth and isinstance(self.auth, dict) and 'token' in self.auth:
+            tok = self.auth.get('token') or {}
+            d_id = tok.get('driver_id')
+            t_id = tok.get('truck_id')
+            if d_id is not None and t_id is not None:
+                root_dict['driver_assignments'] = {str(d_id): str(t_id)}
+
         eval_globals = {
             'auth': AuthObj(self.auth) if self.auth is not None else None,
             'data': DataSnap(self.current_data),
             'newData': DataSnap(value if value is not None else self.new_data),
+            'root': RootSnap(root_dict),
             'null': None,
             'true': True,
             'false': False
@@ -112,6 +139,7 @@ class TestFirebaseSecurity(unittest.TestCase):
 
     def setUp(self):
         self.app = app
+        self.app.config['MOCK_FIREBASE_RTDB_SUCCESS'] = True
         self.client = self.app.test_client()
         self.ctx = self.app.app_context()
         self.ctx.push()
@@ -162,6 +190,7 @@ class TestFirebaseSecurity(unittest.TestCase):
         self.driver2 = d2
 
     def tearDown(self):
+        self.app.config.pop('MOCK_FIREBASE_RTDB_SUCCESS', None)
         self.ctx.pop()
 
     @classmethod
@@ -480,6 +509,84 @@ class TestFirebaseSecurity(unittest.TestCase):
         self.assertFalse(ctx_other.evaluate_rule_expr(loc_rule['.read']))
         self.assertFalse(ctx_other.evaluate_rule_expr(loc_rule['.write']))
         self.assertFalse(ctx_other.evaluate_rule_expr(loc_rule['currentLat']['.write']))
+
+    def test_rules_immediate_reassignment_revocation(self):
+        # Driver 1 has stale token with truck_id: 71
+        d1_auth = {
+            'uid': f'user_{self.driver1.id}',
+            'token': {'role': 'DRIVER', 'driver_id': str(self.driver1.id), 'truck_id': '71'}
+        }
+        truck_rule = self.rules_json['trucks']['$truckId']
+
+        # 1. Authoritative assignment in RTDB matches truck 71 -> ALLOWED
+        ctx_assigned_71 = RuleContext(
+            auth=d1_auth,
+            path_vars={'truckId': '71'},
+            root_data={'driver_assignments': {str(self.driver1.id): '71'}}
+        )
+        self.assertTrue(ctx_assigned_71.evaluate_rule_expr(truck_rule['.read']))
+        self.assertTrue(ctx_assigned_71.evaluate_rule_expr(truck_rule['currentLat']['.write']))
+
+        # 2. Admin reassigns Driver 1 to Truck 75 in RTDB driver_assignments
+        # Token still says truck_id: 71, but RTDB says 75
+        ctx_reassigned_75_old_truck = RuleContext(
+            auth=d1_auth,
+            path_vars={'truckId': '71'},
+            root_data={'driver_assignments': {str(self.driver1.id): '75'}}
+        )
+        # Immediate Revocation: Old truck is immediately DENIED!
+        self.assertFalse(ctx_reassigned_75_old_truck.evaluate_rule_expr(truck_rule['.read']))
+        self.assertFalse(ctx_reassigned_75_old_truck.evaluate_rule_expr(truck_rule['currentLat']['.write']))
+
+        # New truck 75 is immediately ALLOWED
+        ctx_reassigned_75_new_truck = RuleContext(
+            auth=d1_auth,
+            path_vars={'truckId': '75'},
+            root_data={'driver_assignments': {str(self.driver1.id): '75'}}
+        )
+        self.assertTrue(ctx_reassigned_75_new_truck.evaluate_rule_expr(truck_rule['.read']))
+        self.assertTrue(ctx_reassigned_75_new_truck.evaluate_rule_expr(truck_rule['currentLat']['.write']))
+
+        # 3. Unassigned driver (no entry in driver_assignments) -> DENIED on both
+        ctx_unassigned = RuleContext(
+            auth=d1_auth,
+            path_vars={'truckId': '71'},
+            root_data={'driver_assignments': {}}
+        )
+        self.assertFalse(ctx_unassigned.evaluate_rule_expr(truck_rule['.read']))
+        self.assertFalse(ctx_unassigned.evaluate_rule_expr(truck_rule['currentLat']['.write']))
+
+    def test_rules_driver_assignments_access_control(self):
+        d1_auth = {
+            'uid': f'user_{self.driver1.id}',
+            'token': {'role': 'DRIVER', 'driver_id': str(self.driver1.id), 'truck_id': '71'}
+        }
+        admin_auth = {
+            'uid': f'user_{self.admin.id}',
+            'token': {'role': 'ADMIN', 'admin_id': str(self.admin.id)}
+        }
+        da_rules = self.rules_json['driver_assignments']
+
+        # Driver cannot read all driver assignments
+        ctx_driver = RuleContext(auth=d1_auth)
+        self.assertFalse(ctx_driver.evaluate_rule_expr(da_rules['.read']))
+
+        # Driver can read their own driver assignment
+        ctx_driver_own = RuleContext(auth=d1_auth, path_vars={'driverId': str(self.driver1.id)})
+        self.assertTrue(ctx_driver_own.evaluate_rule_expr(da_rules['$driverId']['.read']))
+
+        # Driver cannot read another driver's assignment
+        ctx_driver_other = RuleContext(auth=d1_auth, path_vars={'driverId': str(self.driver2.id)})
+        self.assertFalse(ctx_driver_other.evaluate_rule_expr(da_rules['$driverId']['.read']))
+
+        # Driver cannot write to driver assignments
+        self.assertFalse(ctx_driver_own.evaluate_rule_expr(da_rules['$driverId']['.write']))
+
+        # Admin can read all driver assignments and write
+        ctx_admin = RuleContext(auth=admin_auth)
+        ctx_admin_single = RuleContext(auth=admin_auth, path_vars={'driverId': str(self.driver1.id)})
+        self.assertTrue(ctx_admin.evaluate_rule_expr(da_rules['.read']))
+        self.assertTrue(ctx_admin_single.evaluate_rule_expr(da_rules['$driverId']['.write']))
 
 if __name__ == '__main__':
     unittest.main()

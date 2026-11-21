@@ -93,8 +93,10 @@ CORS(app)
 app.config['UPLOAD_FOLDER'] = 'uploads'
 app.config['MAX_CONTENT_LENGTH'] = 16 * 1024 * 1024  # 16 MB upload limit
 
-# Automatically use PostgreSQL if DATABASE_URL is set, otherwise fall back to local SQLite
+# Automatically use PostgreSQL if DATABASE_URL is set, otherwise detect persistent disk /var/data or fall back to local SQLite
 database_url = os.environ.get('DATABASE_URL')
+if not database_url and os.path.exists('/var/data'):
+    database_url = 'sqlite:////var/data/routes.db'
 if database_url:
     if database_url.startswith('postgres://'):
         database_url = database_url.replace('postgres://', 'postgresql+psycopg2://', 1)
@@ -139,6 +141,8 @@ class User(db.Model):
     truck_id = db.Column(db.Integer)
     name = db.Column(db.String(100))
     assigned_template_id = db.Column(db.Integer, nullable=True)
+    generation_id = db.Column(db.String(36), nullable=True, index=True)
+    assignment_revision = db.Column(db.BigInteger, nullable=False, default=0)
 
 class UrlCoordinateCache(db.Model):
     __tablename__ = 'url_coordinate_cache'
@@ -181,6 +185,38 @@ class SavedTemplate(db.Model):
     customers_json = db.Column(db.Text)
     is_assigned_instance = db.Column(db.Boolean, default=False, index=True)
 
+class AssignmentGlobalSequence(db.Model):
+    __tablename__ = 'assignment_global_sequence'
+    id = db.Column(db.Integer, primary_key=True)
+    current_revision = db.Column(db.BigInteger, nullable=False, default=1)
+
+class DriverLifecycleLedger(db.Model):
+    __tablename__ = 'driver_lifecycle_ledger'
+    generation_id = db.Column(db.String(36), primary_key=True)
+    driver_id = db.Column(db.Integer, nullable=False, index=True)
+    is_active = db.Column(db.Boolean, nullable=False, default=True)
+    created_at = db.Column(db.DateTime, server_default=db.func.now())
+    deleted_at = db.Column(db.DateTime, nullable=True)
+    last_revision = db.Column(db.BigInteger, nullable=False, default=0)
+
+class AssignmentOutbox(db.Model):
+    __tablename__ = 'assignment_outbox'
+    id = db.Column(db.Integer, primary_key=True)
+    op_id = db.Column(db.String(36), index=True, nullable=True)
+    driver_id = db.Column(db.Integer, nullable=False, index=True)
+    generation_id = db.Column(db.String(36), nullable=True, index=True)
+    revision = db.Column(db.BigInteger, nullable=False, default=0, index=True)
+    target_truck = db.Column(db.Integer, nullable=True)
+    previous_truck = db.Column(db.Integer, nullable=True)
+    mutation_type = db.Column(db.String(30), nullable=True)
+    action = db.Column(db.String(20), nullable=True)
+    affected_drivers_json = db.Column(db.Text, nullable=True)
+    status = db.Column(db.String(30), default='PREPARED', index=True)
+    version = db.Column(db.Integer, default=1, nullable=False)
+    last_error = db.Column(db.Text, nullable=True)
+    created_at = db.Column(db.DateTime, server_default=db.func.now())
+    updated_at = db.Column(db.DateTime, server_default=db.func.now(), onupdate=db.func.now())
+
 with app.app_context():
     db.create_all()
     
@@ -189,6 +225,129 @@ with app.app_context():
         db.session.execute(text("CREATE INDEX IF NOT EXISTS ix_customers_truck_id ON customers (truck_id);"))
         db.session.execute(text("CREATE INDEX IF NOT EXISTS ix_customers_status ON customers (status);"))
         db.session.execute(text("CREATE INDEX IF NOT EXISTS ix_saved_templates_assigned ON saved_templates (is_assigned_instance);"))
+        db.session.execute(text("CREATE INDEX IF NOT EXISTS ix_assignment_outbox_driver_id ON assignment_outbox (driver_id);"))
+        db.session.execute(text("CREATE INDEX IF NOT EXISTS ix_assignment_outbox_status ON assignment_outbox (status);"))
+        db.session.commit()
+    except Exception:
+        db.session.rollback()
+
+    try:
+        db.session.execute(text("CREATE TABLE IF NOT EXISTS assignment_global_sequence (id INTEGER PRIMARY KEY, current_revision BIGINT NOT NULL DEFAULT 1);"))
+        db.session.execute(text("INSERT OR IGNORE INTO assignment_global_sequence (id, current_revision) VALUES (1, 1);"))
+        # Align sequence current_revision to be strictly >= maximum of all existing table revisions
+        try:
+            db.session.execute(text("""
+                UPDATE assignment_global_sequence 
+                SET current_revision = MAX(
+                    current_revision,
+                    COALESCE((SELECT MAX(assignment_revision) FROM users), 1),
+                    COALESCE((SELECT MAX(revision) FROM assignment_outbox), 1),
+                    COALESCE((SELECT MAX(last_revision) FROM driver_lifecycle_ledger), 1)
+                )
+                WHERE id = 1;
+            """))
+        except Exception:
+            pass
+        db.session.commit()
+    except Exception:
+        db.session.rollback()
+
+    try:
+        db.session.execute(text("CREATE TABLE IF NOT EXISTS driver_lifecycle_ledger (generation_id VARCHAR(36) PRIMARY KEY, driver_id INTEGER NOT NULL, is_active BOOLEAN NOT NULL DEFAULT 1, created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP, deleted_at TIMESTAMP NULL, last_revision BIGINT NOT NULL DEFAULT 0);"))
+        db.session.execute(text("CREATE INDEX IF NOT EXISTS ix_lifecycle_driver_id ON driver_lifecycle_ledger (driver_id);"))
+        db.session.commit()
+    except Exception:
+        db.session.rollback()
+
+    try:
+        db.session.execute(text("ALTER TABLE users ADD COLUMN generation_id VARCHAR(36);"))
+        db.session.commit()
+    except Exception:
+        db.session.rollback()
+
+    try:
+        db.session.execute(text("ALTER TABLE users ADD COLUMN assignment_revision BIGINT DEFAULT 0;"))
+        db.session.commit()
+    except Exception:
+        db.session.rollback()
+
+    try:
+        db.session.execute(text("ALTER TABLE assignment_outbox ADD COLUMN generation_id VARCHAR(36);"))
+        db.session.commit()
+    except Exception:
+        db.session.rollback()
+
+    try:
+        db.session.execute(text("ALTER TABLE assignment_outbox ADD COLUMN revision BIGINT DEFAULT 0;"))
+        db.session.commit()
+    except Exception:
+        db.session.rollback()
+
+    try:
+        db.session.execute(text("ALTER TABLE assignment_outbox ADD COLUMN action VARCHAR(20);"))
+        db.session.commit()
+    except Exception:
+        db.session.rollback()
+
+    try:
+        db.session.execute(text("CREATE INDEX IF NOT EXISTS ix_assignment_outbox_driver_rev ON assignment_outbox (driver_id, revision);"))
+        db.session.execute(text("CREATE INDEX IF NOT EXISTS ix_assignment_outbox_generation ON assignment_outbox (generation_id);"))
+        db.session.commit()
+    except Exception:
+        db.session.rollback()
+
+    try:
+        # Backfill any existing driver without generation_id
+        import uuid as _uuid
+        drivers_to_init = User.query.filter_by(role='DRIVER').filter((User.generation_id == None) | (User.generation_id == '')).all()
+        for _d in drivers_to_init:
+            _gid = _uuid.uuid4().hex
+            _d.generation_id = _gid
+            _d.assignment_revision = max(_d.assignment_revision or 0, 1)
+            _led = DriverLifecycleLedger.query.filter_by(generation_id=_gid).first()
+            if not _led:
+                db.session.add(DriverLifecycleLedger(
+                    generation_id=_gid,
+                    driver_id=_d.id,
+                    is_active=True,
+                    last_revision=_d.assignment_revision
+                ))
+        db.session.commit()
+    except Exception:
+        db.session.rollback()
+
+    try:
+        db.session.execute(text("ALTER TABLE assignment_outbox ADD COLUMN op_id VARCHAR(36);"))
+        db.session.commit()
+    except Exception:
+        db.session.rollback()
+
+    try:
+        db.session.execute(text("ALTER TABLE assignment_outbox ADD COLUMN previous_truck INTEGER;"))
+        db.session.commit()
+    except Exception:
+        db.session.rollback()
+
+    try:
+        db.session.execute(text("ALTER TABLE assignment_outbox ADD COLUMN mutation_type VARCHAR(30);"))
+        db.session.commit()
+    except Exception:
+        db.session.rollback()
+
+    try:
+        db.session.execute(text("ALTER TABLE assignment_outbox ADD COLUMN affected_drivers_json TEXT;"))
+        db.session.commit()
+    except Exception:
+        db.session.rollback()
+
+    try:
+        db.session.execute(text("ALTER TABLE assignment_outbox ADD COLUMN version INTEGER DEFAULT 1;"))
+        db.session.commit()
+    except Exception:
+        db.session.rollback()
+
+    try:
+        db.session.execute(text("CREATE INDEX IF NOT EXISTS ix_assignment_outbox_op_id ON assignment_outbox (op_id);"))
         db.session.commit()
     except Exception:
         db.session.rollback()
@@ -1203,9 +1362,7 @@ def create_firebase_custom_token(user):
     elif user.role == 'DRIVER':
         claims['role'] = 'DRIVER'
         claims['driver_id'] = str(user.id)
-        if user.truck_id is None:
-            ensure_driver_truck_assignments()
-            db.session.refresh(user)
+        # Token issuance must NEVER auto-assign an unassigned driver
         claims['truck_id'] = str(user.truck_id) if user.truck_id is not None else None
     else:
         raise ValueError(f"Unauthorized role '{user.role}' for Firebase access")
@@ -1213,6 +1370,749 @@ def create_firebase_custom_token(user):
     token_bytes = fb_auth.create_custom_token(uid, developer_claims=claims, app=admin_app)
     token_str = token_bytes.decode('utf-8') if isinstance(token_bytes, bytes) else token_bytes
     return token_str, claims
+
+import os
+import sys
+import threading
+import time
+import uuid
+from contextlib import contextmanager
+from sqlalchemy import text
+
+assignment_sync_lock = threading.RLock()
+
+class CrossProcessFileLock:
+    """
+    Robust cross-process file lock for SQLite database coordination.
+    Uses msvcrt on Windows and fcntl on Linux/Unix.
+    """
+    def __init__(self, lock_path=None, timeout=10.0):
+        if not lock_path:
+            db_uri = app.config.get('SQLALCHEMY_DATABASE_URI', '')
+            if 'sqlite:///' in db_uri:
+                clean_path = db_uri.replace('sqlite:///', '')
+                lock_path = clean_path + '.sync.lock'
+            else:
+                base_dir = os.path.dirname(os.path.abspath(__file__))
+                lock_path = os.path.join(base_dir, 'instance', 'assignment_sync.lock')
+        self.lock_path = lock_path
+        self.timeout = timeout
+        self.fd = None
+
+    def acquire(self):
+        start = time.time()
+        try:
+            os.makedirs(os.path.dirname(os.path.abspath(self.lock_path)), exist_ok=True)
+            self.fd = os.open(self.lock_path, os.O_CREAT | os.O_RDWR)
+        except Exception:
+            return False
+        while True:
+            try:
+                if sys.platform == 'win32':
+                    import msvcrt
+                    msvcrt.locking(self.fd, msvcrt.LK_NBLCK, 1)
+                else:
+                    import fcntl
+                    fcntl.flock(self.fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+                return True
+            except (BlockingIOError, PermissionError, OSError):
+                if time.time() - start >= self.timeout:
+                    app.logger.warning(f"Timeout waiting for cross-process lock on {self.lock_path}")
+                    break
+                time.sleep(0.02)
+        return False
+
+    def release(self):
+        if self.fd is not None:
+            try:
+                if sys.platform == 'win32':
+                    import msvcrt
+                    try:
+                        msvcrt.locking(self.fd, msvcrt.LK_UNLCK, 1)
+                    except OSError:
+                        pass
+                else:
+                    import fcntl
+                    fcntl.flock(self.fd, fcntl.LOCK_UN)
+            finally:
+                try:
+                    os.close(self.fd)
+                except OSError:
+                    pass
+                self.fd = None
+
+    def __enter__(self):
+        self.acquire()
+        return self
+
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        self.release()
+
+@contextmanager
+def assignment_coordination_guard():
+    """
+    Unified cross-thread and cross-process coordination guard for driver assignment mutations.
+    Acquires local process RLock, OS-level cross-process file lock, and database advisory lock.
+    """
+    with assignment_sync_lock:
+        with CrossProcessFileLock():
+            is_postgres = False
+            try:
+                bind = db.session.get_bind()
+                if bind and 'postgres' in bind.dialect.name.lower():
+                    is_postgres = True
+                    db.session.execute(text("SELECT pg_advisory_lock(hashtext('assignment_sync_guard'))"))
+            except Exception as e:
+                app.logger.debug(f"Advisory lock check notice: {e}")
+
+            try:
+                yield
+            finally:
+                if is_postgres:
+                    try:
+                        db.session.execute(text("SELECT pg_advisory_unlock(hashtext('assignment_sync_guard'))"))
+                    except Exception as e:
+                        app.logger.debug(f"Advisory unlock notice: {e}")
+
+def allocate_next_assignment_revision():
+    """
+    Atomically allocates the next monotonically increasing assignment sequence revision.
+    Uses direct database connection from engine to avoid interfering with transaction session state.
+    FAILS CLOSED if database allocation fails — NEVER returns a fabricated timestamp revision.
+    """
+    with assignment_sync_lock:
+        last_alloc_err = None
+        try:
+            with db.engine.connect() as conn:
+                res = conn.execute(text("UPDATE assignment_global_sequence SET current_revision = current_revision + 1 WHERE id = 1 RETURNING current_revision"))
+                row = res.fetchone()
+                if row:
+                    conn.commit()
+                    return int(row[0])
+        except Exception as e:
+            last_alloc_err = e
+
+        try:
+            with db.engine.connect() as conn:
+                res = conn.execute(text("SELECT current_revision FROM assignment_global_sequence WHERE id = 1"))
+                row = res.fetchone()
+                curr = row[0] if row else 1
+                new_rev = int(curr) + 1
+                conn.execute(text(f"UPDATE assignment_global_sequence SET current_revision = {new_rev} WHERE id = 1"))
+                conn.commit()
+                return new_rev
+        except Exception as e:
+            last_alloc_err = e
+
+        app.logger.critical(f"FATAL: Database assignment sequence allocation failure: {last_alloc_err}")
+        raise RuntimeError(f"Database assignment sequence allocation failure: {last_alloc_err}")
+
+def set_driver_rtdb_assignment_conditional(driver_id, truck_id=None, generation_id=None, revision=None, retries=2, timeout=4):
+    """
+    Conditional ETag mutation helper for /driver_assignments/{driver_id}.
+    Guarantees:
+    1. Authority & lifecycle validation before network calls and re-verified on every retry attempt.
+    2. Mandatory valid ETag and If-Match conditional update matching current node ETag.
+    3. Rejection of unexpected GET status codes (500, 502, 503, etc.) - fails closed without mutation.
+    4. Rejection of missing/empty ETags - fails closed without unconditioned mutation.
+    5. Immediate terminal abort on HTTP 412 (never fetches fresh ETag to overwrite newer state).
+    6. Revalidation of authoritative SQLite state before any retry to prevent stale overwrites.
+    7. Idempotent early-return if node already matches desired state.
+    """
+    if app.config.get('MOCK_FIREBASE_RTDB_FAILURE'):
+        return False, app.config.get('MOCK_FIREBASE_RTDB_FAILURE')
+    if app.config.get('MOCK_FIREBASE_RTDB_SUCCESS', False):
+        return True, "OK"
+
+    did = int(driver_id)
+    target_val = int(truck_id) if truck_id is not None else None
+
+    # 1. Authority and lifecycle checks
+    if generation_id:
+        led = DriverLifecycleLedger.query.filter_by(generation_id=generation_id).first()
+        if led:
+            if target_val is not None and not led.is_active:
+                return False, f"REJECTED_LIFECYCLE_INACTIVE: Driver generation {generation_id} is deleted."
+            if revision is not None and led.last_revision and led.last_revision > revision:
+                return False, f"REJECTED_STALE_REVISION: Ledger revision {led.last_revision} > incoming {revision}."
+
+    driver = db.session.get(User, did)
+    if driver and driver.role == 'DRIVER':
+        if generation_id and driver.generation_id and driver.generation_id != generation_id:
+            return False, f"REJECTED_GENERATION_MISMATCH: Authoritative driver generation is {driver.generation_id}, not {generation_id}."
+        if revision is not None and driver.assignment_revision and driver.assignment_revision > revision:
+            return False, f"REJECTED_STALE_REVISION: Driver revision {driver.assignment_revision} > incoming {revision}."
+    elif driver and driver.role != 'DRIVER':
+        return False, f"REJECTED_ROLE: User {did} is not a driver."
+
+    id_token = get_firebase_token()
+    if not id_token:
+        return False, "No Firebase admin token available"
+    firebase_url = "https://wasteroutelive-default-rtdb.firebaseio.com"
+    node_url = f"{firebase_url}/driver_assignments/{did}.json"
+
+    import requests
+    import time
+
+    last_err = "Unknown error"
+    for attempt in range(retries + 1):
+        # On retry attempts, revalidate authoritative SQLite state to prevent ambiguous timeout stale overwrites
+        if attempt > 0:
+            try:
+                db.session.expire_all()
+                if generation_id:
+                    led_retry = DriverLifecycleLedger.query.filter_by(generation_id=generation_id).first()
+                    if led_retry:
+                        if target_val is not None and not led_retry.is_active:
+                            return False, f"REJECTED_LIFECYCLE_INACTIVE_ON_RETRY: Driver generation {generation_id} is deleted."
+                        if revision is not None and led_retry.last_revision and led_retry.last_revision > revision:
+                            return False, f"REJECTED_STALE_REVISION_ON_RETRY: Ledger revision {led_retry.last_revision} > incoming {revision}."
+
+                driver_retry = db.session.get(User, did)
+                if driver_retry and driver_retry.role == 'DRIVER':
+                    if generation_id and driver_retry.generation_id and driver_retry.generation_id != generation_id:
+                        return False, f"REJECTED_GENERATION_MISMATCH_ON_RETRY: Driver generation is {driver_retry.generation_id}, not {generation_id}."
+                    if revision is not None and driver_retry.assignment_revision and driver_retry.assignment_revision > revision:
+                        return False, f"REJECTED_STALE_REVISION_ON_RETRY: Driver revision {driver_retry.assignment_revision} > incoming {revision}."
+                elif driver_retry and driver_retry.role != 'DRIVER':
+                    return False, f"REJECTED_ROLE_ON_RETRY: User {did} is not a driver."
+            except Exception as _reval_err:
+                app.logger.warning(f"Notice during retry authority revalidation for driver {did}: {_reval_err}")
+
+        try:
+            # Fetch current node state and ETag
+            get_resp = requests.get(f"{node_url}?auth={id_token}", timeout=timeout)
+            etag = None
+            if get_resp.status_code == 200:
+                current_val = get_resp.json()
+                etag = get_resp.headers.get('ETag') or get_resp.headers.get('etag')
+                if current_val == target_val:
+                    return True, "OK"
+            elif get_resp.status_code == 404:
+                if target_val is None:
+                    return True, "OK"
+                etag = get_resp.headers.get('ETag') or get_resp.headers.get('etag')
+            else:
+                # Unexpected GET status code (500, 502, 503, 401, etc.) - FAIL CLOSED
+                last_err = f"UNEXPECTED_GET_STATUS_{get_resp.status_code}: {get_resp.text[:100]}"
+                if attempt < retries:
+                    time.sleep(0.05 * (2 ** attempt))
+                    continue
+                return False, last_err
+
+            # Strictly require valid non-empty ETag for all conditional mutations
+            if not etag or not str(etag).strip():
+                last_err = "MISSING_ETAG_PRECONDITION_UNSATISFIABLE: Firebase GET returned no valid ETag header"
+                if attempt < retries:
+                    time.sleep(0.05 * (2 ** attempt))
+                    continue
+                return False, last_err
+
+            headers = {'if-match': str(etag).strip()}
+
+            if target_val is not None:
+                res = requests.put(f"{node_url}?auth={id_token}", json=target_val, headers=headers, timeout=timeout)
+            else:
+                res = requests.delete(f"{node_url}?auth={id_token}", headers=headers, timeout=timeout)
+
+            if res.status_code in (200, 204):
+                if generation_id and revision is not None:
+                    try:
+                        led = DriverLifecycleLedger.query.filter_by(generation_id=generation_id).first()
+                        if led:
+                            led.last_revision = max(led.last_revision or 0, revision)
+                            db.session.commit()
+                    except Exception:
+                        pass
+                return True, "OK"
+
+            if res.status_code == 412:
+                # Precondition failed: another operation committed newer state. TERMINAL ABORT.
+                return False, "CONFLICT_412_PRECONDITION_FAILED"
+
+            if res.status_code in (401, 403):
+                return False, f"AUTH_ERROR_HTTP_{res.status_code}"
+
+            last_err = f"Firebase RTDB returned HTTP {res.status_code}"
+        except Exception as e:
+            last_err = str(e)
+
+        if attempt < retries:
+            time.sleep(0.05 * (2 ** attempt))
+
+    app.logger.warning(f"Failed conditional RTDB assignment for driver {did} to {target_val}: {last_err}")
+    return False, last_err
+
+def set_driver_rtdb_assignment(driver_id, truck_id=None, retries=2, timeout=4, generation_id=None, revision=None):
+    """
+    Synchronizes an authoritative driver assignment to Firebase RTDB /driver_assignments/{driver_id}.
+    Routes to set_driver_rtdb_assignment_conditional with monotonic sequence revision
+    and immutable generation verification.
+    """
+    if generation_id is None or revision is None:
+        try:
+            driver = db.session.get(User, int(driver_id))
+            if driver:
+                generation_id = generation_id or driver.generation_id
+                revision = revision if revision is not None else driver.assignment_revision
+            else:
+                led = DriverLifecycleLedger.query.filter_by(driver_id=int(driver_id)).order_by(DriverLifecycleLedger.created_at.desc()).first()
+                if led:
+                    generation_id = generation_id or led.generation_id
+                    revision = revision if revision is not None else led.last_revision
+        except Exception:
+            pass
+    return set_driver_rtdb_assignment_conditional(
+        driver_id=driver_id,
+        truck_id=truck_id,
+        generation_id=generation_id,
+        revision=revision,
+        retries=retries,
+        timeout=timeout
+    )
+
+def stage_assignment_intent(op_id, mutation_type, affected_drivers_map, commit=False):
+    """
+    Persists durable operation intent in SQLite before any external Firebase call.
+    affected_drivers_map: dict of str(driver_id) -> {
+        'old_truck': int or None,
+        'target_truck': int or None,
+        'action': 'GRANT' | 'REVOKE' | 'DELETE' | 'CREATE',
+        'generation_id': str (optional),
+        'revision': int (optional)
+    }
+    """
+    try:
+        import json
+        for did_raw, details in affected_drivers_map.items():
+            did = int(did_raw)
+            old_truck = details.get('old_truck')
+            target_truck = details.get('target_truck')
+            action = details.get('action')
+            gen_id = details.get('generation_id')
+            rev = details.get('revision') or 0
+
+            if not gen_id:
+                d = db.session.get(User, did)
+                if d:
+                    gen_id = d.generation_id
+
+            outbox = AssignmentOutbox.query.filter_by(driver_id=did).order_by(AssignmentOutbox.revision.desc()).first()
+            if not outbox:
+                outbox = AssignmentOutbox(
+                    op_id=op_id,
+                    driver_id=did,
+                    generation_id=gen_id,
+                    revision=rev,
+                    target_truck=target_truck,
+                    previous_truck=old_truck,
+                    mutation_type=mutation_type,
+                    action=action,
+                    affected_drivers_json=json.dumps(affected_drivers_map),
+                    status='PREPARED',
+                    version=1,
+                    last_error=None
+                )
+                db.session.add(outbox)
+            else:
+                if rev and outbox.revision:
+                    if outbox.revision > rev:
+                        app.logger.warning(f"Skipping outbox staging for driver {did}: existing revision {outbox.revision} > incoming {rev}")
+                        continue
+                    if outbox.revision == rev and outbox.op_id and outbox.op_id != op_id:
+                        app.logger.warning(f"Skipping outbox staging for driver {did}: revision {rev} conflict between {outbox.op_id} and {op_id}")
+                        continue
+                if gen_id and outbox.generation_id and outbox.generation_id != gen_id:
+                    app.logger.warning(f"Skipping outbox staging for driver {did}: generation conflict {outbox.generation_id} vs {gen_id}")
+                    continue
+                current_ver = outbox.version or 1
+                outbox.op_id = op_id
+                if gen_id:
+                    outbox.generation_id = gen_id
+                if rev:
+                    outbox.revision = rev
+                outbox.target_truck = target_truck
+                outbox.previous_truck = old_truck
+                outbox.mutation_type = mutation_type
+                outbox.action = action
+                outbox.affected_drivers_json = json.dumps(affected_drivers_map)
+                outbox.status = 'PREPARED'
+                outbox.version = current_ver + 1
+                outbox.last_error = None
+        
+        meta = Metadata.query.filter_by(key='pending_rtdb_sync').first()
+        pending = json.loads(meta.value) if (meta and meta.value) else {}
+        for did_raw, details in affected_drivers_map.items():
+            pending[str(did_raw)] = details.get('target_truck')
+        if not meta:
+            meta = Metadata(key='pending_rtdb_sync', value=json.dumps(pending))
+            db.session.add(meta)
+        else:
+            meta.value = json.dumps(pending)
+
+        if commit:
+            db.session.commit()
+        return True, "OK"
+    except Exception as e:
+        app.logger.warning(f"Error staging assignment intent {op_id}: {e}")
+        try:
+            db.session.rollback()
+        except Exception:
+            pass
+        return False, str(e)
+
+def update_assignment_intent_status(op_id, new_status, driver_id=None, last_error=None, commit=True, generation_id=None, revision=None):
+    """
+    Transitions intent state: PREPARED -> REVOKED -> COMMITTED -> RESOLVED (or FAILED/PENDING).
+    Guarded by op_id, optional generation_id, and optional revision check.
+    """
+    try:
+        q = AssignmentOutbox.query.filter_by(op_id=op_id)
+        if driver_id is not None:
+            q = q.filter_by(driver_id=int(driver_id))
+        if generation_id is not None:
+            q = q.filter_by(generation_id=generation_id)
+        if revision is not None:
+            q = q.filter(AssignmentOutbox.revision <= revision)
+        records = q.all()
+        if not records:
+            return False, f"No records found for op_id {op_id}"
+        
+        for rec in records:
+            rec.status = new_status
+            if last_error is not None:
+                rec.last_error = str(last_error)
+        
+        if commit:
+            db.session.commit()
+        return True, "OK"
+    except Exception as e:
+        app.logger.warning(f"Error updating assignment intent status for op_id {op_id}: {e}")
+        try:
+            db.session.rollback()
+        except Exception:
+            pass
+        return False, str(e)
+
+def complete_assignment_intent(op_id, driver_id=None, version=None, generation_id=None, revision=None, commit=True):
+    """
+    Marks an intent as RESOLVED and prunes it from the active outbox.
+    Protected by op_id and optional version, generation_id, and revision guards.
+    """
+    try:
+        import json
+        q = AssignmentOutbox.query.filter_by(op_id=op_id)
+        if driver_id is not None:
+            q = q.filter_by(driver_id=int(driver_id))
+        if version is not None:
+            q = q.filter_by(version=int(version))
+        if generation_id is not None:
+            q = q.filter_by(generation_id=generation_id)
+        if revision is not None:
+            q = q.filter(AssignmentOutbox.revision <= revision)
+        records = q.all()
+        if not records:
+            return False, f"No matching records for op_id {op_id}"
+        
+        meta = Metadata.query.filter_by(key='pending_rtdb_sync').first()
+        pending = json.loads(meta.value) if (meta and meta.value) else {}
+
+        for rec in records:
+            did_str = str(rec.driver_id)
+            if did_str in pending:
+                del pending[did_str]
+            db.session.delete(rec)
+            
+        if meta:
+            meta.value = json.dumps(pending)
+
+        if commit:
+            db.session.commit()
+        return True, "OK"
+    except Exception as e:
+        app.logger.warning(f"Error completing assignment intent for op_id {op_id}: {e}")
+        try:
+            db.session.rollback()
+        except Exception:
+            pass
+        return False, str(e)
+
+def record_pending_rtdb_assignment(driver_id, truck_id, last_error=None, commit=True, op_id=None, status='PENDING', generation_id=None, revision=None, action=None):
+    """
+    Records an unconfirmed assignment in AssignmentOutbox and Metadata for crash recovery
+    and background reconciliation. Backward-compatible wrapper with monotonic revision guards.
+    """
+    try:
+        import json
+        did = int(driver_id)
+        target = int(truck_id) if truck_id is not None else None
+
+        outbox = AssignmentOutbox.query.filter_by(driver_id=did).order_by(AssignmentOutbox.revision.desc()).first()
+        if not generation_id:
+            d = db.session.get(User, did)
+            if d and d.generation_id:
+                generation_id = d.generation_id
+            elif outbox and outbox.generation_id:
+                generation_id = outbox.generation_id
+
+        if revision is None and outbox and outbox.revision:
+            revision = (outbox.revision or 0) + 1
+
+        if outbox:
+            if revision is not None and outbox.revision:
+                if outbox.revision > revision:
+                    return False, f"Stale revision {revision} rejected (current outbox is {outbox.revision})"
+                if outbox.revision == revision and op_id and outbox.op_id and outbox.op_id != op_id:
+                    return False, f"CONFLICTING_OPERATION_REVISION: Revision {revision} already registered by op_id {outbox.op_id}"
+            if generation_id and outbox.generation_id and outbox.generation_id != generation_id:
+                return False, f"Mismatched generation {generation_id} rejected (current outbox is {outbox.generation_id})"
+
+        if not outbox:
+            current_op = op_id or uuid.uuid4().hex
+            if not generation_id:
+                d = db.session.get(User, did)
+                if d:
+                    generation_id = d.generation_id
+            outbox = AssignmentOutbox(
+                op_id=current_op,
+                driver_id=did,
+                generation_id=generation_id,
+                revision=revision or 0,
+                target_truck=target,
+                action=action,
+                status=status,
+                version=1,
+                last_error=str(last_error) if last_error else None
+            )
+            db.session.add(outbox)
+        else:
+            if op_id:
+                outbox.op_id = op_id
+            if generation_id:
+                outbox.generation_id = generation_id
+            if revision is not None:
+                outbox.revision = max(outbox.revision or 0, revision)
+            if action:
+                outbox.action = action
+            outbox.target_truck = target
+            outbox.status = status
+            outbox.version = (outbox.version or 1) + 1
+            if last_error:
+                outbox.last_error = str(last_error)
+
+        meta = Metadata.query.filter_by(key='pending_rtdb_sync').first()
+        pending = json.loads(meta.value) if (meta and meta.value) else {}
+        pending[str(did)] = target
+        if not meta:
+            meta = Metadata(key='pending_rtdb_sync', value=json.dumps(pending))
+            db.session.add(meta)
+        else:
+            meta.value = json.dumps(pending)
+
+        if commit:
+            db.session.commit()
+        return True, "OK"
+    except Exception as e:
+        app.logger.warning(f"Error recording pending RTDB sync for driver {driver_id}: {e}")
+        try:
+            db.session.rollback()
+        except Exception:
+            pass
+        return False, str(e)
+
+def clear_pending_rtdb_assignment(driver_id, commit=True, op_id=None, version=None, generation_id=None, revision=None):
+    """
+    Clears a resolved assignment from AssignmentOutbox and Metadata.
+    Guarded by op_id, version, generation_id, and revision checks.
+    """
+    try:
+        import json
+        did = int(driver_id)
+
+        outbox = AssignmentOutbox.query.filter_by(driver_id=did).first()
+        if outbox:
+            if op_id and outbox.op_id != op_id:
+                return False, f"Stale op_id {op_id} ignored (current is {outbox.op_id})"
+            if version and outbox.version != version:
+                return False, f"Stale version {version} ignored (current is {outbox.version})"
+            if generation_id and outbox.generation_id and outbox.generation_id != generation_id:
+                return False, f"Stale generation_id {generation_id} ignored (current is {outbox.generation_id})"
+            if revision is not None and outbox.revision and outbox.revision > revision:
+                return False, f"Stale revision {revision} ignored (current is {outbox.revision})"
+            db.session.delete(outbox)
+
+        meta = Metadata.query.filter_by(key='pending_rtdb_sync').first()
+        if meta and meta.value:
+            pending = json.loads(meta.value)
+            if str(did) in pending:
+                del pending[str(did)]
+                meta.value = json.dumps(pending)
+
+        if commit:
+            db.session.commit()
+        return True, "OK"
+    except Exception as e:
+        app.logger.warning(f"Error clearing pending RTDB sync for driver {driver_id}: {e}")
+        try:
+            db.session.rollback()
+        except Exception:
+            pass
+        return False, str(e)
+
+def reconcile_pending_rtdb_assignments():
+    """
+    Safely flushes unconfirmed driver assignments to Firebase RTDB using conditional ETag writes.
+    Serialized with assignment_coordination_guard.
+    """
+    with assignment_coordination_guard():
+        try:
+            import json
+            pending_driver_ids = set()
+            outbox_map = {}
+
+            try:
+                outbox_records = AssignmentOutbox.query.filter(AssignmentOutbox.status != 'RESOLVED').all()
+                for rec in outbox_records:
+                    pending_driver_ids.add(rec.driver_id)
+                    outbox_map[rec.driver_id] = rec
+            except Exception:
+                pass
+
+            meta = Metadata.query.filter_by(key='pending_rtdb_sync').first()
+            if meta and meta.value:
+                try:
+                    pending_json = json.loads(meta.value)
+                    for did_str in pending_json.keys():
+                        try:
+                            pending_driver_ids.add(int(did_str))
+                        except (ValueError, TypeError):
+                            pass
+                except Exception:
+                    pass
+
+            if not pending_driver_ids:
+                return 0, 0
+
+            resolved_ids = []
+            for did in list(pending_driver_ids):
+                driver = db.session.get(User, did)
+                rec = outbox_map.get(did)
+
+                if not driver or driver.role != 'DRIVER':
+                    target_truck = None
+                    led = DriverLifecycleLedger.query.filter_by(driver_id=did).order_by(DriverLifecycleLedger.created_at.desc()).first()
+                    gen_id = led.generation_id if led else (rec.generation_id if rec else None)
+                    rev = led.last_revision if led else (rec.revision if rec else 0)
+                else:
+                    target_truck = driver.truck_id
+                    gen_id = driver.generation_id
+                    rev = driver.assignment_revision
+
+                ok, err = set_driver_rtdb_assignment(did, target_truck, retries=1)
+                if ok:
+                    resolved_ids.append(did)
+                else:
+                    app.logger.warning(f"Reconciliation failed to sync driver {did} to {target_truck}: {err}")
+                    try:
+                        if rec:
+                            rec.last_error = str(err)
+                            rec.status = 'FAILED'
+                            db.session.commit()
+                    except Exception:
+                        db.session.rollback()
+
+            if resolved_ids:
+                try:
+                    for did in resolved_ids:
+                        rec = outbox_map.get(did)
+                        if rec:
+                            db.session.delete(rec)
+
+                    meta = Metadata.query.filter_by(key='pending_rtdb_sync').first()
+                    if meta and meta.value:
+                        current_pending = json.loads(meta.value)
+                        for did in resolved_ids:
+                            current_pending.pop(str(did), None)
+                        meta.value = json.dumps(current_pending)
+
+                    db.session.commit()
+                except Exception as e:
+                    db.session.rollback()
+                    app.logger.error(f"Failed to commit resolved outbox records: {e}")
+
+                remaining = len(pending_driver_ids) - len(resolved_ids)
+                return len(resolved_ids), remaining
+
+            return 0, len(pending_driver_ids)
+        except Exception as e:
+            app.logger.error(f"Error reconciling pending RTDB sync: {e}")
+            try:
+                db.session.rollback()
+            except Exception:
+                pass
+            return 0, 0
+
+def sync_all_driver_assignments_to_firebase(authorized_reconciliation=False):
+    """
+    Safely synchronizes driver assignments from SQLite to Firebase RTDB.
+    Guards against running when active unconfirmed outbox operations exist.
+    Performs per-driver conditional synchronization or multi-path PATCH after resolving pending outbox records.
+    """
+    with assignment_coordination_guard():
+        try:
+            pending_outbox = AssignmentOutbox.query.filter(AssignmentOutbox.status != 'RESOLVED').first()
+            if pending_outbox:
+                rec_count, rem_count = reconcile_pending_rtdb_assignments()
+                if rem_count > 0 and not authorized_reconciliation:
+                    return False, f"Safety guard triggered: {rem_count} unconfirmed outbox operations pending. Bulk sync deferred."
+
+            drivers = User.query.filter_by(role='DRIVER').all()
+            if not drivers:
+                return False, "Safety guard triggered: SQLite driver table is empty. Bulk wipe aborted."
+
+            id_token = get_firebase_token()
+            if not id_token:
+                return False, "No Firebase admin token available"
+            firebase_url = "https://wasteroutelive-default-rtdb.firebaseio.com"
+            import requests
+
+            success_count = 0
+            failed_count = 0
+            for d in drivers:
+                target_truck = d.truck_id if d.truck_id is not None else None
+                if target_truck is None and not authorized_reconciliation:
+                    continue
+                s_ok, s_err = set_driver_rtdb_assignment(
+                    driver_id=d.id,
+                    truck_id=target_truck,
+                    generation_id=d.generation_id,
+                    revision=d.assignment_revision,
+                    retries=1
+                )
+                if s_ok:
+                    success_count += 1
+                else:
+                    failed_count += 1
+                    app.logger.warning(f"Bulk conditional sync for driver {d.id} failed: {s_err}")
+
+            if failed_count == 0:
+                msg = f"Synchronized {success_count} driver assignments conditionally"
+                app.logger.info(msg)
+                return True, msg
+            else:
+                msg = f"Bulk conditional sync partial: {success_count} succeeded, {failed_count} failed"
+                app.logger.warning(msg)
+                return False, msg
+        except Exception as e:
+            app.logger.error(f"Bulk driver assignment synchronization error: {e}")
+            return False, str(e)
+
+# Automatic startup recovery hook for incomplete / interrupted operations
+with app.app_context():
+    try:
+        reconcile_pending_rtdb_assignments()
+    except Exception as _startup_rec_err:
+        app.logger.warning(f"Startup pending RTDB reconciliation notice: {_startup_rec_err}")
 
 @app.route('/api/firebase_custom_token', methods=['GET', 'POST'])
 def api_firebase_custom_token():
@@ -1232,19 +2132,51 @@ def api_firebase_custom_token():
         return jsonify({'error': 'Unauthorized: Valid authentication token required'}), 401
         
     try:
-        custom_token, claims = create_firebase_custom_token(user)
-        if not custom_token:
-            diag = get_firebase_admin_diagnostic()
+        if user.role == 'DRIVER':
+            with assignment_coordination_guard():
+                driver = db.session.get(User, user.id)
+                if not driver or driver.role != 'DRIVER':
+                    return jsonify({'error': 'Driver record not found'}), 404
+
+                target_truck = driver.truck_id
+                sync_ok, sync_err = set_driver_rtdb_assignment(driver.id, target_truck)
+                if not sync_ok:
+                    app.logger.warning(f"Driver RTDB assignment sync failure on token issuance for driver {driver.id}: {sync_err}")
+                    err_msg = f'Unable to verify real-time revocation status: {sync_err}. Please retry.' if target_truck is None else f'Unable to verify real-time dispatch synchronization: {sync_err}. Please retry.'
+                    return jsonify({
+                        'error': err_msg,
+                        'success': False
+                    }), 503
+
+                custom_token, claims = create_firebase_custom_token(driver)
+                if not custom_token:
+                    diag = get_firebase_admin_diagnostic()
+                    return jsonify({
+                        'error': 'Firebase Admin service unavailable',
+                        'diagnostic': diag
+                    }), 503
+
+                return jsonify({
+                    'success': True,
+                    'firebase_custom_token': custom_token,
+                    'uid': f"user_{driver.id}",
+                    'claims': claims
+                })
+        else:
+            custom_token, claims = create_firebase_custom_token(user)
+            if not custom_token:
+                diag = get_firebase_admin_diagnostic()
+                return jsonify({
+                    'error': 'Firebase Admin service unavailable',
+                    'diagnostic': diag
+                }), 503
+
             return jsonify({
-                'error': 'Firebase Admin service unavailable',
-                'diagnostic': diag
-            }), 503
-        return jsonify({
-            'success': True,
-            'firebase_custom_token': custom_token,
-            'uid': f"user_{user.id}",
-            'claims': claims
-        })
+                'success': True,
+                'firebase_custom_token': custom_token,
+                'uid': f"user_{user.id}",
+                'claims': claims
+            })
     except Exception as e:
         app.logger.error(f"Error generating Firebase custom token: {e}")
         return jsonify({'error': 'Failed to generate Firebase custom token', 'details': str(e)}), 500
@@ -1519,36 +2451,52 @@ def live_tracking():
 
 def ensure_driver_truck_assignments():
     """
-    Ensures every driver has a unique, non-null, sequential truck_id (1, 2, 3...)
-    without duplicates or gaps. 100% automated - no manual configuration.
+    Sanitizes driver truck assignments by resolving accidental duplicates ONLY among
+    currently assigned drivers.
+    CRITICAL INVARIANT: Deliberately unassigned or benched drivers (truck_id is None)
+    are NEVER automatically assigned a truck. Routine GET requests and page loads
+    must NEVER invoke this function.
+    Serialized with assignment_sync_lock.
     """
-    try:
-        drivers = User.query.filter_by(role='DRIVER').order_by(User.id.asc()).all()
-        if not drivers:
-            return
-            
-        used_truck_ids = set()
-        drivers_needing_truck = []
-        
-        # 1. Collect drivers that already have a unique, valid truck_id
-        for d in drivers:
-            if d.truck_id and d.truck_id not in used_truck_ids:
-                used_truck_ids.add(d.truck_id)
-            else:
-                drivers_needing_truck.append(d)
+    with assignment_coordination_guard():
+        try:
+            drivers = User.query.filter_by(role='DRIVER').order_by(User.id.asc()).all()
+            if not drivers:
+                return
                 
-        # 2. Automatically assign the lowest available unique truck_id (1, 2, 3...)
-        next_id = 1
-        modified = False
-        for d in drivers_needing_truck:
-            while next_id in used_truck_ids:
-                next_id += 1
-            d.truck_id = next_id
-            used_truck_ids.add(next_id)
-            modified = True
+            used_truck_ids = set()
+            colliding_drivers = []
             
-        if modified:
+            # Collect only drivers with an active truck assignment
+            for d in drivers:
+                if d.truck_id is None:
+                    # Deliberately unassigned / benched driver: MUST REMAIN UNTOUCHED
+                    continue
+                if d.truck_id not in used_truck_ids:
+                    used_truck_ids.add(d.truck_id)
+                else:
+                    # Collision: two assigned drivers share the same truck_id
+                    colliding_drivers.append(d)
+                    
+            if not colliding_drivers:
+                return
+
+            # Resolve collisions only
+            next_id = 1
+            for d in colliding_drivers:
+                while next_id in used_truck_ids:
+                    next_id += 1
+                d.truck_id = next_id
+                d.assignment_revision = allocate_next_assignment_revision()
+                used_truck_ids.add(next_id)
+                
             db.session.commit()
+            for d in colliding_drivers:
+                sync_ok, sync_err = set_driver_rtdb_assignment(d.id, d.truck_id, generation_id=d.generation_id, revision=d.assignment_revision)
+                if not sync_ok:
+                    record_pending_rtdb_assignment(d.id, d.truck_id, last_error=sync_err, commit=True, generation_id=d.generation_id, revision=d.assignment_revision)
+                else:
+                    clear_pending_rtdb_assignment(d.id, generation_id=d.generation_id, revision=d.assignment_revision)
             
             # Sync assigned names to Firebase
             try:
@@ -1556,25 +2504,23 @@ def ensure_driver_truck_assignments():
                 firebase_url = "https://wasteroutelive-default-rtdb.firebaseio.com"
                 id_token = get_firebase_token()
                 if id_token:
-                    for d in drivers:
-                        if d.truck_id:
-                            requests.patch(f"{firebase_url}/trucks/{d.truck_id}.json?auth={id_token}", json={
-                                "driverName": d.name or d.username,
-                                "driverId": d.id
-                            })
+                    for d in colliding_drivers:
+                        requests.patch(f"{firebase_url}/trucks/{d.truck_id}.json?auth={id_token}", json={
+                            "driverName": d.name or d.username,
+                            "driverId": d.id
+                        }, timeout=4)
             except Exception as fb_e:
                 print("Firebase auto-sync truck error:", fb_e)
-    except Exception as e:
-        try:
-            db.session.rollback()
-        except Exception:
-            pass
-        print("ensure_driver_truck_assignments error:", e)
+        except Exception as e:
+            try:
+                db.session.rollback()
+            except Exception:
+                pass
+            print("ensure_driver_truck_assignments error:", e)
 
 @app.route('/api/drivers', methods=['GET'])
 @login_required
 def get_drivers():
-    ensure_driver_truck_assignments()
     drivers = User.query.filter_by(role='DRIVER').order_by(User.truck_id.asc(), User.id.asc()).all()
     drivers_data = []
     for d in drivers:
@@ -1987,151 +2933,424 @@ def app_user_info():
 @app.route('/api/admin_create_driver', methods=['POST'])
 @login_required
 def admin_create_driver():
-    data = request.json
-    username = data.get('username')
-    password = data.get('password')
-    name = data.get('name')
-    if not username or not password or not name:
-        return jsonify({'error': 'Missing fields'}), 400
-    
-    if User.query.filter_by(username=username).first():
-        return jsonify({'error': 'Mobile number already exists'}), 400
+    with assignment_coordination_guard():
+        data = request.json or {}
+        username = data.get('username')
+        password = data.get('password')
+        name = data.get('name')
+        if not username or not password or not name:
+            return jsonify({'error': 'Missing fields'}), 400
         
-    from werkzeug.security import generate_password_hash
-    existing_truck_ids = set(u.truck_id for u in User.query.filter_by(role='DRIVER').all() if u.truck_id is not None)
-    next_truck_id = 1
-    while next_truck_id in existing_truck_ids:
-        next_truck_id += 1
-    
-    new_driver = User(username=username, password_hash=generate_password_hash(password), role='DRIVER', truck_id=next_truck_id, name=name)
-    db.session.add(new_driver)
-    db.session.commit()
-    ensure_driver_truck_assignments()
-    
-    return jsonify({'success': True, 'truck_id': new_driver.truck_id})
+        if User.query.filter_by(username=username).first():
+            return jsonify({'error': 'Mobile number already exists'}), 400
+            
+        from werkzeug.security import generate_password_hash
+        existing_truck_ids = set(u.truck_id for u in User.query.filter_by(role='DRIVER').all() if u.truck_id is not None)
+        next_truck_id = 1
+        while next_truck_id in existing_truck_ids:
+            next_truck_id += 1
+        
+        op_id = uuid.uuid4().hex
+        generation_id = uuid.uuid4().hex
+        rev = allocate_next_assignment_revision()
+        try:
+            new_driver = User(
+                username=username,
+                password_hash=generate_password_hash(password),
+                role='DRIVER',
+                truck_id=next_truck_id,
+                name=name,
+                generation_id=generation_id,
+                assignment_revision=rev
+            )
+            db.session.add(new_driver)
+            db.session.flush()
+
+            led = DriverLifecycleLedger(
+                generation_id=generation_id,
+                driver_id=new_driver.id,
+                is_active=True,
+                last_revision=rev
+            )
+            db.session.add(led)
+
+            # Atomically stage durable intent in the SAME SQLite transaction
+            stage_ok, stage_err = record_pending_rtdb_assignment(
+                new_driver.id,
+                new_driver.truck_id,
+                commit=False,
+                op_id=op_id,
+                status='COMMITTED',
+                generation_id=generation_id,
+                revision=rev,
+                action='CREATE'
+            )
+            if not stage_ok:
+                raise Exception(f"Failed to stage outbox for new driver {new_driver.id}: {stage_err}")
+
+            db.session.commit()
+        except Exception as sql_err:
+            db.session.rollback()
+            app.logger.error(f"Database error during driver creation for username {username}: {sql_err}")
+            return jsonify({
+                'error': f'Database error during driver creation: {sql_err}',
+                'success': False
+            }), 500
+
+        sync_ok, sync_err = set_driver_rtdb_assignment(new_driver.id, new_driver.truck_id)
+        if not sync_ok:
+            rec_ok, rec_err = record_pending_rtdb_assignment(
+                new_driver.id,
+                new_driver.truck_id,
+                last_error=sync_err,
+                commit=True,
+                op_id=op_id,
+                generation_id=generation_id,
+                revision=rev,
+                action='CREATE'
+            )
+            return jsonify({
+                'error': f'Driver created in database, but live tracking activation failed: {sync_err}. Access is temporarily suspended until synchronized.',
+                'success': False,
+                'pending_sync_recorded': rec_ok,
+                'truck_id': new_driver.truck_id
+            }), 502
+        else:
+            complete_assignment_intent(op_id, driver_id=new_driver.id, generation_id=generation_id, revision=rev)
+        
+        return jsonify({'success': True, 'truck_id': new_driver.truck_id})
 
 @app.route('/api/admin_set_driver_truck', methods=['POST'])
 @login_required
 def admin_set_driver_truck():
-    data = request.json or {}
-    driver_id = data.get('driver_id')
-    raw_truck_id = data.get('truck_id')
-    
-    driver = db.session.get(User, int(driver_id)) if driver_id else None
-    if not driver or driver.role != 'DRIVER':
-        return jsonify({'error': 'Driver not found'}), 404
+    with assignment_coordination_guard():
+        data = request.json or {}
+        driver_id = data.get('driver_id')
+        raw_truck_id = data.get('truck_id')
         
-    old_truck = driver.truck_id
-    tid = None
-    if raw_truck_id:
-        try:
-            tid = int(raw_truck_id)
-            evicted = User.query.filter(User.role == 'DRIVER', User.truck_id == tid, User.id != driver.id).all()
-            for ev in evicted:
-                ev.truck_id = None
-            driver.truck_id = tid
-        except:
-            return jsonify({'error': 'Invalid truck ID'}), 400
-    else:
-        driver.truck_id = None
-        
-    # Handle customer stop routing updates
-    if tid:
-        if old_truck and old_truck != tid:
-            Customer.query.filter_by(truck_id=old_truck).update({'truck_id': tid})
-        elif not old_truck and driver.assigned_template_id:
-            t = db.session.get(SavedTemplate, driver.assigned_template_id)
-            if t and t.customers_json:
-                import json
-                Customer.query.filter_by(truck_id=tid).delete()
-                db.session.flush()
-                cust_list = json.loads(t.customers_json or '[]')
-                existing_ids = set(r[0] for r in db.session.query(Customer.id).all())
-                max_id = db.session.query(db.func.max(Customer.id)).scalar() or 0
-                if max_id < 0: max_id = 0
-                max_id_tracker = [max_id]
-                for c in cust_list:
-                    raw_id = int(c['id'])
-                    is_depot = (raw_id <= -1000 or c.get('name') == 'End Location / Depot')
-                    cid = allocate_customer_id(raw_id, is_depot, tid, existing_ids, max_id_tracker)
-                    new_cust = Customer(
-                        id=cid, name=c['name'], phone=c.get('phone'), address=c.get('address'),
-                        location_url=c.get('location_url'), lat=c['lat'], lng=c['lng'],
-                        status='PENDING', truck_id=tid, stop_number=c.get('stop_number'),
-                        confirmation=c.get('confirmation', 'NOT_CONFIRMED'),
-                        deliver_bag=bool(c.get('deliver_bag', False)),
-                        customer_status=c.get('customer_status', 'ACTIVE')
-                    )
-                    db.session.add(new_cust)
-    elif old_truck and not tid:
-        Customer.query.filter_by(truck_id=old_truck).delete()
+        driver = db.session.get(User, int(driver_id)) if driver_id else None
+        if not driver or driver.role != 'DRIVER':
+            return jsonify({'error': 'Driver not found'}), 404
+            
+        old_truck = driver.truck_id
+        tid = None
+        evicted_drivers = []
+        if raw_truck_id:
+            try:
+                tid = int(raw_truck_id)
+                evicted_drivers = User.query.filter(User.role == 'DRIVER', User.truck_id == tid, User.id != driver.id).all()
+            except:
+                return jsonify({'error': 'Invalid truck ID'}), 400
 
-    db.session.commit()
-    try:
-        recompute_route_metrics()
-    except:
-        pass
-    
-    try:
-        import requests
-        firebase_url = "https://wasteroutelive-default-rtdb.firebaseio.com"
-        id_token = get_firebase_token()
-        if id_token:
-            if old_truck and old_truck != driver.truck_id:
-                requests.patch(f"{firebase_url}/trucks/{old_truck}.json?auth={id_token}", json={"driverName": None, "driverId": None})
-                requests.delete(f"{firebase_url}/routes/route_{old_truck}.json?auth={id_token}")
-            if driver.truck_id:
-                requests.patch(f"{firebase_url}/trucks/{driver.truck_id}.json?auth={id_token}", json={
-                    "driverName": driver.name or driver.username,
-                    "driverId": driver.id
-                })
-                new_custs = Customer.query.filter_by(truck_id=driver.truck_id).all()
-                if new_custs:
-                    route_key = f"route_{driver.truck_id}"
-                    stops_payload = {}
-                    for c in new_custs:
-                        stops_payload[str(c.id)] = {
-                            "name": c.name,
-                            "address": c.address,
-                            "phone": c.phone or '',
-                            "lat": c.lat,
-                            "lng": c.lng,
-                            "sequence": c.stop_number,
-                            "status": c.status or "PENDING",
-                            "confirmation": c.confirmation,
-                            "deliver_bag": bool(getattr(c, 'deliver_bag', False)),
-                            "customer_status": getattr(c, 'customer_status', 'ACTIVE')
-                        }
-                    requests.put(f"{firebase_url}/routes/{route_key}.json?auth={id_token}", json={"stops": stops_payload})
-    except Exception as e:
-        print("Firebase set truck sync error:", e)
-        
-    return jsonify({'success': True, 'truck_id': driver.truck_id})
+        # Monotonic revision and generation allocation
+        ev_revs = {}
+        for ev in evicted_drivers:
+            if not ev.generation_id:
+                ev.generation_id = uuid.uuid4().hex
+            ev_revs[ev.id] = allocate_next_assignment_revision()
+        if not driver.generation_id:
+            driver.generation_id = uuid.uuid4().hex
+        d_rev = allocate_next_assignment_revision()
+
+        # Track all affected drivers and their original truck IDs for rollback recovery
+        affected_drivers = {}
+        for ev in evicted_drivers:
+            affected_drivers[str(ev.id)] = {
+                'old_truck': ev.truck_id,
+                'target_truck': None,
+                'action': 'REVOKE',
+                'generation_id': ev.generation_id,
+                'revision': ev_revs[ev.id]
+            }
+        if old_truck != tid:
+            affected_drivers[str(driver.id)] = {
+                'old_truck': old_truck,
+                'target_truck': tid,
+                'action': 'GRANT' if tid else 'REVOKE',
+                'generation_id': driver.generation_id,
+                'revision': d_rev
+            }
+
+        op_id = uuid.uuid4().hex
+
+        # STEP 1: Persist durable operation intent in SQLite BEFORE first Firebase mutation
+        stage_ok, stage_err = stage_assignment_intent(op_id, 'SET_TRUCK', affected_drivers, commit=True)
+        if not stage_ok:
+            return jsonify({'error': f'Failed to stage assignment intent: {stage_err}', 'success': False}), 500
+
+        # STEP 2: Pre-Revoke RTDB assignments for all affected drivers BEFORE touching SQLite business records
+        for ev in evicted_drivers:
+            ev_ok, ev_err = set_driver_rtdb_assignment(ev.id, None)
+            if not ev_ok:
+                update_assignment_intent_status(op_id, 'FAILED', last_error=ev_err)
+                return jsonify({
+                    'error': f'Failed to revoke live tracking for colliding driver {ev.id}: {ev_err}',
+                    'success': False
+                }), 502
+
+        if old_truck != tid:
+            d_ok, d_err = set_driver_rtdb_assignment(driver.id, None)
+            if not d_ok:
+                update_assignment_intent_status(op_id, 'FAILED', last_error=d_err)
+                return jsonify({
+                    'error': f'Failed to revoke previous live tracking assignment: {d_err}',
+                    'success': False
+                }), 502
+
+        update_assignment_intent_status(op_id, 'REVOKED', commit=False)
+
+        # STEP 3: Update SQLite business entities & commit
+        try:
+            for ev in evicted_drivers:
+                ev.truck_id = None
+                ev.assignment_revision = ev_revs[ev.id]
+
+            driver.truck_id = tid
+            driver.assignment_revision = d_rev
+
+            # Handle customer stop routing updates
+            if tid:
+                if old_truck and old_truck != tid:
+                    Customer.query.filter_by(truck_id=old_truck).update({'truck_id': tid})
+                elif not old_truck and driver.assigned_template_id:
+                    t = db.session.get(SavedTemplate, driver.assigned_template_id)
+                    if t and t.customers_json:
+                        import json
+                        Customer.query.filter_by(truck_id=tid).delete()
+                        db.session.flush()
+                        cust_list = json.loads(t.customers_json or '[]')
+                        existing_ids = set(r[0] for r in db.session.query(Customer.id).all())
+                        max_id = db.session.query(db.func.max(Customer.id)).scalar() or 0
+                        if max_id < 0: max_id = 0
+                        max_id_tracker = [max_id]
+                        for c in cust_list:
+                            raw_id = int(c['id'])
+                            is_depot = (raw_id <= -1000 or c.get('name') == 'End Location / Depot')
+                            cid = allocate_customer_id(raw_id, is_depot, tid, existing_ids, max_id_tracker)
+                            new_cust = Customer(
+                                id=cid, name=c['name'], phone=c.get('phone'), address=c.get('address'),
+                                location_url=c.get('location_url'), lat=c['lat'], lng=c['lng'],
+                                status='PENDING', truck_id=tid, stop_number=c.get('stop_number'),
+                                confirmation=c.get('confirmation', 'NOT_CONFIRMED'),
+                                deliver_bag=bool(c.get('deliver_bag', False)),
+                                customer_status=c.get('customer_status', 'ACTIVE')
+                            )
+                            db.session.add(new_cust)
+            elif old_truck and not tid:
+                Customer.query.filter_by(truck_id=old_truck).delete()
+
+            # Advance intent status to COMMITTED in the SAME transaction
+            update_assignment_intent_status(op_id, 'COMMITTED', commit=False)
+            db.session.commit()
+        except Exception as sql_err:
+            db.session.rollback()
+            restore_errors = []
+            for aff_id_str, aff_info in affected_drivers.items():
+                aff_id = int(aff_id_str)
+                aff_truck = aff_info.get('old_truck')
+                r_ok, r_err = set_driver_rtdb_assignment(aff_id, aff_truck)
+                if not r_ok:
+                    record_pending_rtdb_assignment(
+                        aff_id, aff_truck, last_error=r_err, commit=True, op_id=op_id,
+                        generation_id=aff_info.get('generation_id'), revision=aff_info.get('revision')
+                    )
+                    restore_errors.append(f"Driver {aff_id}: {r_err}")
+
+            err_msg = f'Database error during reassignment: {sql_err}.'
+            if restore_errors:
+                err_msg += f" Firebase restoration failed for {', '.join(restore_errors)}. Outbox recovery queued."
+            else:
+                err_msg += " Pre-revoked live tracking assignments restored."
+            return jsonify({
+                'error': err_msg,
+                'success': False,
+                'pending_sync_recorded': bool(restore_errors)
+            }), 500
+
+        try:
+            recompute_route_metrics()
+        except:
+            pass
+
+        # STEP 4: Grant New RTDB Assignment
+        if tid is not None:
+            grant_ok, grant_err = set_driver_rtdb_assignment(driver.id, tid)
+            if not grant_ok:
+                rec_ok, rec_err = record_pending_rtdb_assignment(
+                    driver.id, tid, last_error=grant_err, commit=True, op_id=op_id,
+                    generation_id=driver.generation_id, revision=d_rev, action='GRANT'
+                )
+                for ev in evicted_drivers:
+                    complete_assignment_intent(op_id, driver_id=ev.id, generation_id=ev.generation_id, revision=ev_revs[ev.id], commit=True)
+                return jsonify({
+                    'error': f'Database updated, but live tracking activation failed: {grant_err}. Access is temporarily suspended until synchronized.',
+                    'success': False,
+                    'pending_sync_recorded': rec_ok,
+                    'truck_id': driver.truck_id
+                }), 502
+            else:
+                complete_assignment_intent(op_id, commit=True)
+        else:
+            complete_assignment_intent(op_id, commit=True)
+
+        # Legacy Firebase sync
+        try:
+            import requests
+            firebase_url = "https://wasteroutelive-default-rtdb.firebaseio.com"
+            id_token = get_firebase_token()
+            if id_token:
+                if old_truck and old_truck != driver.truck_id:
+                    requests.patch(f"{firebase_url}/trucks/{old_truck}.json?auth={id_token}", json={"driverName": None, "driverId": None}, timeout=4)
+                    requests.delete(f"{firebase_url}/routes/route_{old_truck}.json?auth={id_token}", timeout=4)
+                if driver.truck_id:
+                    requests.patch(f"{firebase_url}/trucks/{driver.truck_id}.json?auth={id_token}", json={
+                        "driverName": driver.name or driver.username,
+                        "driverId": driver.id
+                    }, timeout=4)
+                    new_custs = Customer.query.filter_by(truck_id=driver.truck_id).all()
+                    if new_custs:
+                        route_key = f"route_{driver.truck_id}"
+                        stops_payload = {}
+                        for c in new_custs:
+                            stops_payload[str(c.id)] = {
+                                "name": c.name,
+                                "address": c.address,
+                                "phone": c.phone or '',
+                                "lat": c.lat,
+                                "lng": c.lng,
+                                "sequence": c.stop_number,
+                                "status": c.status or "PENDING",
+                                "confirmation": c.confirmation,
+                                "deliver_bag": bool(getattr(c, 'deliver_bag', False)),
+                                "customer_status": getattr(c, 'customer_status', 'ACTIVE')
+                            }
+                        requests.put(f"{firebase_url}/routes/{route_key}.json?auth={id_token}", json={"stops": stops_payload}, timeout=4)
+        except Exception as e:
+            app.logger.warning(f"Legacy route sync warning: {e}")
+
+        return jsonify({'success': True, 'truck_id': driver.truck_id})
 
 @app.route('/api/admin_delete_driver/<int:driver_id>', methods=['DELETE'])
 @login_required
 def admin_delete_driver(driver_id):
-    driver = db.session.get(User, driver_id)
-    if not driver or driver.role != 'DRIVER':
-        return jsonify({'error': 'Driver not found'}), 404
+    with assignment_coordination_guard():
+        driver = db.session.get(User, driver_id)
+        if not driver or driver.role != 'DRIVER':
+            return jsonify({'error': 'Driver not found'}), 404
 
-    if driver.assigned_template_id:
-        old_inst = db.session.get(SavedTemplate, driver.assigned_template_id)
-        if old_inst and getattr(old_inst, 'is_assigned_instance', False):
-            db.session.delete(old_inst)
+        orig_truck_id = driver.truck_id
+        op_id = uuid.uuid4().hex
+        rev = allocate_next_assignment_revision()
+        if not driver.generation_id:
+            driver.generation_id = uuid.uuid4().hex
 
-    try:
-        id_token = get_firebase_token()
-        if id_token:
-            firebase_url = "https://wasteroutelive-default-rtdb.firebaseio.com"
-            import requests
-            requests.delete(f"{firebase_url}/driver_locations/{driver.id}.json?auth={id_token}")
-    except:
-        pass
-        
-    db.session.delete(driver)
-    db.session.commit()
-    return jsonify({'success': True})
+        led = DriverLifecycleLedger.query.filter_by(generation_id=driver.generation_id).first()
+        if not led:
+            led = DriverLifecycleLedger(
+                generation_id=driver.generation_id,
+                driver_id=driver.id,
+                is_active=True,
+                last_revision=driver.assignment_revision or 0
+            )
+            db.session.add(led)
+        led.is_active = False
+        led.deleted_at = db.func.now()
+        led.last_revision = rev
+
+        # STEP 1: Durable intent persistence in SQLite BEFORE first Firebase mutation
+        stage_ok, stage_err = stage_assignment_intent(
+            op_id=op_id,
+            mutation_type='DELETE_DRIVER',
+            affected_drivers_map={
+                str(driver.id): {
+                    'old_truck': orig_truck_id,
+                    'target_truck': None,
+                    'action': 'DELETE',
+                    'generation_id': driver.generation_id,
+                    'revision': rev
+                }
+            },
+            commit=True
+        )
+        if not stage_ok:
+            return jsonify({'error': f'Failed to stage deletion intent: {stage_err}', 'success': False}), 500
+
+        # STEP 2: Revoke RTDB assignment in Firebase first conditionally
+        rev_ok, rev_err = set_driver_rtdb_assignment(driver.id, None)
+        if not rev_ok:
+            led.is_active = True
+            led.deleted_at = None
+            update_assignment_intent_status(op_id, 'FAILED', driver_id=driver.id, last_error=rev_err)
+            return jsonify({
+                'error': f'Failed to revoke live tracking assignment in Firebase: {rev_err}',
+                'success': False
+            }), 502
+
+        update_assignment_intent_status(op_id, 'REVOKED', driver_id=driver.id, commit=False)
+
+        if driver.assigned_template_id:
+            old_inst = db.session.get(SavedTemplate, driver.assigned_template_id)
+            if old_inst and getattr(old_inst, 'is_assigned_instance', False):
+                db.session.delete(old_inst)
+
+        try:
+            id_token = get_firebase_token()
+            if id_token:
+                firebase_url = "https://wasteroutelive-default-rtdb.firebaseio.com"
+                import requests
+                requests.delete(f"{firebase_url}/driver_locations/{driver.id}.json?auth={id_token}", timeout=4)
+        except:
+            pass
+            
+        # STEP 3: SQLite deletion & commit
+        try:
+            db.session.delete(driver)
+            update_assignment_intent_status(op_id, 'COMMITTED', driver_id=driver_id, commit=False)
+            db.session.commit()
+        except Exception as sql_err:
+            db.session.rollback()
+            try:
+                led_res = DriverLifecycleLedger.query.filter_by(generation_id=driver.generation_id).first()
+                if led_res:
+                    led_res.is_active = True
+                    led_res.deleted_at = None
+                    db.session.commit()
+            except Exception:
+                pass
+
+            if orig_truck_id is not None:
+                restore_ok, restore_err = set_driver_rtdb_assignment(driver_id, orig_truck_id)
+                if not restore_ok:
+                    record_pending_rtdb_assignment(
+                        driver_id, orig_truck_id, last_error=restore_err, commit=True, op_id=op_id,
+                        generation_id=driver.generation_id, revision=rev, action='GRANT'
+                    )
+                    return jsonify({
+                        'error': f'Database error during driver deletion: {sql_err}. Live tracking restoration failed ({restore_err}). Outbox recovery queued.',
+                        'success': False,
+                        'pending_sync_recorded': True
+                    }), 500
+            return jsonify({
+                'error': f'Database error during driver deletion: {sql_err}. Deletion aborted and live tracking assignment restored.',
+                'success': False
+            }), 500
+
+        # STEP 4: Completion
+        complete_assignment_intent(op_id, driver_id=driver_id, generation_id=driver.generation_id, revision=rev, commit=True)
+        return jsonify({'success': True})
+
+@app.route('/api/admin_sync_driver_assignments', methods=['POST'])
+@login_required
+def admin_sync_driver_assignments():
+    with assignment_coordination_guard():
+        reconciled_count, pending_count = reconcile_pending_rtdb_assignments()
+        success, msg = sync_all_driver_assignments_to_firebase(authorized_reconciliation=True)
+        return jsonify({
+            'success': success,
+            'message': msg,
+            'reconciled_pending': reconciled_count,
+            'remaining_pending': pending_count
+        })
 
 @app.route('/api/assign_driver', methods=['POST'])
 @login_required
@@ -2179,60 +3398,138 @@ def assign_driver():
 
     driver = None
     if driver_id:
-        try:
-            driver = db.session.get(User, int(driver_id))
-        except:
-            driver = None
-        if not driver or driver.role != 'DRIVER':
-            return jsonify({'error': 'Driver not found'}), 404
+        with assignment_coordination_guard():
+            try:
+                driver = db.session.get(User, int(driver_id))
+            except:
+                driver = None
+            if not driver or driver.role != 'DRIVER':
+                return jsonify({'error': 'Driver not found'}), 404
+                
+            old_truck_id = driver.truck_id
+            evicted = User.query.filter(User.role == 'DRIVER', User.truck_id == truck_id, User.id != driver.id).all()
+
+            # Monotonic revision and generation allocation
+            ev_revs = {}
+            for ev in evicted:
+                if not ev.generation_id:
+                    ev.generation_id = uuid.uuid4().hex
+                ev_revs[ev.id] = allocate_next_assignment_revision()
+            if not driver.generation_id:
+                driver.generation_id = uuid.uuid4().hex
+            d_rev = allocate_next_assignment_revision()
+
+            # Track all affected drivers and their original truck IDs for rollback recovery
+            affected_drivers = {}
+            for ev in evicted:
+                affected_drivers[str(ev.id)] = {
+                    'old_truck': ev.truck_id,
+                    'target_truck': None,
+                    'action': 'REVOKE',
+                    'generation_id': ev.generation_id,
+                    'revision': ev_revs[ev.id]
+                }
+            if old_truck_id and old_truck_id != truck_id:
+                affected_drivers[str(driver.id)] = {
+                    'old_truck': old_truck_id,
+                    'target_truck': truck_id,
+                    'action': 'GRANT',
+                    'generation_id': driver.generation_id,
+                    'revision': d_rev
+                }
+            elif not old_truck_id:
+                affected_drivers[str(driver.id)] = {
+                    'old_truck': None,
+                    'target_truck': truck_id,
+                    'action': 'GRANT',
+                    'generation_id': driver.generation_id,
+                    'revision': d_rev
+                }
+
+            op_id = uuid.uuid4().hex
+
+            # STEP 1: Durable intent persistence in SQLite BEFORE first Firebase mutation
+            stage_ok, stage_err = stage_assignment_intent(op_id, 'ASSIGN_DRIVER', affected_drivers, commit=True)
+            if not stage_ok:
+                return jsonify({'success': False, 'error': f"Failed to stage assignment intent: {stage_err}"}), 500
+
+            # STEP 2: Pre-revocation in RTDB
+            for ev in evicted:
+                ev_ok, ev_err = set_driver_rtdb_assignment(ev.id, None)
+                if not ev_ok:
+                    update_assignment_intent_status(op_id, 'FAILED', last_error=ev_err)
+                    return jsonify({'success': False, 'error': f"Failed to pre-revoke evicted driver {ev.id}: {ev_err}"}), 502
+
+            if old_truck_id and old_truck_id != truck_id:
+                old_ok, old_err = set_driver_rtdb_assignment(driver.id, None)
+                if not old_ok:
+                    update_assignment_intent_status(op_id, 'FAILED', last_error=old_err)
+                    return jsonify({'success': False, 'error': f"Failed to pre-revoke previous assignment for driver {driver.id}: {old_err}"}), 502
+
+            update_assignment_intent_status(op_id, 'REVOKED', commit=False)
+
+            # STEP 3: SQLite modifications & commit
+            for ev in evicted:
+                ev.truck_id = None
+                ev.assigned_template_id = None
+                ev.assignment_revision = ev_revs[ev.id]
+
+            driver.truck_id = truck_id
+            driver.assignment_revision = d_rev
             
-        # Remove this truck_id from any other driver to prevent duplicates on the SAME truck
-        User.query.filter(User.role == 'DRIVER', User.truck_id == truck_id, User.id != driver.id).update({'truck_id': None, 'assigned_template_id': None})
-        driver.truck_id = truck_id
-        
-        # Dedicated assigned instance for this driver
-        ws_meta = Metadata.query.filter_by(key='workspace_truck_ids').first()
-        ws_trucks = []
-        if ws_meta and ws_meta.value:
-            try:
-                ws_trucks = json.loads(ws_meta.value)
-            except:
-                ws_trucks = []
+            # Dedicated assigned instance for this driver
+            ws_meta = Metadata.query.filter_by(key='workspace_truck_ids').first()
+            ws_trucks = []
+            if ws_meta and ws_meta.value:
+                try:
+                    ws_trucks = json.loads(ws_meta.value)
+                except:
+                    ws_trucks = []
 
-        curr = Metadata.query.filter_by(key='current_template_id').first()
-        template_name = None
-        if curr and curr.value and (not ws_trucks or truck_id in ws_trucks):
-            try:
-                master_t = db.session.get(SavedTemplate, int(curr.value))
-            except:
-                master_t = None
-            if master_t:
-                template_name = master_t.name
-        if not template_name:
-            curr_name_meta = Metadata.query.filter_by(key='current_template_name').first()
-            if curr_name_meta and curr_name_meta.value:
-                template_name = curr_name_meta.value
-        if not template_name:
-            template_name = f"Route - {driver.name or driver.username} (Truck {truck_id})"
+            curr = Metadata.query.filter_by(key='current_template_id').first()
+            template_name = None
+            if curr and curr.value and (not ws_trucks or truck_id in ws_trucks):
+                try:
+                    master_t = db.session.get(SavedTemplate, int(curr.value))
+                except:
+                    master_t = None
+                if master_t:
+                    template_name = master_t.name
+            if not template_name:
+                curr_name_meta = Metadata.query.filter_by(key='current_template_name').first()
+                if curr_name_meta and curr_name_meta.value:
+                    template_name = curr_name_meta.value
+            if not template_name:
+                template_name = f"Route - {driver.name or driver.username} (Truck {truck_id})"
 
-        cust_rows = Customer.query.filter_by(truck_id=truck_id).order_by(Customer.stop_number.asc()).all()
-        cust_list = [{
-            'id': c.id, 'name': c.name, 'phone': c.phone, 'address': c.address,
-            'location_url': c.location_url, 'lat': c.lat, 'lng': c.lng,
-            'status': c.status, 'truck_id': 1, 'stop_number': c.stop_number,
-            'confirmation': c.confirmation if c.confirmation else 'NOT_CONFIRMED',
-            'deliver_bag': bool(getattr(c, 'deliver_bag', False)),
-            'customer_status': getattr(c, 'customer_status', 'ACTIVE') or 'ACTIVE'
-        } for c in cust_rows]
-        meta_rows = Metadata.query.all()
-        meta_dict = {m.key: m.value for m in meta_rows}
+            cust_rows = Customer.query.filter_by(truck_id=truck_id).order_by(Customer.stop_number.asc()).all()
+            cust_list = [{
+                'id': c.id, 'name': c.name, 'phone': c.phone, 'address': c.address,
+                'location_url': c.location_url, 'lat': c.lat, 'lng': c.lng,
+                'status': c.status, 'truck_id': 1, 'stop_number': c.stop_number,
+                'confirmation': c.confirmation if c.confirmation else 'NOT_CONFIRMED',
+                'deliver_bag': bool(getattr(c, 'deliver_bag', False)),
+                'customer_status': getattr(c, 'customer_status', 'ACTIVE') or 'ACTIVE'
+            } for c in cust_rows]
+            meta_rows = Metadata.query.all()
+            meta_dict = {m.key: m.value for m in meta_rows}
 
-        if driver.assigned_template_id:
-            old_inst = db.session.get(SavedTemplate, driver.assigned_template_id)
-            if old_inst and getattr(old_inst, 'is_assigned_instance', False):
-                old_inst.name = template_name
-                old_inst.metadata_json = json.dumps(meta_dict)
-                old_inst.customers_json = json.dumps(cust_list)
+            if driver.assigned_template_id:
+                old_inst = db.session.get(SavedTemplate, driver.assigned_template_id)
+                if old_inst and getattr(old_inst, 'is_assigned_instance', False):
+                    old_inst.name = template_name
+                    old_inst.metadata_json = json.dumps(meta_dict)
+                    old_inst.customers_json = json.dumps(cust_list)
+                else:
+                    auto_t = SavedTemplate(
+                        name=template_name,
+                        metadata_json=json.dumps(meta_dict),
+                        customers_json=json.dumps(cust_list),
+                        is_assigned_instance=True
+                    )
+                    db.session.add(auto_t)
+                    db.session.flush()
+                    driver.assigned_template_id = auto_t.id
             else:
                 auto_t = SavedTemplate(
                     name=template_name,
@@ -2243,16 +3540,58 @@ def assign_driver():
                 db.session.add(auto_t)
                 db.session.flush()
                 driver.assigned_template_id = auto_t.id
-        else:
-            auto_t = SavedTemplate(
-                name=template_name,
-                metadata_json=json.dumps(meta_dict),
-                customers_json=json.dumps(cust_list),
-                is_assigned_instance=True
-            )
-            db.session.add(auto_t)
-            db.session.flush()
-            driver.assigned_template_id = auto_t.id
+
+            # Advance intent status to COMMITTED in same SQLite transaction
+            update_assignment_intent_status(op_id, 'COMMITTED', commit=False)
+            try:
+                db.session.commit()
+            except Exception as e:
+                db.session.rollback()
+                restore_errors = []
+                for aff_id_str, aff_info in affected_drivers.items():
+                    aff_id = int(aff_id_str)
+                    aff_truck = aff_info.get('old_truck')
+                    r_ok, r_err = set_driver_rtdb_assignment(aff_id, aff_truck)
+                    if not r_ok:
+                        record_pending_rtdb_assignment(
+                            aff_id, aff_truck, last_error=r_err, commit=True, op_id=op_id,
+                            generation_id=aff_info.get('generation_id'), revision=aff_info.get('revision')
+                        )
+                        restore_errors.append(f"Driver {aff_id}: {r_err}")
+
+                err_msg = f"Database commit failed: {str(e)}."
+                if restore_errors:
+                    err_msg += f" Firebase restoration failed for {', '.join(restore_errors)}. Outbox recovery queued."
+                else:
+                    err_msg += " Pre-revoked live tracking assignments restored."
+                return jsonify({
+                    'success': False,
+                    'error': err_msg,
+                    'pending_sync_recorded': bool(restore_errors)
+                }), 500
+
+            # STEP 4: Grant in RTDB
+            grant_ok, grant_err = set_driver_rtdb_assignment(driver.id, truck_id)
+            if not grant_ok:
+                rec_ok, rec_err = record_pending_rtdb_assignment(
+                    driver.id, truck_id, last_error=grant_err, commit=True, op_id=op_id,
+                    generation_id=driver.generation_id, revision=d_rev, action='GRANT'
+                )
+                for ev in evicted:
+                    complete_assignment_intent(op_id, driver_id=ev.id, generation_id=ev.generation_id, revision=ev_revs[ev.id], commit=True)
+                return jsonify({
+                    'success': False,
+                    'error': f"Driver assignment committed to database, but Firebase RTDB sync failed: {grant_err}",
+                    'pending_sync_recorded': rec_ok
+                }), 502
+            else:
+                complete_assignment_intent(op_id, commit=True)
+    else:
+        try:
+            db.session.commit()
+        except Exception as e:
+            db.session.rollback()
+            return jsonify({'success': False, 'error': f"Database commit failed: {str(e)}"}), 500
     
     firebase_synced = True
     try:
@@ -2534,7 +3873,6 @@ def get_data():
     if 'driver_tokens' in metadata:
         driver_tokens = json.loads(metadata['driver_tokens'])
 
-    ensure_driver_truck_assignments()
     drivers = User.query.filter_by(role='DRIVER').all()
     drivers_data = []
     for d in drivers:
@@ -3511,20 +4849,131 @@ def assign_route():
             driver = None
     if not driver: return jsonify({'error': 'Driver not found'}), 404
     
-    ensure_driver_truck_assignments()
     if requested_truck_id:
         try:
             truck_id_int = int(requested_truck_id)
-            if driver.truck_id != truck_id_int:
+        except (ValueError, TypeError):
+            return jsonify({'error': 'Invalid truck_id'}), 400
+
+        if driver.truck_id != truck_id_int:
+            with assignment_coordination_guard():
+                old_truck_id = driver.truck_id
                 colliding = User.query.filter(User.role == 'DRIVER', User.truck_id == truck_id_int, User.id != driver.id).all()
+
+                # Monotonic revision and generation allocation
+                c_revs = {}
+                for c in colliding:
+                    if not c.generation_id:
+                        c.generation_id = uuid.uuid4().hex
+                    c_revs[c.id] = allocate_next_assignment_revision()
+                if not driver.generation_id:
+                    driver.generation_id = uuid.uuid4().hex
+                d_rev = allocate_next_assignment_revision()
+
+                # Track all affected drivers and their original truck IDs for rollback recovery
+                affected_drivers = {}
+                for c in colliding:
+                    affected_drivers[str(c.id)] = {
+                        'old_truck': c.truck_id,
+                        'target_truck': None,
+                        'action': 'REVOKE',
+                        'generation_id': c.generation_id,
+                        'revision': c_revs[c.id]
+                    }
+                if old_truck_id and old_truck_id != truck_id_int:
+                    affected_drivers[str(driver.id)] = {
+                        'old_truck': old_truck_id,
+                        'target_truck': truck_id_int,
+                        'action': 'GRANT',
+                        'generation_id': driver.generation_id,
+                        'revision': d_rev
+                    }
+                elif not old_truck_id:
+                    affected_drivers[str(driver.id)] = {
+                        'old_truck': None,
+                        'target_truck': truck_id_int,
+                        'action': 'GRANT',
+                        'generation_id': driver.generation_id,
+                        'revision': d_rev
+                    }
+
+                op_id = uuid.uuid4().hex
+
+                # STEP 1: Durable intent persistence in SQLite BEFORE first Firebase mutation
+                stage_ok, stage_err = stage_assignment_intent(op_id, 'ASSIGN_ROUTE', affected_drivers, commit=True)
+                if not stage_ok:
+                    return jsonify({'success': False, 'error': f"Failed to stage assignment intent: {stage_err}"}), 500
+
+                # STEP 2: Pre-revocation in RTDB
+                for c in colliding:
+                    c_ok, c_err = set_driver_rtdb_assignment(c.id, None)
+                    if not c_ok:
+                        update_assignment_intent_status(op_id, 'FAILED', last_error=c_err)
+                        return jsonify({'success': False, 'error': f"Failed to pre-revoke colliding driver {c.id}: {c_err}"}), 502
+
+                if old_truck_id and old_truck_id != truck_id_int:
+                    old_ok, old_err = set_driver_rtdb_assignment(driver.id, None)
+                    if not old_ok:
+                        update_assignment_intent_status(op_id, 'FAILED', last_error=old_err)
+                        return jsonify({'success': False, 'error': f"Failed to pre-revoke previous assignment for driver {driver.id}: {old_err}"}), 502
+
+                update_assignment_intent_status(op_id, 'REVOKED', commit=False)
+
+                # STEP 3: SQLite modification & commit
+                for c in colliding:
+                    c.truck_id = None
+                    c.assigned_template_id = None
+                    c.assignment_revision = c_revs[c.id]
+
                 driver.truck_id = truck_id_int
-                db.session.commit()
-                if colliding:
-                    ensure_driver_truck_assignments()
-        except:
-            pass
+                driver.assignment_revision = d_rev
+
+                update_assignment_intent_status(op_id, 'COMMITTED', commit=False)
+                try:
+                    db.session.commit()
+                except Exception as e:
+                    db.session.rollback()
+                    restore_errors = []
+                    for aff_id_str, aff_info in affected_drivers.items():
+                        aff_id = int(aff_id_str)
+                        aff_truck = aff_info.get('old_truck')
+                        r_ok, r_err = set_driver_rtdb_assignment(aff_id, aff_truck)
+                        if not r_ok:
+                            record_pending_rtdb_assignment(
+                                aff_id, aff_truck, last_error=r_err, commit=True, op_id=op_id,
+                                generation_id=aff_info.get('generation_id'), revision=aff_info.get('revision')
+                            )
+                            restore_errors.append(f"Driver {aff_id}: {r_err}")
+
+                    err_msg = f"Database commit failed: {str(e)}."
+                    if restore_errors:
+                        err_msg += f" Firebase restoration failed for {', '.join(restore_errors)}. Outbox recovery queued."
+                    else:
+                        err_msg += " Pre-revoked live tracking assignments restored."
+                    return jsonify({
+                        'success': False,
+                        'error': err_msg,
+                        'pending_sync_recorded': bool(restore_errors)
+                    }), 500
+
+                # STEP 4: RTDB Grant
+                grant_ok, grant_err = set_driver_rtdb_assignment(driver.id, truck_id_int)
+                if not grant_ok:
+                    rec_ok, rec_err = record_pending_rtdb_assignment(
+                        driver.id, truck_id_int, last_error=grant_err, commit=True, op_id=op_id,
+                        generation_id=driver.generation_id, revision=d_rev, action='GRANT'
+                    )
+                    for c in colliding:
+                        complete_assignment_intent(op_id, driver_id=c.id, generation_id=c.generation_id, revision=c_revs[c.id], commit=True)
+                    return jsonify({
+                        'success': False,
+                        'error': f"Driver assignment committed to database, but Firebase RTDB sync failed: {grant_err}",
+                        'pending_sync_recorded': rec_ok
+                    }), 502
+                else:
+                    complete_assignment_intent(op_id, commit=True)
     elif not driver.truck_id:
-        ensure_driver_truck_assignments()
+        return jsonify({'error': 'Driver is unassigned. Please specify a truck_id to assign a route.'}), 400
         
     try:
         import requests
@@ -3850,15 +5299,6 @@ def get_assigned_routes():
         except Exception:
             pass
         print("sync_firebase_to_sql error in get_assigned_routes:", e)
-
-    try:
-        ensure_driver_truck_assignments()
-    except Exception as e:
-        try:
-            db.session.rollback()
-        except Exception:
-            pass
-        print("ensure_driver_truck_assignments error in get_assigned_routes:", e)
 
     try:
         drivers = User.query.filter(User.assigned_template_id != None, User.truck_id != None).all()
