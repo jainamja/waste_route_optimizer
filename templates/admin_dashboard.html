@@ -46,8 +46,9 @@
         .btn-outline { background: transparent; border: 1px solid var(--border); color: var(--text-main); }
         
         /* Modal */
-        #add-driver-modal { display:none; position:fixed; top:0; left:0; right:0; bottom:0; background:rgba(0,0,0,0.5); z-index:9999; align-items:center; justify-content:center; }
+        #add-driver-modal, .modal-backdrop { display:none; position:fixed; top:0; left:0; right:0; bottom:0; background:rgba(0,0,0,0.5); z-index:9999; align-items:center; justify-content:center; }
         .modal-content { background:white; padding:32px; border-radius:24px; max-width:400px; width:90%; }
+        .modal-content-lg { background:white; padding:32px; border-radius:24px; max-width:520px; width:90%; box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.25); max-height: 90vh; overflow-y: auto; }
         .modal-content input { width: 100%; box-sizing: border-box; padding:12px; margin-bottom:16px; border:1px solid var(--border); border-radius:12px; font-family:'Inter', sans-serif; }
     
         /* Mobile overrides added automatically */
@@ -141,6 +142,42 @@
                     <h3 class="action-title">Live Tracking</h3>
                     <p class="action-desc">Monitor your active trucks in real-time on the map and view progress.</p>
                 </a>
+
+                <a href="#master-customer-section" class="action-card" onclick="document.getElementById('master-customer-section').scrollIntoView({behavior: 'smooth'}); return false;">
+                    <div class="action-icon" style="background: #eff6ff; color: #2563eb;"><i class="fa-solid fa-users"></i></div>
+                    <h3 class="action-title">Master Customer List</h3>
+                    <p class="action-desc">Manage all registered customers, add new customers, and add them directly to your saved route templates.</p>
+                </a>
+            </div>
+        </div>
+
+        <!-- Master Customer List -->
+        <div id="master-customer-section">
+            <div class="section-header">
+                <div>
+                    <h2>Master Customer List</h2>
+                    <p style="margin:4px 0 0 0; color:var(--text-muted); font-size:13px;">Manage all registered customers, add new customers, and add them directly to your saved route templates.</p>
+                </div>
+                <button onclick="openAddCustomerModal()" class="btn btn-primary"><i class="fa-solid fa-user-plus"></i> Add Customer</button>
+            </div>
+
+            <!-- Search & Filter Bar -->
+            <div style="background: white; border-radius: 12px; border: 1px solid var(--border); padding: 10px 16px; margin-bottom: 16px; display: flex; gap: 12px; align-items: center; box-shadow: var(--shadow-soft);">
+                <i class="fa-solid fa-magnifying-glass" style="color: var(--text-muted);"></i>
+                <input type="text" id="master-cust-search" placeholder="Search customers by name, address, or phone..." oninput="onSearchCustomerInput()" style="border: none; outline: none; width: 100%; font-size: 14px; font-family: 'Inter', sans-serif;">
+                <button id="master-cust-clear-search" onclick="clearCustomerSearch()" style="display:none; background:none; border:none; color:var(--text-muted); cursor:pointer; font-size:14px;"><i class="fa-solid fa-xmark"></i></button>
+            </div>
+
+            <div class="driver-list" id="master-customer-list">
+                <div style="padding: 24px; text-align: center; color: var(--text-muted);">Loading customers...</div>
+            </div>
+
+            <div id="master-cust-pagination" style="display:flex; justify-content:space-between; align-items:center; margin-top:12px; font-size:13px; color:var(--text-muted);">
+                <span id="master-cust-page-info">Showing 0 customers</span>
+                <div style="display:flex; gap:8px;">
+                    <button id="btn-cust-prev" onclick="changeCustomerPage(-1)" class="btn btn-outline" style="padding:6px 12px; font-size:12px;" disabled>Previous</button>
+                    <button id="btn-cust-next" onclick="changeCustomerPage(1)" class="btn btn-outline" style="padding:6px 12px; font-size:12px;" disabled>Next</button>
+                </div>
             </div>
         </div>
 
@@ -192,6 +229,114 @@
             <div style="display:flex; gap:12px;">
                 <button class="btn btn-primary" id="btn-submit-driver" onclick="submitNewDriver()" style="flex:1; justify-content:center;">Create</button>
                 <button class="btn btn-outline" onclick="document.getElementById('add-driver-modal').style.display='none'" style="flex:1; justify-content:center;">Cancel</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Add Customer Modal -->
+    <div id="add-customer-modal" class="modal-backdrop">
+        <div class="modal-content-lg">
+            <h3 style="margin-top:0; font-family:'Manrope', sans-serif; font-size:20px;">Add New Customer</h3>
+            <p style="color:var(--text-muted); font-size:14px; margin-bottom:20px;">Add customer permanently to the master database. They can then be assigned to any saved template.</p>
+            
+            <div id="add-cust-error" style="display:none; padding:10px 14px; background:#fef2f2; border:1px solid #fecaca; border-radius:8px; color:#b91c1c; font-size:13px; margin-bottom:16px;"></div>
+
+            <label style="font-size:13px; font-weight:600; display:block; margin-bottom:6px;">Customer Name *</label>
+            <input type="text" id="new-cust-name" placeholder="e.g. Green Leaf Cafe" style="width:100%; box-sizing:border-box; padding:10px 12px; margin-bottom:14px; border:1px solid var(--border); border-radius:10px; font-family:'Inter', sans-serif;">
+            
+            <label style="font-size:13px; font-weight:600; display:block; margin-bottom:6px;">Address *</label>
+            <input type="text" id="new-cust-address" placeholder="e.g. 123 Main St, Sector 5" style="width:100%; box-sizing:border-box; padding:10px 12px; margin-bottom:14px; border:1px solid var(--border); border-radius:10px; font-family:'Inter', sans-serif;">
+
+            <label style="font-size:13px; font-weight:600; display:block; margin-bottom:6px;">Phone Number (Optional)</label>
+            <input type="tel" id="new-cust-phone" placeholder="e.g. 9876543210" style="width:100%; box-sizing:border-box; padding:10px 12px; margin-bottom:14px; border:1px solid var(--border); border-radius:10px; font-family:'Inter', sans-serif;">
+
+            <div style="display:grid; grid-template-columns:1fr 1fr; gap:12px; margin-bottom:14px;">
+                <div>
+                    <label style="font-size:13px; font-weight:600; display:block; margin-bottom:6px;">Latitude (Optional)</label>
+                    <input type="number" step="any" id="new-cust-lat" placeholder="e.g. 23.0225" style="width:100%; box-sizing:border-box; padding:10px 12px; border:1px solid var(--border); border-radius:10px; font-family:'Inter', sans-serif;">
+                </div>
+                <div>
+                    <label style="font-size:13px; font-weight:600; display:block; margin-bottom:6px;">Longitude (Optional)</label>
+                    <input type="number" step="any" id="new-cust-lng" placeholder="e.g. 72.5714" style="width:100%; box-sizing:border-box; padding:10px 12px; border:1px solid var(--border); border-radius:10px; font-family:'Inter', sans-serif;">
+                </div>
+            </div>
+
+            <div style="display:flex; align-items:center; gap:8px; margin-bottom:24px;">
+                <input type="checkbox" id="new-cust-deliver-bag" style="width:auto; margin:0; cursor:pointer;">
+                <label for="new-cust-deliver-bag" style="font-size:13px; cursor:pointer; color:var(--text-main);">Deliver Waste Collection Bag</label>
+            </div>
+
+            <div style="display:flex; gap:12px;">
+                <button class="btn btn-primary" id="btn-save-customer" onclick="submitNewMasterCustomer()" style="flex:1; justify-content:center;"><i class="fa-solid fa-check"></i> Save Customer</button>
+                <button class="btn btn-outline" onclick="closeAddCustomerModal()" style="flex:1; justify-content:center;">Cancel</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Edit Customer Modal -->
+    <div id="edit-customer-modal" class="modal-backdrop">
+        <div class="modal-content-lg">
+            <h3 style="margin-top:0; font-family:'Manrope', sans-serif; font-size:20px;">Edit Customer</h3>
+            <p style="color:var(--text-muted); font-size:14px; margin-bottom:20px;">Update customer details in the permanent master database.</p>
+            
+            <input type="hidden" id="edit-cust-id">
+            <div id="edit-cust-error" style="display:none; padding:10px 14px; background:#fef2f2; border:1px solid #fecaca; border-radius:8px; color:#b91c1c; font-size:13px; margin-bottom:16px;"></div>
+
+            <label style="font-size:13px; font-weight:600; display:block; margin-bottom:6px;">Customer Name *</label>
+            <input type="text" id="edit-cust-name" style="width:100%; box-sizing:border-box; padding:10px 12px; margin-bottom:14px; border:1px solid var(--border); border-radius:10px; font-family:'Inter', sans-serif;">
+            
+            <label style="font-size:13px; font-weight:600; display:block; margin-bottom:6px;">Address *</label>
+            <input type="text" id="edit-cust-address" style="width:100%; box-sizing:border-box; padding:10px 12px; margin-bottom:14px; border:1px solid var(--border); border-radius:10px; font-family:'Inter', sans-serif;">
+
+            <label style="font-size:13px; font-weight:600; display:block; margin-bottom:6px;">Phone Number</label>
+            <input type="tel" id="edit-cust-phone" style="width:100%; box-sizing:border-box; padding:10px 12px; margin-bottom:14px; border:1px solid var(--border); border-radius:10px; font-family:'Inter', sans-serif;">
+
+            <div style="display:grid; grid-template-columns:1fr 1fr; gap:12px; margin-bottom:14px;">
+                <div>
+                    <label style="font-size:13px; font-weight:600; display:block; margin-bottom:6px;">Latitude</label>
+                    <input type="number" step="any" id="edit-cust-lat" style="width:100%; box-sizing:border-box; padding:10px 12px; border:1px solid var(--border); border-radius:10px; font-family:'Inter', sans-serif;">
+                </div>
+                <div>
+                    <label style="font-size:13px; font-weight:600; display:block; margin-bottom:6px;">Longitude</label>
+                    <input type="number" step="any" id="edit-cust-lng" style="width:100%; box-sizing:border-box; padding:10px 12px; border:1px solid var(--border); border-radius:10px; font-family:'Inter', sans-serif;">
+                </div>
+            </div>
+
+            <div style="display:flex; align-items:center; gap:8px; margin-bottom:24px;">
+                <input type="checkbox" id="edit-cust-deliver-bag" style="width:auto; margin:0; cursor:pointer;">
+                <label for="edit-cust-deliver-bag" style="font-size:13px; cursor:pointer; color:var(--text-main);">Deliver Waste Collection Bag</label>
+            </div>
+
+            <div style="display:flex; gap:12px;">
+                <button class="btn btn-primary" id="btn-update-customer" onclick="submitEditMasterCustomer()" style="flex:1; justify-content:center;"><i class="fa-solid fa-floppy-disk"></i> Save Changes</button>
+                <button class="btn btn-outline" onclick="closeEditCustomerModal()" style="flex:1; justify-content:center;">Cancel</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Add Customer to Template Modal -->
+    <div id="add-to-template-modal" class="modal-backdrop">
+        <div class="modal-content-lg">
+            <h3 style="margin-top:0; font-family:'Manrope', sans-serif; font-size:20px;">Add Customer to Template</h3>
+            <p style="color:var(--text-muted); font-size:14px; margin-bottom:16px;">Directly append this customer to an existing Saved Template without triggering route optimization or reassigning active drivers.</p>
+            
+            <input type="hidden" id="target-cust-id">
+            
+            <div style="background:#f8fafc; border:1px solid var(--border); border-radius:12px; padding:14px; margin-bottom:18px;">
+                <div style="font-weight:700; font-size:15px; color:var(--text-main);" id="target-cust-name">-</div>
+                <div style="font-size:13px; color:var(--text-muted); margin-top:4px;" id="target-cust-address">-</div>
+            </div>
+
+            <div id="add-to-template-alert" style="display:none; padding:10px 14px; border-radius:8px; font-size:13px; margin-bottom:16px;"></div>
+
+            <label style="font-size:13px; font-weight:600; display:block; margin-bottom:8px;">Select Destination Template *</label>
+            <select id="destination-template-select" style="width:100%; box-sizing:border-box; padding:12px; margin-bottom:24px; border:1px solid var(--border); border-radius:10px; font-family:'Inter', sans-serif; font-size:14px; background:white;">
+                <option value="">-- Choose a Saved Template --</option>
+            </select>
+
+            <div style="display:flex; gap:12px;">
+                <button class="btn btn-primary" id="btn-confirm-add-template" onclick="submitAddCustomerToTemplate()" style="flex:1; justify-content:center;"><i class="fa-solid fa-plus"></i> Add to Template</button>
+                <button class="btn btn-outline" onclick="closeAddToTemplateModal()" style="flex:1; justify-content:center;">Cancel</button>
             </div>
         </div>
     </div>
@@ -468,10 +613,409 @@ Do you want to proceed and apply these changes permanently?`;
             }
         };
 
+        // ============================================================================
+        // MASTER CUSTOMER LIST JAVASCRIPT
+        // ============================================================================
+        let masterCustomers = [];
+        let masterCustPage = 1;
+        let masterCustLimit = 50;
+        let masterCustTotal = 0;
+        let searchDebounceTimer = null;
+
+        function loadMasterCustomers() {
+            let q = document.getElementById('master-cust-search') ? document.getElementById('master-cust-search').value.trim() : '';
+            let url = `/api/master_customers?page=${masterCustPage}&limit=${masterCustLimit}`;
+            if (q) url += `&q=${encodeURIComponent(q)}`;
+
+            fetch(url)
+                .then(async res => {
+                    if (!res.ok) { let text = await res.text(); throw new Error(text); }
+                    return res.json();
+                })
+                .then(data => {
+                    if (data.success) {
+                        masterCustomers = data.customers || [];
+                        masterCustTotal = data.total || 0;
+                        renderMasterCustomersTable();
+                    }
+                })
+                .catch(err => {
+                    console.error('Error loading master customers:', err);
+                    const listEl = document.getElementById('master-customer-list');
+                    if (listEl) {
+                        listEl.innerHTML = `
+                            <div style="padding: 24px; text-align: center; color: var(--red, #ef4444);">
+                                <i class="fa-solid fa-triangle-exclamation"></i> Error loading customers. Please refresh.
+                            </div>
+                        `;
+                    }
+                });
+        }
+
+        function renderMasterCustomersTable() {
+            const listEl = document.getElementById('master-customer-list');
+            const pageInfo = document.getElementById('master-cust-page-info');
+            const btnPrev = document.getElementById('btn-cust-prev');
+            const btnNext = document.getElementById('btn-cust-next');
+            if (!listEl) return;
+
+            if (!masterCustomers || masterCustomers.length === 0) {
+                listEl.innerHTML = `
+                    <div style="padding: 36px 20px; text-align: center; color: var(--text-muted);">
+                        <div style="font-size: 32px; margin-bottom: 8px; color: #cbd5e1;"><i class="fa-solid fa-users"></i></div>
+                        <div style="font-size: 15px; font-weight: 600; color: var(--text-main);">No registered customers found</div>
+                        <p style="font-size: 13px; margin: 4px 0 16px 0;">Add your first customer to the permanent master database to get started.</p>
+                        <button onclick="openAddCustomerModal()" class="btn btn-primary" style="font-size: 13px; padding: 8px 16px;"><i class="fa-solid fa-plus"></i> Add First Customer</button>
+                    </div>
+                `;
+                if (pageInfo) pageInfo.innerText = 'Showing 0 customers';
+                if (btnPrev) btnPrev.disabled = true;
+                if (btnNext) btnNext.disabled = true;
+                return;
+            }
+
+            let start = (masterCustPage - 1) * masterCustLimit + 1;
+            let end = Math.min(masterCustPage * masterCustLimit, masterCustTotal);
+            if (pageInfo) pageInfo.innerText = `Showing ${start}-${end} of ${masterCustTotal} customers`;
+            if (btnPrev) btnPrev.disabled = (masterCustPage <= 1);
+            if (btnNext) btnNext.disabled = (end >= masterCustTotal);
+
+            let html = '';
+            masterCustomers.forEach(c => {
+                let geocodeBadge = '';
+                if (c.lat && c.lng) {
+                    geocodeBadge = `<span style="display:inline-flex; align-items:center; gap:4px; font-size:11px; background:#eff6ff; color:#2563eb; padding:2px 8px; border-radius:12px; font-weight:600;"><i class="fa-solid fa-location-dot"></i> ${c.lat.toFixed(4)}, ${c.lng.toFixed(4)}</span>`;
+                } else {
+                    geocodeBadge = `<span style="font-size:11px; background:#f1f5f9; color:var(--text-muted); padding:2px 8px; border-radius:12px;"><i class="fa-solid fa-location-crosshairs"></i> No coords</span>`;
+                }
+
+                let templateBadges = '';
+                if (c.templates && c.templates.length > 0) {
+                    templateBadges = c.templates.map(tName => `<span class="driver-badge" style="background:#eef2ff; color:#4f46e5; font-size:11px; padding:2px 8px; margin-right:4px;"><i class="fa-solid fa-route" style="font-size:10px; margin-right:3px;"></i>${escapeHtml(tName)}</span>`).join('');
+                }
+
+                let bagBadge = c.deliver_bag ? `<span style="font-size:11px; background:#fef3c7; color:#d97706; padding:2px 8px; border-radius:12px; font-weight:600;"><i class="fa-solid fa-bag-shopping"></i> Bag</span>` : '';
+
+                html += `
+                    <div class="driver-item" style="display:flex; justify-content:space-between; align-items:center; padding:16px 20px; border-bottom:1px solid var(--border);">
+                        <div style="display:flex; align-items:flex-start; gap:16px; flex:1; min-width:0;">
+                            <div class="driver-avatar" style="background:#eff6ff; color:var(--primary); flex-shrink:0;">
+                                <i class="fa-solid fa-user"></i>
+                            </div>
+                            <div style="min-width:0; flex:1;">
+                                <div style="display:flex; align-items:center; gap:8px; flex-wrap:wrap;">
+                                    <h4 style="margin:0; font-size:15px; font-weight:700; color:var(--text-main);">${escapeHtml(c.name)}</h4>
+                                    ${geocodeBadge}
+                                    ${bagBadge}
+                                </div>
+                                <p style="margin:4px 0 0 0; font-size:13px; color:var(--text-muted); line-height:1.4;">
+                                    <i class="fa-solid fa-location-dot" style="font-size:11px; margin-right:4px;"></i>${escapeHtml(c.address)}
+                                    ${c.phone ? ` &nbsp;•&nbsp; <i class="fa-solid fa-phone" style="font-size:11px; margin-right:3px;"></i>${escapeHtml(c.phone)}` : ''}
+                                </p>
+                                ${templateBadges ? `<div style="margin-top:6px; display:flex; flex-wrap:wrap; gap:4px;">${templateBadges}</div>` : ''}
+                            </div>
+                        </div>
+                        <div style="display:flex; align-items:center; gap:8px; margin-left:16px; flex-shrink:0;">
+                            <button onclick="openAddToTemplateModal(${c.id}, '${escapeJs(c.name)}', '${escapeJs(c.address)}')" class="btn btn-primary" style="padding:6px 12px; font-size:13px;" title="Add directly to a saved template">
+                                <i class="fa-solid fa-folder-plus"></i> Add to Template
+                            </button>
+                            <button onclick="openEditCustomerModal(${c.id})" class="btn btn-outline" style="padding:6px 10px; font-size:13px; background:white;" title="Edit customer details">
+                                <i class="fa-solid fa-pen"></i> Edit
+                            </button>
+                            <button onclick="archiveCustomer(${c.id}, '${escapeJs(c.name)}')" style="background:none; border:none; color:var(--text-muted); cursor:pointer; font-size:15px; padding:6px;" title="Archive Customer">
+                                <i class="fa-solid fa-trash-can"></i>
+                            </button>
+                        </div>
+                    </div>
+                `;
+            });
+            listEl.innerHTML = html;
+        }
+
+        function onSearchCustomerInput() {
+            const val = document.getElementById('master-cust-search').value;
+            const clearBtn = document.getElementById('master-cust-clear-search');
+            if (clearBtn) clearBtn.style.display = val ? 'inline-block' : 'none';
+
+            if (searchDebounceTimer) clearTimeout(searchDebounceTimer);
+            searchDebounceTimer = setTimeout(() => {
+                masterCustPage = 1;
+                loadMasterCustomers();
+            }, 250);
+        }
+
+        function clearCustomerSearch() {
+            const input = document.getElementById('master-cust-search');
+            if (input) input.value = '';
+            const clearBtn = document.getElementById('master-cust-clear-search');
+            if (clearBtn) clearBtn.style.display = 'none';
+            masterCustPage = 1;
+            loadMasterCustomers();
+        }
+
+        function changeCustomerPage(delta) {
+            masterCustPage += delta;
+            if (masterCustPage < 1) masterCustPage = 1;
+            loadMasterCustomers();
+        }
+
+        function escapeHtml(str) {
+            if (!str) return '';
+            return String(str).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;").replace(/'/g, "&#039;");
+        }
+
+        function escapeJs(str) {
+            if (!str) return '';
+            return String(str).replace(/'/g, "\\'").replace(/"/g, '\\"');
+        }
+
+        function openAddCustomerModal() {
+            const errDiv = document.getElementById('add-cust-error');
+            if (errDiv) errDiv.style.display = 'none';
+            document.getElementById('new-cust-name').value = '';
+            document.getElementById('new-cust-address').value = '';
+            document.getElementById('new-cust-phone').value = '';
+            document.getElementById('new-cust-lat').value = '';
+            document.getElementById('new-cust-lng').value = '';
+            document.getElementById('new-cust-deliver-bag').checked = false;
+            document.getElementById('add-customer-modal').style.display = 'flex';
+        }
+
+        function closeAddCustomerModal() {
+            document.getElementById('add-customer-modal').style.display = 'none';
+        }
+
+        async function submitNewMasterCustomer() {
+            const name = document.getElementById('new-cust-name').value.trim();
+            const address = document.getElementById('new-cust-address').value.trim();
+            const phone = document.getElementById('new-cust-phone').value.trim();
+            const lat = document.getElementById('new-cust-lat').value.trim();
+            const lng = document.getElementById('new-cust-lng').value.trim();
+            const deliver_bag = document.getElementById('new-cust-deliver-bag').checked;
+            const errDiv = document.getElementById('add-cust-error');
+            const btn = document.getElementById('btn-save-customer');
+
+            if (!name) {
+                errDiv.innerText = 'Customer name is required.';
+                errDiv.style.display = 'block';
+                return;
+            }
+            if (!address) {
+                errDiv.innerText = 'Customer address is required.';
+                errDiv.style.display = 'block';
+                return;
+            }
+
+            btn.disabled = true;
+            btn.innerHTML = '<i class="fa-solid fa-circle-notch fa-spin"></i> Saving...';
+
+            try {
+                let payload = { name, address, phone: phone || null, deliver_bag };
+                if (lat) payload.lat = parseFloat(lat);
+                if (lng) payload.lng = parseFloat(lng);
+
+                let res = await fetch('/api/master_customers', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(payload)
+                });
+                let data = await res.json();
+                if (res.ok && data.success) {
+                    closeAddCustomerModal();
+                    loadMasterCustomers();
+                } else {
+                    errDiv.innerText = data.error || data.message || 'Error creating customer';
+                    errDiv.style.display = 'block';
+                }
+            } catch (e) {
+                errDiv.innerText = 'Network error: ' + e.message;
+                errDiv.style.display = 'block';
+            } finally {
+                btn.disabled = false;
+                btn.innerHTML = '<i class="fa-solid fa-check"></i> Save Customer';
+            }
+        }
+
+        function openEditCustomerModal(id) {
+            const cust = masterCustomers.find(c => c.id === id);
+            if (!cust) return;
+
+            document.getElementById('edit-cust-id').value = cust.id;
+            document.getElementById('edit-cust-name').value = cust.name || '';
+            document.getElementById('edit-cust-address').value = cust.address || '';
+            document.getElementById('edit-cust-phone').value = cust.phone || '';
+            document.getElementById('edit-cust-lat').value = (cust.lat !== null && cust.lat !== undefined) ? cust.lat : '';
+            document.getElementById('edit-cust-lng').value = (cust.lng !== null && cust.lng !== undefined) ? cust.lng : '';
+            document.getElementById('edit-cust-deliver-bag').checked = !!cust.deliver_bag;
+            const errDiv = document.getElementById('edit-cust-error');
+            if (errDiv) errDiv.style.display = 'none';
+
+            document.getElementById('edit-customer-modal').style.display = 'flex';
+        }
+
+        function closeEditCustomerModal() {
+            document.getElementById('edit-customer-modal').style.display = 'none';
+        }
+
+        async function submitEditMasterCustomer() {
+            const id = document.getElementById('edit-cust-id').value;
+            const name = document.getElementById('edit-cust-name').value.trim();
+            const address = document.getElementById('edit-cust-address').value.trim();
+            const phone = document.getElementById('edit-cust-phone').value.trim();
+            const lat = document.getElementById('edit-cust-lat').value.trim();
+            const lng = document.getElementById('edit-cust-lng').value.trim();
+            const deliver_bag = document.getElementById('edit-cust-deliver-bag').checked;
+            const errDiv = document.getElementById('edit-cust-error');
+            const btn = document.getElementById('btn-update-customer');
+
+            if (!name) {
+                errDiv.innerText = 'Customer name cannot be empty.';
+                errDiv.style.display = 'block';
+                return;
+            }
+            if (!address) {
+                errDiv.innerText = 'Customer address cannot be empty.';
+                errDiv.style.display = 'block';
+                return;
+            }
+
+            btn.disabled = true;
+            btn.innerHTML = '<i class="fa-solid fa-circle-notch fa-spin"></i> Saving...';
+
+            try {
+                let payload = { name, address, phone: phone || null, deliver_bag };
+                payload.lat = lat ? parseFloat(lat) : null;
+                payload.lng = lng ? parseFloat(lng) : null;
+
+                let res = await fetch(`/api/master_customers/${id}`, {
+                    method: 'PUT',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(payload)
+                });
+                let data = await res.json();
+                if (res.ok && data.success) {
+                    closeEditCustomerModal();
+                    loadMasterCustomers();
+                } else {
+                    errDiv.innerText = data.error || data.message || 'Error updating customer';
+                    errDiv.style.display = 'block';
+                }
+            } catch (e) {
+                errDiv.innerText = 'Network error: ' + e.message;
+                errDiv.style.display = 'block';
+            } finally {
+                btn.disabled = false;
+                btn.innerHTML = '<i class="fa-solid fa-floppy-disk"></i> Save Changes';
+            }
+        }
+
+        async function archiveCustomer(id, name) {
+            if (!confirm(`Are you sure you want to archive customer '${name}'? This is safe and preserves all historical route stops.`)) return;
+
+            try {
+                let res = await fetch(`/api/master_customers/${id}`, { method: 'DELETE' });
+                let data = await res.json();
+                if (res.ok && data.success) {
+                    loadMasterCustomers();
+                } else {
+                    alert('Error: ' + (data.error || 'Failed to archive customer'));
+                }
+            } catch (e) {
+                alert('Network error: ' + e.message);
+            }
+        }
+
+        function openAddToTemplateModal(id, name, address) {
+            document.getElementById('target-cust-id').value = id;
+            document.getElementById('target-cust-name').innerText = name;
+            document.getElementById('target-cust-address').innerText = address;
+            const alertDiv = document.getElementById('add-to-template-alert');
+            alertDiv.style.display = 'none';
+
+            const select = document.getElementById('destination-template-select');
+            select.innerHTML = '<option value="">-- Choose a Saved Template --</option>';
+
+            if (currentTemplates && currentTemplates.length > 0) {
+                currentTemplates.forEach(t => {
+                    select.innerHTML += `<option value="${t.id}">${escapeHtml(t.name)}</option>`;
+                });
+            } else {
+                select.innerHTML += '<option value="" disabled>No saved templates found</option>';
+            }
+
+            document.getElementById('add-to-template-modal').style.display = 'flex';
+        }
+
+        function closeAddToTemplateModal() {
+            document.getElementById('add-to-template-modal').style.display = 'none';
+        }
+
+        async function submitAddCustomerToTemplate() {
+            const custId = document.getElementById('target-cust-id').value;
+            const templateId = document.getElementById('destination-template-select').value;
+            const alertDiv = document.getElementById('add-to-template-alert');
+            const btn = document.getElementById('btn-confirm-add-template');
+
+            if (!templateId) {
+                alertDiv.style.display = 'block';
+                alertDiv.style.background = '#fef2f2';
+                alertDiv.style.border = '1px solid #fecaca';
+                alertDiv.style.color = '#b91c1c';
+                alertDiv.innerText = 'Please select a destination template.';
+                return;
+            }
+
+            btn.disabled = true;
+            btn.innerHTML = '<i class="fa-solid fa-circle-notch fa-spin"></i> Adding...';
+
+            try {
+                let res = await fetch(`/api/templates/${templateId}/add_customer`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ customer_id: parseInt(custId) })
+                });
+                let data = await res.json();
+                if (res.status === 409) {
+                    alertDiv.style.display = 'block';
+                    alertDiv.style.background = '#fffbeb';
+                    alertDiv.style.border = '1px solid #fde68a';
+                    alertDiv.style.color = '#b45309';
+                    alertDiv.innerHTML = `<i class="fa-solid fa-triangle-exclamation"></i> ${data.message || 'Already added to this template.'}`;
+                } else if (res.ok && data.success) {
+                    alertDiv.style.display = 'block';
+                    alertDiv.style.background = '#f0fdf4';
+                    alertDiv.style.border = '1px solid #bbf7d0';
+                    alertDiv.style.color = '#15803d';
+                    alertDiv.innerHTML = `<i class="fa-solid fa-circle-check"></i> ${data.message}`;
+                    setTimeout(() => {
+                        closeAddToTemplateModal();
+                        loadMasterCustomers();
+                        loadTemplates();
+                    }, 1000);
+                } else {
+                    alertDiv.style.display = 'block';
+                    alertDiv.style.background = '#fef2f2';
+                    alertDiv.style.border = '1px solid #fecaca';
+                    alertDiv.style.color = '#b91c1c';
+                    alertDiv.innerText = data.error || 'Failed to add customer to template.';
+                }
+            } catch (e) {
+                alertDiv.style.display = 'block';
+                alertDiv.style.background = '#fef2f2';
+                alertDiv.style.border = '1px solid #fecaca';
+                alertDiv.style.color = '#b91c1c';
+                alertDiv.innerText = 'Network error: ' + e.message;
+            } finally {
+                btn.disabled = false;
+                btn.innerHTML = '<i class="fa-solid fa-plus"></i> Add to Template';
+            }
+        }
+
         window.onload = function() {
             loadDrivers();
             loadTemplates();
             loadAssignedRoutes();
+            loadMasterCustomers();
 
             // Auto-refresh assigned routes & driver status every 10s so completed routes vanish live
             setInterval(() => {

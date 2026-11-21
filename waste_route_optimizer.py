@@ -169,6 +169,7 @@ class Customer(db.Model):
     geocode_quality = db.Column(db.String(20), default='UNKNOWN')
     coord_source = db.Column(db.String(20), default='UNKNOWN')
     is_manually_corrected = db.Column(db.Boolean, default=False)
+    master_customer_id = db.Column(db.Integer, nullable=True)
 
 class Metadata(db.Model):
     __tablename__ = 'metadata_store'
@@ -184,6 +185,41 @@ class SavedTemplate(db.Model):
     metadata_json = db.Column(db.Text)
     customers_json = db.Column(db.Text)
     is_assigned_instance = db.Column(db.Boolean, default=False, index=True)
+
+class MasterCustomer(db.Model):
+    __tablename__ = 'master_customers'
+    id = db.Column(db.Integer, primary_key=True)
+    name = db.Column(db.String(255), nullable=False)
+    phone = db.Column(db.String(50), nullable=True)
+    address = db.Column(db.Text, nullable=False)
+    location_url = db.Column(db.Text, nullable=True)
+    lat = db.Column(db.Float, nullable=True)
+    lng = db.Column(db.Float, nullable=True)
+    deliver_bag = db.Column(db.Boolean, default=False)
+    customer_status = db.Column(db.String(20), default='ACTIVE', index=True)
+    geocode_quality = db.Column(db.String(20), default='UNKNOWN')
+    coord_source = db.Column(db.String(20), default='UNKNOWN')
+    is_manually_corrected = db.Column(db.Boolean, default=False)
+    created_at = db.Column(db.DateTime, server_default=db.func.now())
+    updated_at = db.Column(db.DateTime, server_default=db.func.now(), onupdate=db.func.now())
+
+    def to_dict(self, templates=None):
+        return {
+            'id': self.id,
+            'name': self.name,
+            'phone': self.phone or '',
+            'address': self.address or '',
+            'location_url': self.location_url or '',
+            'lat': self.lat,
+            'lng': self.lng,
+            'deliver_bag': bool(self.deliver_bag),
+            'customer_status': self.customer_status or 'ACTIVE',
+            'geocode_quality': self.geocode_quality or 'UNKNOWN',
+            'coord_source': self.coord_source or 'UNKNOWN',
+            'is_manually_corrected': bool(self.is_manually_corrected),
+            'created_at': self.created_at.strftime('%Y-%m-%d %H:%M:%S') if self.created_at else None,
+            'templates': templates or []
+        }
 
 class AssignmentGlobalSequence(db.Model):
     __tablename__ = 'assignment_global_sequence'
@@ -415,6 +451,37 @@ with app.app_context():
             db.session.commit()
         except:
             db.session.rollback()
+
+    try:
+        db.session.execute(text("ALTER TABLE customers ADD COLUMN master_customer_id INTEGER;"))
+        db.session.commit()
+    except:
+        db.session.rollback()
+
+    try:
+        db.session.execute(text("""
+            CREATE TABLE IF NOT EXISTS master_customers (
+                id INTEGER PRIMARY KEY,
+                name VARCHAR(255) NOT NULL,
+                phone VARCHAR(50),
+                address TEXT NOT NULL,
+                location_url TEXT,
+                lat FLOAT,
+                lng FLOAT,
+                deliver_bag BOOLEAN DEFAULT 0,
+                customer_status VARCHAR(20) DEFAULT 'ACTIVE',
+                geocode_quality VARCHAR(20) DEFAULT 'UNKNOWN',
+                coord_source VARCHAR(20) DEFAULT 'UNKNOWN',
+                is_manually_corrected BOOLEAN DEFAULT 0,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            );
+        """))
+        db.session.execute(text("CREATE INDEX IF NOT EXISTS ix_master_customers_status ON master_customers (customer_status);"))
+        db.session.execute(text("CREATE INDEX IF NOT EXISTS ix_master_customers_name ON master_customers (name);"))
+        db.session.commit()
+    except:
+        db.session.rollback()
 
     # Re-evaluate existing centroid and default rows to FAILED (clearing lat/lng so they are not plotted as real coordinates)
     try:
@@ -2198,6 +2265,26 @@ def login_required(f):
         return f(*args, **kwargs)
     return decorated_function
 
+def admin_required(f):
+    @wraps(f)
+    def decorated_function(*args, **kwargs):
+        admin_token = request.args.get('admin_token') or request.headers.get('X-Admin-Token')
+        if admin_token:
+            admin_user = verify_auth_token(admin_token)
+            if admin_user and admin_user.role == 'ADMIN':
+                session['user_id'] = admin_user.id
+                return f(*args, **kwargs)
+            return jsonify({'error': 'Unauthorized: Admin privileges required'}), 403
+        if 'user_id' not in session:
+            if request.is_json or request.path.startswith('/api/'):
+                return jsonify({'error': 'Unauthorized: Login required'}), 401
+            return redirect(url_for('login'))
+        user = db.session.get(User, session['user_id'])
+        if not user or user.role != 'ADMIN':
+            return jsonify({'error': 'Forbidden: Admin access required'}), 403
+        return f(*args, **kwargs)
+    return decorated_function
+
 leg_cache = {}
 
 def get_active_assigned_trucks(exclude_template_id=None):
@@ -2431,6 +2518,7 @@ def index():
 
 @app.route('/')
 @app.route('/dashboard')
+@app.route('/admin')
 @login_required
 def dashboard():
     return render_template('admin_dashboard.html')
@@ -5713,7 +5801,8 @@ def deploy_template(t_id):
             customer_status=c.get('customer_status', 'ACTIVE'),
             geocode_quality=c.get('geocode_quality', 'UNKNOWN'),
             coord_source=c.get('coord_source', 'UNKNOWN'),
-            is_manually_corrected=c.get('is_manually_corrected', False)
+            is_manually_corrected=c.get('is_manually_corrected', False),
+            master_customer_id=c.get('master_customer_id') or (raw_id if raw_id > 0 and raw_id < 1000000 else None)
         )
         db.session.add(new_cust)
         deployed_customers.append({
@@ -5790,6 +5879,348 @@ def deploy_template(t_id):
         
     recompute_route_metrics()
     return jsonify({'success': True})
+
+# ============================================================================
+# MASTER CUSTOMER LIST & DIRECT SAVED TEMPLATE INTEGRATION ENDPOINTS
+# ============================================================================
+
+@app.route('/api/master_customers', methods=['GET'])
+@admin_required
+def get_master_customers():
+    q = request.args.get('q', '').strip()
+    status_filter = request.args.get('status', 'ACTIVE').strip().upper()
+    try:
+        page = max(int(request.args.get('page', 1)), 1)
+        limit = min(max(int(request.args.get('limit', 50)), 1), 200)
+    except (ValueError, TypeError):
+        page = 1
+        limit = 50
+
+    query = MasterCustomer.query
+    if status_filter == 'ACTIVE':
+        query = query.filter(MasterCustomer.customer_status == 'ACTIVE')
+    elif status_filter == 'ARCHIVED':
+        query = query.filter(MasterCustomer.customer_status == 'ARCHIVED')
+
+    if q:
+        search_term = f"%{q}%"
+        query = query.filter(
+            db.or_(
+                MasterCustomer.name.ilike(search_term),
+                MasterCustomer.address.ilike(search_term),
+                MasterCustomer.phone.ilike(search_term)
+            )
+        )
+
+    total = query.count()
+    customers = query.order_by(MasterCustomer.id.desc()).offset((page - 1) * limit).limit(limit).all()
+
+    import collections, json
+    cust_templates_map = collections.defaultdict(list)
+    try:
+        master_templates = SavedTemplate.query.filter(
+            (SavedTemplate.is_assigned_instance == False) | (SavedTemplate.is_assigned_instance == None)
+        ).all()
+        for tmpl in master_templates:
+            try:
+                t_custs = json.loads(tmpl.customers_json or '[]')
+                for c in t_custs:
+                    cid = c.get('master_customer_id') or c.get('id')
+                    if cid and tmpl.name not in cust_templates_map[cid]:
+                        cust_templates_map[cid].append(tmpl.name)
+            except Exception:
+                pass
+    except Exception:
+        pass
+
+    res = [c.to_dict(templates=cust_templates_map.get(c.id, [])) for c in customers]
+    return jsonify({
+        'success': True,
+        'customers': res,
+        'total': total,
+        'page': page,
+        'limit': limit
+    })
+
+
+@app.route('/api/master_customers', methods=['POST'])
+@admin_required
+def add_master_customer():
+    data = request.json or {}
+    name = (data.get('name') or '').strip()
+    address = (data.get('address') or '').strip()
+    phone = (data.get('phone') or '').strip() or None
+    location_url = (data.get('location_url') or '').strip() or None
+    deliver_bag = bool(data.get('deliver_bag', False))
+
+    if not name:
+        return jsonify({'success': False, 'error': 'Customer name is required'}), 400
+    if not address:
+        return jsonify({'success': False, 'error': 'Customer address is required'}), 400
+
+    lat = data.get('lat')
+    lng = data.get('lng')
+    if lat is not None and lat != '':
+        try:
+            lat = float(lat)
+            if not (-90.0 <= lat <= 90.0):
+                return jsonify({'success': False, 'error': 'Latitude must be between -90 and 90'}), 400
+        except (ValueError, TypeError):
+            return jsonify({'success': False, 'error': 'Invalid latitude value'}), 400
+    else:
+        lat = None
+
+    if lng is not None and lng != '':
+        try:
+            lng = float(lng)
+            if not (-180.0 <= lng <= 180.0):
+                return jsonify({'success': False, 'error': 'Longitude must be between -180 and 180'}), 400
+        except (ValueError, TypeError):
+            return jsonify({'success': False, 'error': 'Invalid longitude value'}), 400
+    else:
+        lng = None
+
+    existing = MasterCustomer.query.filter(
+        MasterCustomer.customer_status != 'ARCHIVED',
+        db.func.lower(MasterCustomer.name) == name.lower(),
+        db.func.lower(MasterCustomer.address) == address.lower()
+    ).first()
+    if existing:
+        return jsonify({'success': False, 'error': 'Customer with this name and address already exists.'}), 409
+
+    max_master_id = db.session.query(db.func.max(MasterCustomer.id)).scalar() or 0
+    max_cust_id = db.session.query(db.func.max(Customer.id)).scalar() or 0
+    new_id = max(max_master_id, max_cust_id, 0) + 1
+
+    geocode_quality = 'EXACT' if (lat is not None and lng is not None) else 'UNKNOWN'
+    coord_source = 'MANUAL' if (lat is not None and lng is not None) else 'UNKNOWN'
+
+    new_cust = MasterCustomer(
+        id=new_id,
+        name=name,
+        address=address,
+        phone=phone,
+        location_url=location_url,
+        lat=lat,
+        lng=lng,
+        deliver_bag=deliver_bag,
+        customer_status='ACTIVE',
+        geocode_quality=geocode_quality,
+        coord_source=coord_source,
+        is_manually_corrected=(lat is not None and lng is not None)
+    )
+    db.session.add(new_cust)
+    db.session.commit()
+
+    return jsonify({'success': True, 'customer': new_cust.to_dict()}), 201
+
+
+@app.route('/api/master_customers/<int:cust_id>', methods=['GET'])
+@admin_required
+def get_master_customer(cust_id):
+    cust = db.session.get(MasterCustomer, cust_id)
+    if not cust:
+        return jsonify({'success': False, 'error': 'Customer not found'}), 404
+    return jsonify({'success': True, 'customer': cust.to_dict()})
+
+
+@app.route('/api/master_customers/<int:cust_id>', methods=['PUT'])
+@admin_required
+def update_master_customer(cust_id):
+    cust = db.session.get(MasterCustomer, cust_id)
+    if not cust:
+        return jsonify({'success': False, 'error': 'Customer not found'}), 404
+
+    data = request.json or {}
+    name = (data.get('name') or '').strip() if 'name' in data else cust.name
+    address = (data.get('address') or '').strip() if 'address' in data else cust.address
+
+    if not name:
+        return jsonify({'success': False, 'error': 'Customer name cannot be empty'}), 400
+    if not address:
+        return jsonify({'success': False, 'error': 'Customer address cannot be empty'}), 400
+
+    existing = MasterCustomer.query.filter(
+        MasterCustomer.id != cust_id,
+        MasterCustomer.customer_status != 'ARCHIVED',
+        db.func.lower(MasterCustomer.name) == name.lower(),
+        db.func.lower(MasterCustomer.address) == address.lower()
+    ).first()
+    if existing:
+        return jsonify({'success': False, 'error': 'Another customer with this name and address already exists.'}), 409
+
+    if 'name' in data: cust.name = name
+    if 'address' in data: cust.address = address
+    if 'phone' in data: cust.phone = (data.get('phone') or '').strip() or None
+    if 'location_url' in data: cust.location_url = (data.get('location_url') or '').strip() or None
+    if 'deliver_bag' in data: cust.deliver_bag = bool(data.get('deliver_bag'))
+    if 'customer_status' in data and data.get('customer_status') in ['ACTIVE', 'ARCHIVED']:
+        cust.customer_status = data.get('customer_status')
+
+    if 'lat' in data:
+        lat = data.get('lat')
+        if lat is not None and lat != '':
+            try:
+                lat = float(lat)
+                if not (-90.0 <= lat <= 90.0):
+                    return jsonify({'success': False, 'error': 'Latitude must be between -90 and 90'}), 400
+                cust.lat = lat
+                cust.is_manually_corrected = True
+            except (ValueError, TypeError):
+                return jsonify({'success': False, 'error': 'Invalid latitude value'}), 400
+        else:
+            cust.lat = None
+
+    if 'lng' in data:
+        lng = data.get('lng')
+        if lng is not None and lng != '':
+            try:
+                lng = float(lng)
+                if not (-180.0 <= lng <= 180.0):
+                    return jsonify({'success': False, 'error': 'Longitude must be between -180 and 180'}), 400
+                cust.lng = lng
+                cust.is_manually_corrected = True
+            except (ValueError, TypeError):
+                return jsonify({'success': False, 'error': 'Invalid longitude value'}), 400
+        else:
+            cust.lng = None
+
+    db.session.commit()
+    return jsonify({'success': True, 'customer': cust.to_dict()})
+
+
+@app.route('/api/master_customers/<int:cust_id>', methods=['DELETE'])
+@admin_required
+def delete_master_customer(cust_id):
+    cust = db.session.get(MasterCustomer, cust_id)
+    if not cust:
+        return jsonify({'success': False, 'error': 'Customer not found'}), 404
+
+    cust.customer_status = 'ARCHIVED'
+    db.session.commit()
+    return jsonify({'success': True, 'message': 'Customer archived successfully.'})
+
+
+@app.route('/api/templates/<int:template_id>/add_customer', methods=['POST'])
+@admin_required
+def add_customer_to_template(template_id):
+    template = db.session.get(SavedTemplate, template_id)
+    if not template or getattr(template, 'is_assigned_instance', False):
+        return jsonify({'success': False, 'error': 'Template not found or is an assigned active route'}), 404
+
+    data = request.json or {}
+    customer_id = data.get('customer_id')
+    customer_ids = data.get('customer_ids')
+
+    if not customer_id and not customer_ids:
+        return jsonify({'success': False, 'error': 'customer_id or customer_ids is required'}), 400
+
+    import json
+    cust_list = json.loads(template.customers_json or '[]')
+
+    if customer_id:
+        master_cust = db.session.get(MasterCustomer, int(customer_id))
+        if not master_cust:
+            return jsonify({'success': False, 'error': 'Customer not found'}), 404
+
+        for c in cust_list:
+            cid = c.get('master_customer_id') or c.get('id')
+            if cid == master_cust.id:
+                return jsonify({'success': False, 'message': 'Already added to this template.', 'error': 'Already added to this template.'}), 409
+            c_name = (c.get('name') or '').strip().lower()
+            c_addr = (c.get('address') or '').strip().lower()
+            m_name = master_cust.name.strip().lower()
+            m_addr = master_cust.address.strip().lower()
+            if c_name == m_name and c_addr == m_addr and c_name and c_addr:
+                return jsonify({'success': False, 'message': 'Already added to this template.', 'error': 'Already added to this template.'}), 409
+
+        target_truck = 1
+        existing_trucks = [int(c.get('truck_id') or 1) for c in cust_list]
+        if existing_trucks:
+            target_truck = min(existing_trucks)
+
+        stops_on_truck = [c.get('stop_number') or 0 for c in cust_list if int(c.get('truck_id') or 1) == target_truck]
+        next_seq = (max(stops_on_truck) + 1) if stops_on_truck else len(cust_list) + 1
+
+        new_stop = {
+            'id': master_cust.id,
+            'master_customer_id': master_cust.id,
+            'name': master_cust.name,
+            'phone': master_cust.phone or '',
+            'address': master_cust.address or '',
+            'location_url': master_cust.location_url or '',
+            'lat': master_cust.lat,
+            'lng': master_cust.lng,
+            'status': 'PENDING',
+            'truck_id': target_truck,
+            'stop_number': next_seq,
+            'confirmation': 'NOT_CONFIRMED',
+            'deliver_bag': bool(master_cust.deliver_bag),
+            'customer_status': master_cust.customer_status or 'ACTIVE',
+            'geocode_quality': master_cust.geocode_quality or 'UNKNOWN',
+            'coord_source': master_cust.coord_source or 'UNKNOWN',
+            'is_manually_corrected': bool(master_cust.is_manually_corrected)
+        }
+        cust_list.append(new_stop)
+        template.customers_json = json.dumps(cust_list)
+        db.session.commit()
+
+        return jsonify({
+            'success': True,
+            'message': f"Customer '{master_cust.name}' added to template '{template.name}'."
+        })
+
+    added_count = 0
+    skipped_count = 0
+    for cid in customer_ids:
+        master_cust = db.session.get(MasterCustomer, int(cid))
+        if not master_cust:
+            continue
+        is_dup = False
+        for c in cust_list:
+            if (c.get('master_customer_id') or c.get('id')) == master_cust.id:
+                is_dup = True; break
+            c_name = (c.get('name') or '').strip().lower()
+            c_addr = (c.get('address') or '').strip().lower()
+            if c_name == master_cust.name.strip().lower() and c_addr == master_cust.address.strip().lower() and c_name and c_addr:
+                is_dup = True; break
+        if is_dup:
+            skipped_count += 1
+            continue
+
+        target_truck = 1
+        stops_on_truck = [c.get('stop_number') or 0 for c in cust_list if int(c.get('truck_id') or 1) == target_truck]
+        next_seq = (max(stops_on_truck) + 1) if stops_on_truck else len(cust_list) + 1
+
+        cust_list.append({
+            'id': master_cust.id,
+            'master_customer_id': master_cust.id,
+            'name': master_cust.name,
+            'phone': master_cust.phone or '',
+            'address': master_cust.address or '',
+            'location_url': master_cust.location_url or '',
+            'lat': master_cust.lat,
+            'lng': master_cust.lng,
+            'status': 'PENDING',
+            'truck_id': target_truck,
+            'stop_number': next_seq,
+            'confirmation': 'NOT_CONFIRMED',
+            'deliver_bag': bool(master_cust.deliver_bag),
+            'customer_status': master_cust.customer_status or 'ACTIVE',
+            'geocode_quality': master_cust.geocode_quality or 'UNKNOWN',
+            'coord_source': master_cust.coord_source or 'UNKNOWN',
+            'is_manually_corrected': bool(master_cust.is_manually_corrected)
+        })
+        added_count += 1
+
+    template.customers_json = json.dumps(cust_list)
+    db.session.commit()
+    return jsonify({
+        'success': True,
+        'added': added_count,
+        'skipped': skipped_count,
+        'message': f"Added {added_count} customer(s) to '{template.name}'."
+    })
 
 @app.route('/api/dynamic_recalculate', methods=['POST'])
 @login_required
