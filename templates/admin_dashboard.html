@@ -256,7 +256,7 @@
             <label style="font-size:13px; font-weight:600; display:block; margin-bottom:6px;">Phone Number (Optional)</label>
             <input type="tel" id="new-cust-phone" placeholder="e.g. 9876543210" style="width:100%; box-sizing:border-box; padding:10px 12px; margin-bottom:14px; border:1px solid var(--border); border-radius:10px; font-family:'Inter', sans-serif;">
 
-            <div style="display:grid; grid-template-columns:1fr 1fr; gap:12px; margin-bottom:14px;">
+            <div style="display:grid; grid-template-columns:1fr 1fr; gap:12px; margin-bottom:24px;">
                 <div>
                     <label style="font-size:13px; font-weight:600; display:block; margin-bottom:6px;">Latitude (Optional)</label>
                     <input type="number" step="any" id="new-cust-lat" placeholder="e.g. 23.0225" style="width:100%; box-sizing:border-box; padding:10px 12px; border:1px solid var(--border); border-radius:10px; font-family:'Inter', sans-serif;">
@@ -265,11 +265,6 @@
                     <label style="font-size:13px; font-weight:600; display:block; margin-bottom:6px;">Longitude (Optional)</label>
                     <input type="number" step="any" id="new-cust-lng" placeholder="e.g. 72.5714" style="width:100%; box-sizing:border-box; padding:10px 12px; border:1px solid var(--border); border-radius:10px; font-family:'Inter', sans-serif;">
                 </div>
-            </div>
-
-            <div style="display:flex; align-items:center; gap:8px; margin-bottom:24px;">
-                <input type="checkbox" id="new-cust-deliver-bag" style="width:auto; margin:0; cursor:pointer;">
-                <label for="new-cust-deliver-bag" style="font-size:13px; cursor:pointer; color:var(--text-main);">Deliver Waste Collection Bag</label>
             </div>
 
             <div style="display:flex; gap:12px;">
@@ -887,7 +882,8 @@ Do you want to proceed and apply these changes permanently?`;
             document.getElementById('new-cust-phone').value = '';
             document.getElementById('new-cust-lat').value = '';
             document.getElementById('new-cust-lng').value = '';
-            document.getElementById('new-cust-deliver-bag').checked = false;
+            const bagEl = document.getElementById('new-cust-deliver-bag');
+            if (bagEl) bagEl.checked = false;
             document.getElementById('add-customer-modal').style.display = 'flex';
         }
 
@@ -901,7 +897,8 @@ Do you want to proceed and apply these changes permanently?`;
             const phone = document.getElementById('new-cust-phone').value.trim();
             const lat = document.getElementById('new-cust-lat').value.trim();
             const lng = document.getElementById('new-cust-lng').value.trim();
-            const deliver_bag = document.getElementById('new-cust-deliver-bag').checked;
+            const bagEl = document.getElementById('new-cust-deliver-bag');
+            const deliver_bag = bagEl ? bagEl.checked : false;
             const errDiv = document.getElementById('add-cust-error');
             const btn = document.getElementById('btn-save-customer');
 

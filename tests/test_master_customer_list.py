@@ -505,3 +505,28 @@ def test_admin_dashboard_ui_elements(client):
     assert 'openAddToTemplateModal' in html
 
 
+def test_add_new_customer_modal_no_deliver_bag(client):
+    """Verify Deliver Waste Collection Bag checkbox is removed from Add New Customer modal but preserved in Edit Customer modal."""
+    login_as_admin(client)
+    res = client.get('/admin')
+    assert res.status_code == 200
+    html = res.get_data(as_text=True)
+
+    # Add Customer Modal has all required fields
+    assert 'id="new-cust-name"' in html
+    assert 'id="new-cust-address"' in html
+    assert 'id="new-cust-phone"' in html
+    assert 'id="new-cust-lat"' in html
+    assert 'id="new-cust-lng"' in html
+    assert 'id="btn-save-customer"' in html
+
+    # Deliver Waste Collection Bag is removed from Add Customer Modal
+    assert 'id="new-cust-deliver-bag"' not in html
+    assert 'for="new-cust-deliver-bag"' not in html
+
+    # Deliver Waste Collection Bag is preserved in Edit Customer Modal
+    assert 'id="edit-cust-deliver-bag"' in html
+    assert 'for="edit-cust-deliver-bag"' in html
+
+
+
