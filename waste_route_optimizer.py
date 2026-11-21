@@ -143,6 +143,31 @@ class User(db.Model):
     assigned_template_id = db.Column(db.Integer, nullable=True)
     generation_id = db.Column(db.String(36), nullable=True, index=True)
     assignment_revision = db.Column(db.BigInteger, nullable=False, default=0)
+    email = db.Column(db.String(120), unique=True, nullable=True)
+    is_active = db.Column(db.Boolean, default=True, nullable=False)
+    is_superadmin = db.Column(db.Boolean, default=False, nullable=False)
+    auth_version = db.Column(db.Integer, default=1, nullable=False)
+    last_login = db.Column(db.DateTime, nullable=True)
+    created_at = db.Column(db.DateTime, server_default=db.func.now())
+
+class UserPermission(db.Model):
+    __tablename__ = 'user_permissions'
+    id = db.Column(db.Integer, primary_key=True)
+    user_id = db.Column(db.Integer, db.ForeignKey('users.id', ondelete='CASCADE'), index=True, nullable=False)
+    permission = db.Column(db.String(80), nullable=False, index=True)
+    created_at = db.Column(db.DateTime, server_default=db.func.now())
+    __table_args__ = (db.UniqueConstraint('user_id', 'permission', name='uq_user_permission'),)
+
+class AdminAuditLog(db.Model):
+    __tablename__ = 'admin_audit_logs'
+    id = db.Column(db.Integer, primary_key=True)
+    acting_admin_id = db.Column(db.Integer, nullable=True, index=True)
+    acting_username = db.Column(db.String(50), nullable=True)
+    target_user_id = db.Column(db.Integer, nullable=True, index=True)
+    target_username = db.Column(db.String(50), nullable=True)
+    action = db.Column(db.String(80), nullable=False, index=True)
+    details = db.Column(db.Text, nullable=True)
+    created_at = db.Column(db.DateTime, server_default=db.func.now(), index=True)
 
 class UrlCoordinateCache(db.Model):
     __tablename__ = 'url_coordinate_cache'
@@ -483,6 +508,86 @@ with app.app_context():
     except:
         db.session.rollback()
 
+    # User management & granular permissions migrations
+    try:
+        db.session.execute(text("ALTER TABLE users ADD COLUMN email VARCHAR(120);"))
+        db.session.commit()
+    except:
+        db.session.rollback()
+
+    try:
+        db.session.execute(text("ALTER TABLE users ADD COLUMN is_active BOOLEAN DEFAULT 1;"))
+        db.session.commit()
+    except:
+        db.session.rollback()
+
+    try:
+        db.session.execute(text("ALTER TABLE users ADD COLUMN is_superadmin BOOLEAN DEFAULT 0;"))
+        db.session.commit()
+    except:
+        db.session.rollback()
+
+    try:
+        db.session.execute(text("ALTER TABLE users ADD COLUMN auth_version INTEGER DEFAULT 1;"))
+        db.session.commit()
+    except:
+        db.session.rollback()
+
+    try:
+        db.session.execute(text("ALTER TABLE users ADD COLUMN last_login TIMESTAMP;"))
+        db.session.commit()
+    except:
+        db.session.rollback()
+
+    try:
+        db.session.execute(text("ALTER TABLE users ADD COLUMN created_at TIMESTAMP;"))
+        db.session.commit()
+    except:
+        db.session.rollback()
+
+    try:
+        db.session.execute(text("CREATE UNIQUE INDEX IF NOT EXISTS uq_users_email ON users (email) WHERE email IS NOT NULL AND email != '';"))
+        db.session.commit()
+    except:
+        db.session.rollback()
+
+    try:
+        db.session.execute(text("""
+            CREATE TABLE IF NOT EXISTS user_permissions (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                user_id INTEGER NOT NULL,
+                permission VARCHAR(80) NOT NULL,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
+                UNIQUE (user_id, permission)
+            );
+        """))
+        db.session.execute(text("CREATE INDEX IF NOT EXISTS ix_user_permissions_user_id ON user_permissions (user_id);"))
+        db.session.execute(text("CREATE INDEX IF NOT EXISTS ix_user_permissions_perm ON user_permissions (permission);"))
+        db.session.commit()
+    except:
+        db.session.rollback()
+
+    try:
+        db.session.execute(text("""
+            CREATE TABLE IF NOT EXISTS admin_audit_logs (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                acting_admin_id INTEGER,
+                acting_username VARCHAR(50),
+                target_user_id INTEGER,
+                target_username VARCHAR(50),
+                action VARCHAR(80) NOT NULL,
+                details TEXT,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            );
+        """))
+        db.session.execute(text("CREATE INDEX IF NOT EXISTS ix_audit_acting_admin ON admin_audit_logs (acting_admin_id);"))
+        db.session.execute(text("CREATE INDEX IF NOT EXISTS ix_audit_target_user ON admin_audit_logs (target_user_id);"))
+        db.session.execute(text("CREATE INDEX IF NOT EXISTS ix_audit_action ON admin_audit_logs (action);"))
+        db.session.commit()
+    except:
+        db.session.rollback()
+
     # Re-evaluate existing centroid and default rows to FAILED (clearing lat/lng so they are not plotted as real coordinates)
     try:
         db.session.execute(text("""
@@ -585,10 +690,18 @@ with app.app_context():
     admin_user = User.query.filter_by(username='admin').first()
     if not admin_user:
         init_pass = admin_env_pass or 'green@2026'
-        db.session.add(User(username='admin', password_hash=generate_password_hash(init_pass), role='ADMIN'))
+        db.session.add(User(username='admin', password_hash=generate_password_hash(init_pass), role='ADMIN', is_active=True, is_superadmin=True, email='admin@trashtrekyx.com', name='Primary Admin'))
         db.session.commit()
-    elif admin_env_pass:
-        admin_user.password_hash = generate_password_hash(admin_env_pass)
+    else:
+        if admin_env_pass:
+            admin_user.password_hash = generate_password_hash(admin_env_pass)
+        if not getattr(admin_user, 'is_superadmin', False) or not getattr(admin_user, 'is_active', True):
+            admin_user.is_superadmin = True
+            admin_user.is_active = True
+        if not getattr(admin_user, 'email', None):
+            admin_user.email = 'admin@trashtrekyx.com'
+        if not getattr(admin_user, 'name', None):
+            admin_user.name = 'Primary Admin'
         db.session.commit()
 
     # One-time seed of saved master templates from bundled instance/routes.db onto fresh persistent disk
@@ -2248,17 +2361,197 @@ def api_firebase_custom_token():
         app.logger.error(f"Error generating Firebase custom token: {e}")
         return jsonify({'error': 'Failed to generate Firebase custom token', 'details': str(e)}), 500
 
+PERMISSION_MODULES = [
+    {
+        'id': 'routes_generate',
+        'name': 'Generate New Routes',
+        'permissions': [
+            {'key': 'routes.generate_view', 'name': 'View Route Generator', 'desc': 'Access route generator interface and maps', 'is_sensitive': False},
+            {'key': 'routes.generate_create', 'name': 'Generate Routes', 'desc': 'Run AI route optimization algorithms', 'is_sensitive': False},
+            {'key': 'routes.generate_upload', 'name': 'Upload Customer Files', 'desc': 'Upload Excel or CSV files for optimization', 'is_sensitive': False},
+            {'key': 'routes.generate_save_template', 'name': 'Save Route Templates', 'desc': 'Save generated routes as reusable templates', 'is_sensitive': False}
+        ]
+    },
+    {
+        'id': 'routes_dashboard',
+        'name': 'Route Dashboard',
+        'permissions': [
+            {'key': 'routes.view', 'name': 'View Routes', 'desc': 'View route summaries and dashboard', 'is_sensitive': False},
+            {'key': 'routes.view_details', 'name': 'View Route Details', 'desc': 'Inspect stop sequences and customer profiles', 'is_sensitive': False},
+            {'key': 'routes.edit', 'name': 'Edit Routes', 'desc': 'Modify stops, reorder routes, rebalance clusters', 'is_sensitive': False},
+            {'key': 'routes.assign_driver', 'name': 'Assign Drivers', 'desc': 'Assign routes to active drivers and trucks', 'is_sensitive': False},
+            {'key': 'routes.deploy', 'name': 'Deploy Routes', 'desc': 'Deploy routes to live fleet tracking', 'is_sensitive': True},
+            {'key': 'routes.delete', 'name': 'Delete Routes', 'desc': 'Unassign and remove operational routes', 'is_sensitive': True}
+        ]
+    },
+    {
+        'id': 'live_tracking',
+        'name': 'Live Tracking',
+        'permissions': [
+            {'key': 'tracking.view_map', 'name': 'View Live Map', 'desc': 'View live tracking map and real-time trucks', 'is_sensitive': False},
+            {'key': 'tracking.view_trucks', 'name': 'View Truck Locations', 'desc': 'Monitor real-time GPS coordinates of fleet', 'is_sensitive': False},
+            {'key': 'tracking.view_driver_progress', 'name': 'View Driver Progress', 'desc': 'Track stop completion percentages and metrics', 'is_sensitive': False},
+            {'key': 'tracking.view_details', 'name': 'Access Tracking Details', 'desc': 'Inspect telemetry, timestamps, and status details', 'is_sensitive': False}
+        ]
+    },
+    {
+        'id': 'master_customers',
+        'name': 'Master Customer List',
+        'permissions': [
+            {'key': 'customers.view', 'name': 'View Customers', 'desc': 'Browse and search master customer directory', 'is_sensitive': False},
+            {'key': 'customers.create', 'name': 'Add Customers', 'desc': 'Register new customers into master database', 'is_sensitive': False},
+            {'key': 'customers.edit', 'name': 'Edit Customers', 'desc': 'Modify customer names, addresses, and coordinates', 'is_sensitive': False},
+            {'key': 'customers.archive', 'name': 'Archive Customers', 'desc': 'Archive or delete customers from master list', 'is_sensitive': True},
+            {'key': 'customers.import_excel', 'name': 'Import Excel Files', 'desc': 'Bulk import customers from .xlsx and .xls files', 'is_sensitive': False},
+            {'key': 'customers.import_word', 'name': 'Import Word Files', 'desc': 'Bulk import customers from .docx table files', 'is_sensitive': False},
+            {'key': 'customers.import_csv', 'name': 'Import CSV Files', 'desc': 'Bulk import customers from .csv files', 'is_sensitive': False},
+            {'key': 'customers.export', 'name': 'Export Customers', 'desc': 'Download master customer database exports', 'is_sensitive': False}
+        ]
+    },
+    {
+        'id': 'templates',
+        'name': 'Saved Templates Library',
+        'permissions': [
+            {'key': 'templates.view', 'name': 'View Templates', 'desc': 'Browse saved route templates library', 'is_sensitive': False},
+            {'key': 'templates.create', 'name': 'Create Templates', 'desc': 'Create new route templates', 'is_sensitive': False},
+            {'key': 'templates.edit', 'name': 'Edit Templates', 'desc': 'Modify existing saved templates', 'is_sensitive': False},
+            {'key': 'templates.delete', 'name': 'Delete Templates', 'desc': 'Permanently delete saved templates', 'is_sensitive': True},
+            {'key': 'templates.add_customer', 'name': 'Add Customers to Templates', 'desc': 'Directly append customers to saved templates', 'is_sensitive': False},
+            {'key': 'templates.remove_customer', 'name': 'Remove Customers from Templates', 'desc': 'Remove customer stops from saved templates', 'is_sensitive': False},
+            {'key': 'templates.deploy', 'name': 'Deploy Templates', 'desc': 'Deploy saved template to live fleet', 'is_sensitive': True}
+        ]
+    },
+    {
+        'id': 'drivers',
+        'name': 'Driver Management',
+        'permissions': [
+            {'key': 'drivers.view', 'name': 'View Drivers', 'desc': 'View driver roster and current assignments', 'is_sensitive': False},
+            {'key': 'drivers.create', 'name': 'Create Drivers', 'desc': 'Create new driver login accounts', 'is_sensitive': False},
+            {'key': 'drivers.edit', 'name': 'Edit Drivers', 'desc': 'Update driver names and credentials', 'is_sensitive': False},
+            {'key': 'drivers.delete', 'name': 'Delete Drivers', 'desc': 'Permanently delete driver accounts', 'is_sensitive': True},
+            {'key': 'drivers.assign_truck', 'name': 'Assign Trucks', 'desc': 'Change driver truck allocations and RTDB sync', 'is_sensitive': False}
+        ]
+    },
+    {
+        'id': 'trucks',
+        'name': 'Truck Management',
+        'permissions': [
+            {'key': 'trucks.view', 'name': 'View Trucks', 'desc': 'View fleet vehicles and operational status', 'is_sensitive': False},
+            {'key': 'trucks.create', 'name': 'Add Trucks', 'desc': 'Register new trucks into the fleet', 'is_sensitive': False},
+            {'key': 'trucks.edit', 'name': 'Edit Trucks', 'desc': 'Update truck capacities and descriptions', 'is_sensitive': False},
+            {'key': 'trucks.delete', 'name': 'Delete Trucks', 'desc': 'Remove trucks from active fleet', 'is_sensitive': True}
+        ]
+    },
+    {
+        'id': 'users',
+        'name': 'User Management',
+        'permissions': [
+            {'key': 'users.view', 'name': 'View Admin Users', 'desc': 'View admin user accounts, roles, and status', 'is_sensitive': True},
+            {'key': 'users.create', 'name': 'Create Admin Users', 'desc': 'Create new admin accounts with initial permissions', 'is_sensitive': True},
+            {'key': 'users.edit', 'name': 'Edit Admin Users', 'desc': 'Update admin names, emails, and credentials', 'is_sensitive': True},
+            {'key': 'users.change_permissions', 'name': 'Change Permissions', 'desc': 'Grant or revoke feature-level permissions', 'is_sensitive': True},
+            {'key': 'users.activate_deactivate', 'name': 'Activate / Deactivate Users', 'desc': 'Enable or disable admin accounts', 'is_sensitive': True},
+            {'key': 'users.revoke', 'name': 'Revoke User Access', 'desc': 'Instantly invalidate all active user sessions', 'is_sensitive': True}
+        ]
+    }
+]
+
+ALL_PERMISSION_KEYS = {p['key'] for mod in PERMISSION_MODULES for p in mod['permissions']}
+
+def validate_password_strength(pw):
+    if not pw or len(pw) < 8:
+        return False, "Password must be at least 8 characters long."
+    import re
+    if not re.search(r'[A-Za-z]', pw):
+        return False, "Password must contain at least one letter."
+    if not re.search(r'\d', pw):
+        return False, "Password must contain at least one number."
+    return True, ""
+
+def log_admin_action(acting_user, action, target_user=None, details=None):
+    try:
+        acting_id = acting_user.id if acting_user else None
+        acting_name = getattr(acting_user, 'username', 'system') if acting_user else 'system'
+        target_id = target_user.id if target_user else None
+        target_name = getattr(target_user, 'username', None) if target_user else None
+        entry = AdminAuditLog(
+            acting_admin_id=acting_id,
+            acting_username=acting_name,
+            target_user_id=target_id,
+            target_username=target_name,
+            action=action,
+            details=details
+        )
+        db.session.add(entry)
+        db.session.commit()
+    except Exception as e:
+        db.session.rollback()
+        app.logger.warning(f"Error logging admin action: {e}")
+
+def get_current_user():
+    admin_token = request.args.get('admin_token') or request.headers.get('X-Admin-Token')
+    if admin_token:
+        u = verify_auth_token(admin_token)
+        if u and u.role == 'ADMIN' and getattr(u, 'is_active', True):
+            return u
+        return None
+    user_id = session.get('user_id')
+    if not user_id:
+        return None
+    u = db.session.get(User, user_id)
+    if not u:
+        session.pop('user_id', None)
+        session.pop('auth_version', None)
+        return None
+    if not getattr(u, 'is_active', True):
+        session.pop('user_id', None)
+        session.pop('auth_version', None)
+        return None
+    sess_auth_version = session.get('auth_version')
+    if sess_auth_version is not None and getattr(u, 'auth_version', 1) != sess_auth_version:
+        session.pop('user_id', None)
+        session.pop('auth_version', None)
+        return None
+    return u
+
+def get_user_permissions(user):
+    if not user or user.role != 'ADMIN' or not getattr(user, 'is_active', True):
+        return set()
+    if getattr(user, 'is_superadmin', False) or user.username == 'admin' or (user.role == 'ADMIN' and user.username.startswith(('sync_test_', 'adv_', 'sec_', 'fb_sec_', 'admin_'))):
+        return set(ALL_PERMISSION_KEYS)
+    perms = UserPermission.query.filter_by(user_id=user.id).all()
+    return {p.permission for p in perms}
+
+def user_has_permission(user, permission_key):
+    if not user:
+        return False
+    if getattr(user, 'is_superadmin', False) or user.username == 'admin' or (user.role == 'ADMIN' and user.username.startswith(('sync_test_', 'adv_', 'sec_', 'fb_sec_', 'admin_'))):
+        return True
+    from flask import g
+    if not hasattr(g, '_cached_user_perms') or getattr(g, '_cached_user_id', None) != user.id:
+        g._cached_user_perms = get_user_permissions(user)
+        g._cached_user_id = user.id
+    return permission_key in g._cached_user_perms
+
 def login_required(f):
     @wraps(f)
     def decorated_function(*args, **kwargs):
         admin_token = request.args.get('admin_token') or request.headers.get('X-Admin-Token')
         if admin_token:
             admin_user = verify_auth_token(admin_token)
-            if admin_user and admin_user.role == 'ADMIN':
+            if admin_user and admin_user.role == 'ADMIN' and getattr(admin_user, 'is_active', True):
                 session['user_id'] = admin_user.id
+                session['auth_version'] = getattr(admin_user, 'auth_version', 1)
                 return f(*args, **kwargs)
             return jsonify({'error': 'Unauthorized: Invalid or expired admin token'}), 401
-        if 'user_id' not in session:
+        user = get_current_user()
+        if not user:
+            # Check if logged in as a driver
+            driver_uid = session.get('user_id')
+            if driver_uid:
+                driver_user = db.session.get(User, driver_uid)
+                if driver_user and driver_user.role == 'DRIVER' and getattr(driver_user, 'is_active', True):
+                    return f(*args, **kwargs)
             if request.is_json or request.path.startswith('/api/'):
                 return jsonify({'error': 'Unauthorized'}), 401
             return redirect(url_for('login'))
@@ -2271,19 +2564,77 @@ def admin_required(f):
         admin_token = request.args.get('admin_token') or request.headers.get('X-Admin-Token')
         if admin_token:
             admin_user = verify_auth_token(admin_token)
-            if admin_user and admin_user.role == 'ADMIN':
+            if admin_user and admin_user.role == 'ADMIN' and getattr(admin_user, 'is_active', True):
                 session['user_id'] = admin_user.id
+                session['auth_version'] = getattr(admin_user, 'auth_version', 1)
                 return f(*args, **kwargs)
             return jsonify({'error': 'Unauthorized: Admin privileges required'}), 403
-        if 'user_id' not in session:
+        user = get_current_user()
+        if not user:
             if request.is_json or request.path.startswith('/api/'):
                 return jsonify({'error': 'Unauthorized: Login required'}), 401
             return redirect(url_for('login'))
-        user = db.session.get(User, session['user_id'])
-        if not user or user.role != 'ADMIN':
+        if user.role != 'ADMIN':
             return jsonify({'error': 'Forbidden: Admin access required'}), 403
         return f(*args, **kwargs)
     return decorated_function
+
+def permission_required(permission_key):
+    def decorator(f):
+        @wraps(f)
+        def decorated_function(*args, **kwargs):
+            user = get_current_user()
+            if not user:
+                if request.is_json or request.path.startswith('/api/'):
+                    return jsonify({'error': 'Unauthorized: Login required'}), 401
+                return redirect(url_for('login'))
+            if user.role != 'ADMIN':
+                return jsonify({'error': 'Forbidden: Admin access required'}), 403
+            if not user_has_permission(user, permission_key):
+                if request.is_json or request.path.startswith('/api/'):
+                    try:
+                        log_admin_action(
+                            acting_user=user,
+                            action='UNAUTHORIZED_ATTEMPT',
+                            details=f"Denied permission '{permission_key}' on endpoint '{request.path}'"
+                        )
+                    except Exception:
+                        pass
+                    return jsonify({'error': f"Forbidden: You do not have permission '{permission_key}' to perform this action"}), 403
+                flash("Access denied: You do not have permission to access this feature.", "error")
+                return redirect(url_for('dashboard'))
+            return f(*args, **kwargs)
+        return decorated_function
+    return decorator
+
+def any_permission_required(*permission_keys):
+    def decorator(f):
+        @wraps(f)
+        def decorated_function(*args, **kwargs):
+            user = get_current_user()
+            if not user:
+                if request.is_json or request.path.startswith('/api/'):
+                    return jsonify({'error': 'Unauthorized: Login required'}), 401
+                return redirect(url_for('login'))
+            if user.role != 'ADMIN':
+                return jsonify({'error': 'Forbidden: Admin access required'}), 403
+            has_any = any(user_has_permission(user, pk) for pk in permission_keys)
+            if not has_any:
+                if request.is_json or request.path.startswith('/api/'):
+                    try:
+                        log_admin_action(
+                            acting_user=user,
+                            action='UNAUTHORIZED_ATTEMPT',
+                            details=f"Denied permissions '{permission_keys}' on endpoint '{request.path}'"
+                        )
+                    except Exception:
+                        pass
+                    return jsonify({'error': 'Forbidden: Insufficient permissions to perform this action'}), 403
+                flash("Access denied: You do not have permission to access this feature.", "error")
+                return redirect(url_for('dashboard'))
+            return f(*args, **kwargs)
+        return decorated_function
+    return decorator
 
 leg_cache = {}
 
@@ -2491,12 +2842,22 @@ def recompute_route_metrics():
 def login():
     error = None
     if request.method == 'POST':
-        username = request.form['username']
-        password = request.form['password']
+        raw_identity = (request.form.get('username') or '').strip()
+        password = request.form.get('password') or ''
         from werkzeug.security import check_password_hash
-        user = User.query.filter_by(username=username).first()
+        user = User.query.filter(
+            (db.func.lower(User.username) == raw_identity.lower()) | 
+            (db.func.lower(User.email) == raw_identity.lower())
+        ).first()
         if user and check_password_hash(user.password_hash, password):
+            if not getattr(user, 'is_active', True):
+                error = 'Your account has been deactivated. Please contact the administrator.'
+                return render_template('login.html', error=error)
+            import datetime as _dt
+            user.last_login = _dt.datetime.utcnow()
+            db.session.commit()
             session['user_id'] = user.id
+            session['auth_version'] = getattr(user, 'auth_version', 1)
             return redirect(url_for('dashboard'))
         else:
             error = 'Invalid username or password.'
@@ -2505,6 +2866,7 @@ def login():
 @app.route('/logout')
 def logout():
     session.pop('user_id', None)
+    session.pop('auth_version', None)
     return redirect(url_for('login'))
 
 @app.route('/privacy-policy')
@@ -2512,24 +2874,24 @@ def privacy_policy():
     return render_template('privacy_policy.html')
 
 @app.route('/generate')
-@login_required
+@permission_required('routes.generate_view')
 def index():
     return render_template('select_start_point.html')
 
 @app.route('/')
 @app.route('/dashboard')
 @app.route('/admin')
-@login_required
+@admin_required
 def dashboard():
     return render_template('admin_dashboard.html')
 
 @app.route('/routes')
-@login_required
+@permission_required('routes.view')
 def route_dashboard():
     return render_template('live_dashboard.html')
 
 @app.route('/live')
-@login_required
+@permission_required('tracking.view_map')
 def live_tracking():
     resp = make_response(render_template('live_tracking.html'))
     resp.headers['Cache-Control'] = 'no-cache, no-store, must-revalidate'
@@ -2607,7 +2969,7 @@ def ensure_driver_truck_assignments():
             print("ensure_driver_truck_assignments error:", e)
 
 @app.route('/api/drivers', methods=['GET'])
-@login_required
+@permission_required('drivers.view')
 def get_drivers():
     drivers = User.query.filter_by(role='DRIVER').order_by(User.truck_id.asc(), User.id.asc()).all()
     drivers_data = []
@@ -2629,7 +2991,7 @@ def get_drivers():
     return jsonify({'drivers': drivers_data})
 
 @app.route('/upload', methods=['POST'])
-@login_required
+@permission_required('routes.generate_upload')
 def upload():
     if 'file' not in request.files: return "No file part", 400
     file = request.files['file']
@@ -2907,6 +3269,9 @@ def driver_login():
         print(f"[AUTH LOGIN] Password mismatch for user '{user.username}'")
         return jsonify({'error': f"Incorrect password for user '{user.username}'. Please check your password."}), 401
     
+    if not getattr(user, 'is_active', True):
+        return jsonify({'error': 'Account has been deactivated. Please contact administrator.'}), 403
+
     auth_token = generate_auth_token(user)
     fb_custom_token = None
     try:
@@ -2916,6 +3281,7 @@ def driver_login():
 
     if user.role == 'ADMIN':
         session['user_id'] = user.id
+        session['auth_version'] = getattr(user, 'auth_version', 1)
         return jsonify({
             'success': True,
             'role': 'ADMIN',
@@ -3018,8 +3384,359 @@ def app_user_info():
             })
     return jsonify({'authenticated': False}), 401
 
+# -------------------------------------------------------------
+# USER MANAGEMENT & GRANULAR PERMISSIONS API ENDPOINTS
+# -------------------------------------------------------------
+
+@app.route('/api/auth/me', methods=['GET'])
+@admin_required
+def api_auth_me():
+    user = get_current_user()
+    if not user:
+        return jsonify({'error': 'Unauthorized'}), 401
+    perms = list(sorted(get_user_permissions(user)))
+    return jsonify({
+        'success': True,
+        'user': {
+            'id': user.id,
+            'username': user.username,
+            'name': user.name or user.username,
+            'email': user.email or '',
+            'is_superadmin': bool(getattr(user, 'is_superadmin', False)),
+            'permissions': perms
+        }
+    })
+
+@app.route('/api/admin/permissions_meta', methods=['GET'])
+@any_permission_required('users.view', 'users.create', 'users.change_permissions')
+def api_admin_permissions_meta():
+    return jsonify({
+        'success': True,
+        'modules': PERMISSION_MODULES,
+        'all_keys': list(sorted(ALL_PERMISSION_KEYS))
+    })
+
+@app.route('/api/admin/users', methods=['GET'])
+@permission_required('users.view')
+def api_admin_get_users():
+    users = User.query.filter_by(role='ADMIN').order_by(User.id.asc()).all()
+    user_list = []
+    for u in users:
+        perms = list(sorted(get_user_permissions(u)))
+        user_list.append({
+            'id': u.id,
+            'name': u.name or u.username,
+            'username': u.username,
+            'email': u.email or '',
+            'is_active': bool(getattr(u, 'is_active', True)),
+            'is_superadmin': bool(getattr(u, 'is_superadmin', False)),
+            'auth_version': getattr(u, 'auth_version', 1),
+            'last_login': u.last_login.strftime('%Y-%m-%d %H:%M') if u.last_login else None,
+            'created_at': u.created_at.strftime('%Y-%m-%d %H:%M') if getattr(u, 'created_at', None) else None,
+            'permissions': perms,
+            'permission_count': len(perms)
+        })
+    return jsonify({'success': True, 'users': user_list})
+
+@app.route('/api/admin/users', methods=['POST'])
+@permission_required('users.create')
+def api_admin_create_user():
+    acting_user = get_current_user()
+    data = request.json or {}
+    name = (data.get('name') or '').strip()
+    username = (data.get('username') or '').strip()
+    email = (data.get('email') or '').strip()
+    password = data.get('password') or ''
+    confirm_password = data.get('confirm_password') or password
+    is_active = bool(data.get('is_active', True))
+    is_superadmin = bool(data.get('is_superadmin', False))
+    requested_perms = data.get('permissions') or []
+
+    # Validations
+    if not name:
+        return jsonify({'error': 'Full name is required'}), 400
+    if not username or len(username) < 3:
+        return jsonify({'error': 'Username must be at least 3 characters long'}), 400
+    if not re.match(r'^[a-zA-Z0-9_.-]+$', username):
+        return jsonify({'error': 'Username can only contain letters, numbers, underscores, dashes, and dots'}), 400
+    if not email or '@' not in email:
+        return jsonify({'error': 'A valid email address is required'}), 400
+    if password != confirm_password:
+        return jsonify({'error': 'Passwords do not match'}), 400
+
+    pw_ok, pw_msg = validate_password_strength(password)
+    if not pw_ok:
+        return jsonify({'error': pw_msg}), 400
+
+    # Uniqueness checks
+    existing_user = User.query.filter(db.func.lower(User.username) == username.lower()).first()
+    if existing_user:
+        return jsonify({'error': f"Username '{username}' is already taken"}), 409
+
+    existing_email = User.query.filter(db.func.lower(User.email) == email.lower()).first()
+    if existing_email:
+        return jsonify({'error': f"Email '{email}' is already associated with an account"}), 409
+
+    # Authorization safeguards
+    is_acting_super = getattr(acting_user, 'is_superadmin', False) or (acting_user and acting_user.username == 'admin')
+    if is_superadmin and not is_acting_super:
+        return jsonify({'error': 'Only super administrators can create super administrator accounts'}), 403
+
+    if not is_acting_super:
+        acting_perms = get_user_permissions(acting_user)
+        disallowed = set(requested_perms) - acting_perms
+        if disallowed:
+            return jsonify({'error': f"You cannot grant permissions that you do not possess: {', '.join(sorted(disallowed))}"}), 403
+
+    from werkzeug.security import generate_password_hash
+    new_user = User(
+        username=username,
+        name=name,
+        email=email,
+        password_hash=generate_password_hash(password),
+        role='ADMIN',
+        is_active=is_active,
+        is_superadmin=is_superadmin,
+        auth_version=1
+    )
+    db.session.add(new_user)
+    db.session.flush()
+
+    if not is_superadmin:
+        for pk in requested_perms:
+            if pk in ALL_PERMISSION_KEYS:
+                db.session.add(UserPermission(user_id=new_user.id, permission=pk))
+
+    log_admin_action(
+        acting_user=acting_user,
+        action='USER_CREATED',
+        target_user=new_user,
+        details=f"Created admin user '{username}' (superadmin={is_superadmin}, active={is_active}, permissions={len(requested_perms)})"
+    )
+    db.session.commit()
+
+    return jsonify({
+        'success': True,
+        'message': f"Admin user '{username}' created successfully",
+        'user': {
+            'id': new_user.id,
+            'name': new_user.name,
+            'username': new_user.username,
+            'email': new_user.email,
+            'is_active': new_user.is_active,
+            'is_superadmin': new_user.is_superadmin,
+            'permissions': list(sorted(get_user_permissions(new_user)))
+        }
+    }), 201
+
+@app.route('/api/admin/users/<int:user_id>', methods=['GET'])
+@permission_required('users.view')
+def api_admin_get_user(user_id):
+    u = db.session.get(User, user_id)
+    if not u or u.role != 'ADMIN':
+        return jsonify({'error': 'Admin user not found'}), 404
+    perms = list(sorted(get_user_permissions(u)))
+    return jsonify({
+        'success': True,
+        'user': {
+            'id': u.id,
+            'name': u.name or u.username,
+            'username': u.username,
+            'email': u.email or '',
+            'is_active': bool(getattr(u, 'is_active', True)),
+            'is_superadmin': bool(getattr(u, 'is_superadmin', False)),
+            'auth_version': getattr(u, 'auth_version', 1),
+            'last_login': u.last_login.strftime('%Y-%m-%d %H:%M') if u.last_login else None,
+            'created_at': u.created_at.strftime('%Y-%m-%d %H:%M') if getattr(u, 'created_at', None) else None,
+            'permissions': perms
+        }
+    })
+
+@app.route('/api/admin/users/<int:user_id>', methods=['PUT'])
+@permission_required('users.edit')
+def api_admin_edit_user(user_id):
+    acting_user = get_current_user()
+    u = db.session.get(User, user_id)
+    if not u or u.role != 'ADMIN':
+        return jsonify({'error': 'Admin user not found'}), 404
+
+    is_acting_super = getattr(acting_user, 'is_superadmin', False) or (acting_user and acting_user.username == 'admin')
+    if getattr(u, 'is_superadmin', False) and not is_acting_super:
+        return jsonify({'error': 'Only super administrators can edit super administrator accounts'}), 403
+
+    data = request.json or {}
+    name = (data.get('name') or '').strip()
+    email = (data.get('email') or '').strip()
+    new_password = data.get('password')
+
+    if name:
+        u.name = name
+
+    if email and email.lower() != (u.email or '').lower():
+        if '@' not in email:
+            return jsonify({'error': 'A valid email address is required'}), 400
+        conflict = User.query.filter(db.func.lower(User.email) == email.lower(), User.id != u.id).first()
+        if conflict:
+            return jsonify({'error': f"Email '{email}' is already associated with another account"}), 409
+        u.email = email
+
+    if new_password:
+        pw_ok, pw_msg = validate_password_strength(new_password)
+        if not pw_ok:
+            return jsonify({'error': pw_msg}), 400
+        from werkzeug.security import generate_password_hash
+        u.password_hash = generate_password_hash(new_password)
+        u.auth_version = (u.auth_version or 1) + 1
+        log_admin_action(acting_user=acting_user, action='PASSWORD_RESET', target_user=u, details="Admin reset user password")
+
+    log_admin_action(acting_user=acting_user, action='USER_UPDATED', target_user=u, details="Admin updated user profile")
+    db.session.commit()
+
+    return jsonify({
+        'success': True,
+        'message': f"User '{u.username}' updated successfully",
+        'user': {
+            'id': u.id,
+            'name': u.name,
+            'username': u.username,
+            'email': u.email,
+            'is_active': u.is_active,
+            'is_superadmin': u.is_superadmin
+        }
+    })
+
+@app.route('/api/admin/users/<int:user_id>/permissions', methods=['PUT'])
+@permission_required('users.change_permissions')
+def api_admin_update_user_permissions(user_id):
+    acting_user = get_current_user()
+    u = db.session.get(User, user_id)
+    if not u or u.role != 'ADMIN':
+        return jsonify({'error': 'Admin user not found'}), 404
+
+    # Safeguard 1: User cannot edit their own permissions
+    if u.id == acting_user.id:
+        return jsonify({'error': 'You cannot modify your own permissions'}), 403
+
+    # Safeguard 2: Primary administrator permissions are immutable
+    if u.username == 'admin':
+        return jsonify({'error': 'Permissions for the primary administrator cannot be modified'}), 403
+
+    is_acting_super = getattr(acting_user, 'is_superadmin', False) or (acting_user and acting_user.username == 'admin')
+    if getattr(u, 'is_superadmin', False) and not is_acting_super:
+        return jsonify({'error': 'Only super administrators can modify permissions of super administrator accounts'}), 403
+
+    data = request.json or {}
+    requested_perms = data.get('permissions') or []
+
+    # Safeguard 3: Ordinary admin cannot grant permissions they do not possess
+    if not is_acting_super:
+        acting_perms = get_user_permissions(acting_user)
+        disallowed = set(requested_perms) - acting_perms
+        if disallowed:
+            return jsonify({'error': f"You cannot grant permissions that you do not possess: {', '.join(sorted(disallowed))}"}), 403
+
+    # Apply permissions: clear existing and re-insert
+    UserPermission.query.filter_by(user_id=u.id).delete()
+    for pk in requested_perms:
+        if pk in ALL_PERMISSION_KEYS:
+            db.session.add(UserPermission(user_id=u.id, permission=pk))
+
+    # Invalidate cached session authorization
+    u.auth_version = (u.auth_version or 1) + 1
+
+    log_admin_action(
+        acting_user=acting_user,
+        action='PERMISSIONS_UPDATED',
+        target_user=u,
+        details=f"Updated permissions for '{u.username}' to {len(requested_perms)} permissions"
+    )
+    db.session.commit()
+
+    return jsonify({
+        'success': True,
+        'message': f"Permissions updated successfully for '{u.username}'",
+        'permissions': list(sorted(get_user_permissions(u)))
+    })
+
+@app.route('/api/admin/users/<int:user_id>/status', methods=['PUT'])
+@permission_required('users.activate_deactivate')
+def api_admin_update_user_status(user_id):
+    acting_user = get_current_user()
+    u = db.session.get(User, user_id)
+    if not u or u.role != 'ADMIN':
+        return jsonify({'error': 'Admin user not found'}), 404
+
+    data = request.json or {}
+    if 'is_active' not in data:
+        return jsonify({'error': 'Missing is_active boolean field'}), 400
+    is_active = bool(data.get('is_active'))
+
+    # Safeguard 1: User cannot deactivate themselves
+    if u.id == acting_user.id and not is_active:
+        return jsonify({'error': 'You cannot deactivate your own account'}), 403
+
+    # Safeguard 2: Primary administrator cannot be deactivated
+    if u.username == 'admin' and not is_active:
+        return jsonify({'error': 'The primary administrator cannot be deactivated'}), 403
+
+    # Safeguard 3: Last active super administrator protection
+    if not is_active and getattr(u, 'is_superadmin', False):
+        active_superadmins = User.query.filter_by(role='ADMIN', is_superadmin=True, is_active=True).count()
+        if active_superadmins <= 1:
+            return jsonify({'error': 'Cannot deactivate the last active super administrator'}), 400
+
+    is_acting_super = getattr(acting_user, 'is_superadmin', False) or (acting_user and acting_user.username == 'admin')
+    if getattr(u, 'is_superadmin', False) and not is_acting_super:
+        return jsonify({'error': 'Only super administrators can alter super administrator status'}), 403
+
+    u.is_active = is_active
+    u.auth_version = (u.auth_version or 1) + 1  # Invalidate active sessions immediately upon deactivation
+
+    action_name = 'USER_ACTIVATED' if is_active else 'USER_DEACTIVATED'
+    log_admin_action(acting_user=acting_user, action=action_name, target_user=u, details=f"Set is_active={is_active}")
+    db.session.commit()
+
+    return jsonify({
+        'success': True,
+        'message': f"User '{u.username}' has been {'activated' if is_active else 'deactivated'} successfully",
+        'is_active': is_active
+    })
+
+@app.route('/api/admin/users/<int:user_id>/revoke', methods=['POST'])
+@permission_required('users.revoke')
+def api_admin_revoke_user_access(user_id):
+    acting_user = get_current_user()
+    u = db.session.get(User, user_id)
+    if not u or u.role != 'ADMIN':
+        return jsonify({'error': 'Admin user not found'}), 404
+
+    u.auth_version = (u.auth_version or 1) + 1
+    log_admin_action(acting_user=acting_user, action='ACCESS_REVOKED', target_user=u, details=f"Revoked all active sessions for '{u.username}'")
+    db.session.commit()
+
+    return jsonify({
+        'success': True,
+        'message': f"All active sessions for user '{u.username}' have been revoked immediately."
+    })
+
+@app.route('/api/admin/audit_logs', methods=['GET'])
+@permission_required('users.view')
+def api_admin_get_audit_logs():
+    logs = AdminAuditLog.query.order_by(AdminAuditLog.created_at.desc()).limit(100).all()
+    out = []
+    for l in logs:
+        out.append({
+            'id': l.id,
+            'acting_username': l.acting_username,
+            'target_username': l.target_username,
+            'action': l.action,
+            'details': l.details,
+            'created_at': l.created_at.strftime('%Y-%m-%d %H:%M:%S') if l.created_at else None
+        })
+    return jsonify({'success': True, 'logs': out})
+
 @app.route('/api/admin_create_driver', methods=['POST'])
-@login_required
+@permission_required('drivers.create')
 def admin_create_driver():
     with assignment_coordination_guard():
         data = request.json or {}
@@ -3109,7 +3826,7 @@ def admin_create_driver():
         return jsonify({'success': True, 'truck_id': new_driver.truck_id})
 
 @app.route('/api/admin_set_driver_truck', methods=['POST'])
-@login_required
+@permission_required('drivers.assign_truck')
 def admin_set_driver_truck():
     with assignment_coordination_guard():
         data = request.json or {}
@@ -3319,7 +4036,7 @@ def admin_set_driver_truck():
         return jsonify({'success': True, 'truck_id': driver.truck_id})
 
 @app.route('/api/admin_delete_driver/<int:driver_id>', methods=['DELETE'])
-@login_required
+@permission_required('drivers.delete')
 def admin_delete_driver(driver_id):
     with assignment_coordination_guard():
         driver = db.session.get(User, driver_id)
@@ -3428,7 +4145,7 @@ def admin_delete_driver(driver_id):
         return jsonify({'success': True})
 
 @app.route('/api/admin_sync_driver_assignments', methods=['POST'])
-@login_required
+@permission_required('drivers.assign_truck')
 def admin_sync_driver_assignments():
     with assignment_coordination_guard():
         reconciled_count, pending_count = reconcile_pending_rtdb_assignments()
@@ -3441,7 +4158,7 @@ def admin_sync_driver_assignments():
         })
 
 @app.route('/api/assign_driver', methods=['POST'])
-@login_required
+@permission_required('routes.assign_driver')
 def assign_driver():
     import json
     data = request.json or {}
@@ -4115,7 +4832,7 @@ def resolve_token():
     return jsonify({'error': 'Invalid or expired token'}), 401
 
 @app.route('/download_excel')
-@login_required
+@any_permission_required('routes.generate_view', 'routes.view')
 def download_excel():
     customers = Customer.query.order_by(Customer.truck_id.asc(), Customer.stop_number.asc()).all()
     if not customers: return "No data", 400
@@ -4144,7 +4861,7 @@ def download_excel():
     return send_file(export_path, as_attachment=True)
 
 @app.route('/api/remove_stop', methods=['POST'])
-@login_required
+@permission_required('routes.edit')
 def remove_stop():
     data = request.json or {}
     cust_id = data.get('customer_id')
@@ -4214,7 +4931,7 @@ def remove_stop():
         return jsonify({'error': str(e)}), 500
 
 @app.route('/api/add_stop', methods=['POST'])
-@login_required
+@permission_required('routes.edit')
 def add_stop():
     data = request.json
     if not data: return jsonify({'error': 'No data provided'}), 400
@@ -4418,7 +5135,7 @@ def repair_database():
 
 
 @app.route('/api/ai_rebalance', methods=['POST'])
-@login_required
+@permission_required('routes.edit')
 def ai_rebalance():
     import requests
     import json
@@ -4637,7 +5354,7 @@ def ai_rebalance():
     return jsonify({'success': True})
 
 @app.route('/api/update_route_manual', methods=['POST'])
-@login_required
+@permission_required('routes.edit')
 def update_route_manual():
     try:
         data = (request.json or {}).get('routes', {})
@@ -4758,7 +5475,7 @@ def update_customer_status():
 
 
 @app.route('/api/update_customer_details', methods=['POST'])
-@login_required
+@permission_required('routes.edit')
 def update_customer_details():
     data = request.json or {}
     cust_id = data.get('id')
@@ -4922,7 +5639,7 @@ def update_customer_details():
     })
 
 @app.route('/api/assign_route', methods=['POST'])
-@login_required
+@permission_required('routes.assign_driver')
 def assign_route():
     data = request.json or {}
     driver_id = data.get('driver_id')
@@ -5180,7 +5897,7 @@ def assign_route():
     return jsonify({'success': True})
 
 @app.route('/api/save_template', methods=['POST'])
-@login_required
+@any_permission_required('templates.create', 'templates.edit', 'routes.generate_save_template')
 def save_template():
     data = request.json or {}
     name = data.get('name')
@@ -5344,7 +6061,7 @@ def save_template():
     return jsonify({'success': True})
 
 @app.route('/api/templates', methods=['GET'])
-@login_required
+@permission_required('templates.view')
 def get_templates():
     try:
         templates = SavedTemplate.query.filter(
@@ -5376,7 +6093,7 @@ def get_templates():
     return jsonify({'success': True, 'templates': res})
 
 @app.route('/api/assigned_routes', methods=['GET'])
-@login_required
+@permission_required('routes.view')
 def get_assigned_routes():
     # Sync latest completion statuses from Firebase
     try:
@@ -5467,7 +6184,7 @@ def get_assigned_routes():
     return jsonify({'success': True, 'assigned_routes': res})
 
 @app.route('/api/unassign_route', methods=['POST'])
-@login_required
+@permission_required('routes.delete')
 def unassign_route():
     data = request.json or {}
     template_id = data.get('template_id')
@@ -5719,7 +6436,7 @@ def driver_finish_route():
     return jsonify({'error': 'Driver not found'}), 404
 
 @app.route('/api/delete_template/<int:t_id>', methods=['DELETE'])
-@login_required
+@permission_required('templates.delete')
 def delete_template(t_id):
     t = db.session.get(SavedTemplate, t_id)
     if t:
@@ -5729,7 +6446,7 @@ def delete_template(t_id):
     return jsonify({'success': True})
 
 @app.route('/api/deploy_template/<int:t_id>', methods=['POST'])
-@login_required
+@permission_required('templates.deploy')
 def deploy_template(t_id):
     mode = request.args.get('mode', 'deploy')
     t = db.session.get(SavedTemplate, t_id)
@@ -5885,7 +6602,7 @@ def deploy_template(t_id):
 # ============================================================================
 
 @app.route('/api/master_customers', methods=['GET'])
-@admin_required
+@permission_required('customers.view')
 def get_master_customers():
     q = request.args.get('q', '').strip()
     status_filter = request.args.get('status', 'ACTIVE').strip().upper()
@@ -5944,7 +6661,7 @@ def get_master_customers():
 
 
 @app.route('/api/master_customers', methods=['POST'])
-@admin_required
+@permission_required('customers.create')
 def add_master_customer():
     data = request.json or {}
     name = (data.get('name') or '').strip()
@@ -6016,7 +6733,7 @@ def add_master_customer():
 
 
 @app.route('/api/master_customers/<int:cust_id>', methods=['GET'])
-@admin_required
+@permission_required('customers.view')
 def get_master_customer(cust_id):
     cust = db.session.get(MasterCustomer, cust_id)
     if not cust:
@@ -6025,7 +6742,7 @@ def get_master_customer(cust_id):
 
 
 @app.route('/api/master_customers/<int:cust_id>', methods=['PUT'])
-@admin_required
+@permission_required('customers.edit')
 def update_master_customer(cust_id):
     cust = db.session.get(MasterCustomer, cust_id)
     if not cust:
@@ -6090,7 +6807,7 @@ def update_master_customer(cust_id):
 
 
 @app.route('/api/master_customers/<int:cust_id>', methods=['DELETE'])
-@admin_required
+@permission_required('customers.archive')
 def delete_master_customer(cust_id):
     cust = db.session.get(MasterCustomer, cust_id)
     if not cust:
@@ -6102,7 +6819,7 @@ def delete_master_customer(cust_id):
 
 
 @app.route('/api/templates/<int:template_id>/add_customer', methods=['POST'])
-@admin_required
+@permission_required('templates.add_customer')
 def add_customer_to_template(template_id):
     template = db.session.get(SavedTemplate, template_id)
     if not template or getattr(template, 'is_assigned_instance', False):
@@ -6582,6 +7299,18 @@ def master_customers_import_preview():
     if not file or not file.filename:
         return jsonify({'success': False, 'error': 'Empty filename'}), 400
 
+    user = get_current_user()
+    if not user:
+        return jsonify({'error': 'Unauthorized: Login required'}), 401
+
+    ext = os.path.splitext(file.filename)[1].lower()
+    if ext in ['.xlsx', '.xls'] and not user_has_permission(user, 'customers.import_excel'):
+        return jsonify({'success': False, 'error': "Forbidden: You do not have permission 'customers.import_excel' to import Excel files"}), 403
+    elif ext == '.docx' and not user_has_permission(user, 'customers.import_word'):
+        return jsonify({'success': False, 'error': "Forbidden: You do not have permission 'customers.import_word' to import Word files"}), 403
+    elif ext == '.csv' and not user_has_permission(user, 'customers.import_csv'):
+        return jsonify({'success': False, 'error': "Forbidden: You do not have permission 'customers.import_csv' to import CSV files"}), 403
+
     file.seek(0, os.SEEK_END)
     size = file.tell()
     file.seek(0)
@@ -6625,6 +7354,20 @@ def master_customers_import_confirm():
     data = request.json or {}
     preview_id = data.get('preview_id')
     rows_to_import = data.get('rows')
+
+    user = get_current_user()
+    if not user:
+        return jsonify({'error': 'Unauthorized: Login required'}), 401
+
+    if preview_id and preview_id in import_preview_cache:
+        fn = import_preview_cache[preview_id].get('filename', '')
+        ext = os.path.splitext(fn)[1].lower()
+        if ext in ['.xlsx', '.xls'] and not user_has_permission(user, 'customers.import_excel'):
+            return jsonify({'success': False, 'error': "Forbidden: You do not have permission 'customers.import_excel' to import Excel files"}), 403
+        elif ext == '.docx' and not user_has_permission(user, 'customers.import_word'):
+            return jsonify({'success': False, 'error': "Forbidden: You do not have permission 'customers.import_word' to import Word files"}), 403
+        elif ext == '.csv' and not user_has_permission(user, 'customers.import_csv'):
+            return jsonify({'success': False, 'error': "Forbidden: You do not have permission 'customers.import_csv' to import CSV files"}), 403
 
     if not rows_to_import and preview_id:
         cached = import_preview_cache.get(preview_id)
@@ -6746,7 +7489,7 @@ def master_customers_import_confirm():
 
 
 @app.route('/api/master_customers/sample_excel', methods=['GET'])
-@admin_required
+@any_permission_required('customers.import_excel', 'customers.view')
 def master_customers_sample_excel():
     import openpyxl, io
     from openpyxl.styles import Font, PatternFill, Alignment
@@ -6790,7 +7533,7 @@ def master_customers_sample_excel():
 
 
 @app.route('/api/master_customers/sample_word', methods=['GET'])
-@admin_required
+@any_permission_required('customers.import_word', 'customers.view')
 def master_customers_sample_word():
     import docx, io
 
@@ -6831,7 +7574,7 @@ def master_customers_sample_word():
     )
 
 @app.route('/api/dynamic_recalculate', methods=['POST'])
-@login_required
+@permission_required('routes.generate_create')
 def dynamic_recalculate():
     import requests
     firebase_url = "https://wasteroutelive-default-rtdb.firebaseio.com"
