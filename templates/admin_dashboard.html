@@ -4,56 +4,69 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Admin Dashboard - On Route</title>
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=Manrope:wght@600;700;800&display=swap" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Manrope:wght@600;700;800&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <link rel="stylesheet" href="/static/theme.css">
+    <script src="/static/theme.js"></script>
     <style>
         :root {
-            --primary: #2F5FFF;
-            --bg: #f8fafc;
-            --card-bg: #ffffff;
-            --text-main: #0f172a;
-            --text-muted: #64748b;
-            --border: #e2e8f0;
-            --shadow-soft: 0 10px 25px -5px rgba(0,0,0,0.05), 0 8px 10px -6px rgba(0,0,0,0.01);
+            --shadow-soft: 0 4px 20px -2px rgba(15, 23, 42, 0.05), 0 2px 6px -1px rgba(15, 23, 42, 0.03);
         }
-        body { font-family: 'Inter', sans-serif; background: var(--bg); margin: 0; color: var(--text-main); }
-        .header { display: flex; justify-content: space-between; align-items: center; padding: 20px 40px; background: white; border-bottom: 1px solid var(--border); }
+        body { font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif; background: var(--bg); margin: 0; color: var(--text-main); transition: background-color 0.25s ease, color 0.25s ease; }
+        .header { display: flex; justify-content: space-between; align-items: center; padding: 18px 40px; background: var(--card-bg); border-bottom: 1px solid var(--border); transition: background 0.25s ease, border-color 0.25s ease; }
         .header-left { display: flex; align-items: center; gap: 16px; }
-        .header h1 { margin: 0; font-family: 'Manrope', sans-serif; font-size: 22px; }
+        .header h1 { margin: 0; font-family: 'Manrope', sans-serif; font-size: 22px; color: var(--text-main); font-weight: 700; }
         .container { padding: 40px; max-width: 1200px; margin: 0 auto; display: flex; flex-direction: column; gap: 32px; }
         
         .quick-actions { display: grid; grid-template-columns: repeat(auto-fit, minmax(250px, 1fr)); gap: 20px; }
-        .action-card { background: white; border-radius: 16px; padding: 24px; border: 1px solid var(--border); text-decoration: none; color: inherit; box-shadow: var(--shadow-soft); transition: transform 0.2s, box-shadow 0.2s; display: flex; flex-direction: column; gap: 12px; }
-        .action-card:hover { transform: translateY(-4px); box-shadow: 0 20px 25px -5px rgba(0,0,0,0.1); border-color: var(--primary); }
-        .action-icon { width: 50px; height: 50px; border-radius: 12px; background: #eff6ff; color: var(--primary); display: flex; align-items: center; justify-content: center; font-size: 24px; }
-        .action-title { font-family: 'Manrope', sans-serif; font-size: 18px; font-weight: 700; margin: 0; }
-        .action-desc { font-size: 14px; color: var(--text-muted); margin: 0; line-height: 1.5; }
+        .action-card { background: var(--card-bg); border-radius: 16px; padding: 24px; border: 1px solid var(--border); text-decoration: none; color: inherit; box-shadow: var(--shadow-soft); transition: transform 0.2s, box-shadow 0.2s, border-color 0.2s; display: flex; flex-direction: column; gap: 12px; }
+        .action-card:hover { transform: translateY(-3px); box-shadow: var(--shadow-hover); border-color: var(--primary); }
+        .action-icon { width: 50px; height: 50px; border-radius: 12px; background: var(--primary-subtle); color: var(--primary); display: flex; align-items: center; justify-content: center; font-size: 22px; flex-shrink: 0; }
+        .action-title { font-family: 'Manrope', sans-serif; font-size: 17px; font-weight: 700; margin: 0; color: var(--text-main); }
+        .action-desc { font-size: 13.5px; color: var(--text-muted); margin: 0; line-height: 1.5; }
         
         .section-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px; }
-        .section-header h2 { margin: 0; font-family: 'Manrope', sans-serif; font-size: 20px; }
+        .section-header h2 { margin: 0; font-family: 'Manrope', sans-serif; font-size: 20px; color: var(--text-main); font-weight: 700; }
         
-        .driver-list { background: white; border-radius: 16px; border: 1px solid var(--border); overflow: hidden; box-shadow: var(--shadow-soft); }
-        .driver-item { display: flex; justify-content: space-between; align-items: center; padding: 16px 24px; border-bottom: 1px solid var(--border); }
+        .driver-list { background: var(--card-bg); border-radius: 16px; border: 1px solid var(--border); overflow: hidden; box-shadow: var(--shadow-soft); transition: background 0.25s ease, border-color 0.25s ease; }
+        .driver-item { display: flex; justify-content: space-between; align-items: center; padding: 16px 24px; border-bottom: 1px solid var(--border); background: var(--card-bg); }
         .driver-item:last-child { border-bottom: none; }
         .driver-info { display: flex; align-items: center; gap: 16px; }
-        .driver-avatar { width: 40px; height: 40px; border-radius: 50%; background: #f1f5f9; display: flex; align-items: center; justify-content: center; color: var(--text-muted); font-weight: 600; }
-        .driver-details h4 { margin: 0 0 4px 0; font-size: 15px; }
+        .driver-avatar { width: 40px; height: 40px; border-radius: 50%; background: var(--bg-subtle); display: flex; align-items: center; justify-content: center; color: var(--primary); font-weight: 600; flex-shrink: 0; }
+        .driver-details h4 { margin: 0 0 4px 0; font-size: 15px; color: var(--text-main); font-weight: 600; }
         .driver-details p { margin: 0; font-size: 13px; color: var(--text-muted); }
-        .driver-badge { background: #ecfdf5; color: #10b981; padding: 4px 10px; border-radius: 20px; font-size: 12px; font-weight: 600; }
+        .driver-badge { background: var(--success-subtle); color: var(--success-text); padding: 4px 10px; border-radius: 20px; font-size: 12px; font-weight: 600; }
         
-        .btn { padding: 10px 20px; border-radius: 8px; font-weight: 600; font-size: 14px; cursor: pointer; text-decoration: none; border: none; font-family: 'Inter', sans-serif; display: inline-flex; align-items: center; gap: 8px; }
-        .btn-primary { background: var(--primary); color: white; }
-        .btn-outline { background: transparent; border: 1px solid var(--border); color: var(--text-main); }
+        .btn { padding: 9px 18px; border-radius: 10px; font-weight: 600; font-size: 14px; cursor: pointer; text-decoration: none; border: none; font-family: 'Inter', sans-serif; display: inline-flex; align-items: center; gap: 8px; transition: all 0.2s ease; }
+        .btn-primary { background: var(--primary); color: white; box-shadow: var(--shadow-glow); }
+        .btn-primary:hover:not(:disabled) { background: var(--primary-hover); transform: translateY(-1px); }
+        .btn-outline { background: var(--card-bg); border: 1px solid var(--border); color: var(--text-main); }
+        .btn-outline:hover:not(:disabled) { background: var(--bg-subtle); border-color: var(--border-strong); }
         
         /* Modal */
-        #add-driver-modal, .modal-backdrop { display:none; position:fixed; top:0; left:0; right:0; bottom:0; background:rgba(0,0,0,0.5); z-index:9999; align-items:center; justify-content:center; }
+        #add-driver-modal, .modal-backdrop { display:none; position:fixed; top:0; left:0; right:0; bottom:0; background:var(--modal-backdrop); z-index:9999; align-items:center; justify-content:center; backdrop-filter: blur(4px); }
         * { box-sizing: border-box; }
-        .modal-content { background:white; padding:32px; border-radius:24px; max-width:400px; width:90%; box-sizing: border-box; }
-        .modal-content-lg { background:white; padding:32px; border-radius:24px; max-width:520px; width:90%; box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.25); max-height: 90vh; overflow-y: auto; box-sizing: border-box; }
-        .modal-content-xl { background:white; padding:32px; border-radius:24px; max-width:820px; width:95%; box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.25); max-height: 90vh; overflow-y: auto; box-sizing: border-box; }
-        .modal-content input { width: 100%; box-sizing: border-box; padding:12px; margin-bottom:16px; border:1px solid var(--border); border-radius:12px; font-family:'Inter', sans-serif; }
-        .dropzone-area { border: 2px dashed #cbd5e1; border-radius: 16px; padding: 36px 20px; text-align: center; cursor: pointer; transition: all 0.2s; background: #f8fafc; }
-        .dropzone-area:hover, .dropzone-area.dragover { border-color: var(--primary); background: #eff6ff; }
+        .modal-content { background:var(--card-bg); color:var(--text-main); padding:32px; border-radius:20px; border:1px solid var(--border); max-width:400px; width:90%; box-sizing: border-box; box-shadow: var(--shadow-lg); }
+        .modal-content-lg { background:var(--card-bg); color:var(--text-main); padding:32px; border-radius:20px; border:1px solid var(--border); max-width:520px; width:90%; box-shadow: var(--shadow-lg); max-height: 90vh; overflow-y: auto; box-sizing: border-box; }
+        .modal-content-xl { background:var(--card-bg); color:var(--text-main); padding:32px; border-radius:20px; border:1px solid var(--border); max-width:820px; width:95%; box-shadow: var(--shadow-lg); max-height: 90vh; overflow-y: auto; box-sizing: border-box; }
+        .modal-content input, .modal-content-lg input, .modal-content-xl input,
+        .modal-content select, .modal-content-lg select, .modal-content-xl select {
+            background: var(--input-bg);
+            color: var(--text-main);
+            border: 1px solid var(--border);
+            border-radius: 10px;
+            padding: 10px 12px;
+            font-family: 'Inter', sans-serif;
+            font-size: 14px;
+        }
+        .modal-content input:focus, .modal-content-lg input:focus, .modal-content-xl input:focus,
+        .modal-content select:focus, .modal-content-lg select:focus, .modal-content-xl select:focus {
+            outline: none;
+            border-color: var(--primary);
+            box-shadow: 0 0 0 3px var(--primary-glow);
+        }
+        .dropzone-area { border: 2px dashed var(--border-strong); border-radius: 16px; padding: 36px 20px; text-align: center; cursor: pointer; transition: all 0.2s; background: var(--bg-subtle); color: var(--text-main); }
+        .dropzone-area:hover, .dropzone-area.dragover { border-color: var(--primary); background: var(--primary-subtle); }
         .action-card-arrow { display: none; }
         .user-table-desktop { display: block; }
         .user-cards-mobile { display: none; }
@@ -286,7 +299,7 @@
             display: flex;
             align-items: flex-start;
             gap: 10px;
-            background: #ffffff;
+            background: var(--card-bg);
             border: 1px solid var(--border);
             border-radius: 8px;
             padding: 9px 11px;
@@ -295,18 +308,19 @@
             transition: border-color 0.15s ease, background-color 0.15s ease, box-shadow 0.15s ease;
             user-select: none;
             box-sizing: border-box;
+            color: var(--text-main);
         }
         .perm-card-label:hover {
-            border-color: #94a3b8;
-            background: #f8fafc;
+            border-color: var(--border-strong);
+            background: var(--bg-subtle);
         }
         .perm-card-label.is-checked {
-            border-color: #3b82f6;
-            background: #eff6ff;
-            box-shadow: 0 1px 3px rgba(59, 130, 246, 0.12);
+            border-color: var(--primary);
+            background: var(--primary-subtle);
+            box-shadow: 0 1px 3px var(--primary-glow);
         }
         .perm-title-text {
-            color: #0f172a;
+            color: var(--text-main);
             font-weight: 600;
             font-size: 12.5px;
             line-height: 1.3;
@@ -328,10 +342,10 @@
             position: absolute;
             left: 0;
             top: calc(100% + 6px);
-            background: #ffffff;
+            background: var(--card-bg);
             border: 1px solid var(--border);
             border-radius: 12px;
-            box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.12), 0 8px 10px -6px rgba(0, 0, 0, 0.08);
+            box-shadow: var(--shadow-lg);
             min-width: 280px;
             z-index: 150;
             overflow: hidden;
@@ -344,12 +358,13 @@
             padding: 10px 16px;
             text-decoration: none;
             transition: background 0.15s ease;
+            color: var(--text-main);
         }
         .template-dropdown-item:hover {
-            background: #f8fafc;
+            background: var(--bg-subtle);
         }
         .template-dropdown-item:active {
-            background: #f1f5f9;
+            background: var(--border);
         }
 </style>
 <script>
@@ -399,7 +414,12 @@
             <img src="/static/logo.jpg" alt="Logo" style="height: 32px; border-radius: 8px;">
             <h1>Admin Control Panel</h1>
         </div>
-        <a href="/logout" class="btn btn-outline"><i class="fa-solid fa-arrow-right-from-bracket"></i> Logout</a>
+        <div style="display: flex; align-items: center; gap: 10px;">
+            <button type="button" class="theme-toggle-btn" onclick="window.toggleTheme()" aria-label="Toggle light/dark theme" title="Toggle theme">
+                <i class="fa-solid fa-moon"></i>
+            </button>
+            <a href="/logout" class="btn btn-outline"><i class="fa-solid fa-arrow-right-from-bracket"></i> Logout</a>
+        </div>
     </div>
     
     <div class="container">

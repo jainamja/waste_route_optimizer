@@ -19,6 +19,52 @@
     <script src="https://www.gstatic.com/firebasejs/10.9.0/firebase-auth-compat.js"></script>
     <script src="https://www.gstatic.com/firebasejs/10.9.0/firebase-database-compat.js"></script>
     
+    <script>
+    (function () {
+        'use strict';
+        function getSavedTheme() {
+            try {
+                var saved = localStorage.getItem('trashtrekyx_theme');
+                if (saved === 'dark' || saved === 'light') return saved;
+            } catch (e) {}
+            if (window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches) return 'dark';
+            return 'light';
+        }
+        function updateIcons(theme) {
+            var buttons = document.querySelectorAll('.theme-toggle-btn');
+            buttons.forEach(function (btn) {
+                var isDark = theme === 'dark';
+                btn.setAttribute('aria-label', isDark ? 'Switch to Light Mode' : 'Switch to Dark Mode');
+                btn.setAttribute('title', isDark ? 'Switch to Light Mode' : 'Switch to Dark Mode');
+                var icon = btn.querySelector('i');
+                if (icon) {
+                    icon.className = isDark ? 'fa-solid fa-sun' : 'fa-solid fa-moon';
+                    icon.style.color = isDark ? '#fbbf24' : '#64748b';
+                }
+            });
+        }
+        function applyTheme(theme) {
+            document.documentElement.setAttribute('data-theme', theme);
+            try { localStorage.setItem('trashtrekyx_theme', theme); } catch (e) {}
+            updateIcons(theme);
+        }
+        window.toggleTheme = function () {
+            var current = document.documentElement.getAttribute('data-theme') || getSavedTheme();
+            var next = current === 'dark' ? 'light' : 'dark';
+            applyTheme(next);
+        };
+        var initial = getSavedTheme();
+        document.documentElement.setAttribute('data-theme', initial);
+        if (document.readyState === 'loading') {
+            document.addEventListener('DOMContentLoaded', function () {
+                updateIcons(document.documentElement.getAttribute('data-theme') || initial);
+            });
+        } else {
+            updateIcons(initial);
+        }
+    })();
+    </script>
+    
     <style>
         #splash-screen {
             position: fixed; top: 0; left: 0; width: 100%; height: 100%;
@@ -67,6 +113,66 @@
             --border: #e2e8f0;
             --shadow: 0 4px 20px rgba(0,0,0,0.1);
             --conf-strip: 8px;
+        }
+
+        [data-theme="dark"] {
+            --primary: #3b82f6;
+            --primary-hover: #60a5fa;
+            --bg: #0b0f19;
+            --card-bg: #111827;
+            --text-main: #f8fafc;
+            --text-muted: #94a3b8;
+            --border: #243048;
+            --shadow: 0 4px 20px rgba(0,0,0,0.5);
+        }
+        [data-theme="dark"] #navbar {
+            background: rgba(17, 24, 39, 0.85);
+            border-color: rgba(36, 48, 72, 0.85);
+        }
+        [data-theme="dark"] #bottom-sheet {
+            background: var(--card-bg);
+            border-color: var(--border);
+        }
+        [data-theme="dark"] .stop-item {
+            background: #172033;
+            color: var(--text-main);
+        }
+        [data-theme="dark"] .driver-chat-bubble.admin {
+            background: #1e293b;
+            color: #f8fafc;
+            border-color: #334155;
+        }
+        [data-theme="dark"] .quick-chip {
+            background: #1e293b;
+            color: #f8fafc;
+            border-color: #334155;
+        }
+        [data-theme="dark"] .login-box {
+            background: var(--card-bg);
+            border: 1px solid var(--border);
+        }
+        [data-theme="dark"] .login-box input {
+            background: #0d1322;
+            color: #f8fafc;
+            border-color: #2a3752;
+        }
+        [data-theme="dark"] #login-overlay {
+            background: var(--bg);
+        }
+        [data-theme="dark"] #splash-screen {
+            background: var(--bg);
+        }
+        [data-theme="dark"] .leaflet-tile-pane {
+            filter: brightness(0.85) invert(1) contrast(2.6) hue-rotate(200deg) saturate(0.35);
+        }
+        [data-theme="dark"] .leaflet-container {
+            background-color: #0b0f19 !important;
+        }
+        [data-theme="dark"] .leaflet-popup-content-wrapper,
+        [data-theme="dark"] .leaflet-popup-tip {
+            background-color: #111827 !important;
+            color: #f8fafc !important;
+            border: 1px solid #243048 !important;
         }
 
         * { box-sizing: border-box; }
@@ -335,6 +441,9 @@
                 <i class="fa-solid fa-comment-dots"></i>
                 <span>Admin</span>
                 <span id="driver-unread-badge" class="pulse-badge" style="display:none; position:absolute; top:-6px; right:-6px; background:#ef4444; color:white; border-radius:10px; min-width:18px; height:18px; padding:0 4px; font-size:10px; font-weight:800; border:2px solid white; align-items:center; justify-content:center;">0</span>
+            </button>
+            <button type="button" class="theme-toggle-btn" onclick="window.toggleTheme()" aria-label="Toggle theme" title="Toggle theme" style="background:none; border:none; color:var(--text-muted); font-size:15px; cursor:pointer; padding:4px 6px; display:inline-flex; align-items:center;">
+                <i class="fa-solid fa-moon"></i>
             </button>
             <button onclick="refreshRouteData()" style="background:none; border:none; color:var(--text-muted); font-size:14px; font-weight:600; cursor:pointer;" title="Refresh"><i class="fa-solid fa-rotate-right"></i></button>
             <button onclick="driverLogout()" style="background:var(--red); color:white; border:none; border-radius:8px; padding:6px 12px; font-size:14px; font-weight:700; cursor:pointer;" title="Logout"><i class="fa-solid fa-power-off"></i></button>

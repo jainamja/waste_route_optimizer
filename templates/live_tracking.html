@@ -10,6 +10,8 @@
     
     <!-- Leaflet -->
     <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+    <link rel="stylesheet" href="/static/theme.css">
+    <script src="/static/theme.js"></script>
     <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
 
     <!-- Firebase -->
@@ -433,6 +435,9 @@
             </button>
             <button onclick="toggleAllRoutes()" id="btn-toggle-all-routes" class="btn btn-outline"><i class="fa-solid fa-route"></i> Show All Routes</button>
             <button onclick="aiRebalance()" id="btn-rebalance" class="btn" style="background:#8b5cf6; color:white;"><i class="fa-solid fa-wand-magic-sparkles"></i> AI Re-balance</button>
+            <button type="button" class="theme-toggle-btn" onclick="window.toggleTheme()" aria-label="Toggle light/dark theme" title="Toggle theme">
+                <i class="fa-solid fa-moon"></i>
+            </button>
             <a href="/" class="btn btn-outline"><i class="fa-solid fa-house"></i> Control Panel</a>
             <a href="/routes" class="btn btn-primary"><i class="fa-solid fa-route"></i> Route Dashboard</a>
         </div>

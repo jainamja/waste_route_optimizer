@@ -1,0 +1,320 @@
+/* ==========================================================================
+   TRASH TREKYX — PREMIUM SAAS DESIGN SYSTEM & THEME TOKENS
+   ========================================================================== */
+
+/* Light Mode Defaults */
+:root, [data-theme="light"] {
+    --primary: #2563eb;
+    --primary-hover: #1d4ed8;
+    --primary-subtle: #eff6ff;
+    --primary-glow: rgba(37, 99, 235, 0.16);
+
+    --success: #10b981;
+    --success-hover: #059669;
+    --success-subtle: #dcfce7;
+    --success-text: #166534;
+
+    --warning: #f59e0b;
+    --warning-hover: #d97706;
+    --warning-subtle: #fef3c7;
+    --warning-text: #92400e;
+
+    --danger: #ef4444;
+    --danger-hover: #dc2626;
+    --danger-subtle: #fee2e2;
+    --danger-text: #991b1b;
+
+    --info: #0ea5e9;
+    --info-subtle: #e0f2fe;
+
+    --bg: #f8fafc;
+    --background: #f8fafc;
+    --bg-app: #f8fafc;
+    --bg-surface: #ffffff;
+    --bg-surface-elevated: #ffffff;
+    --bg-subtle: #f1f5f9;
+    --card-bg: #ffffff;
+    --surface: #ffffff;
+
+    --text-main: #0f172a;
+    --text-primary: #0f172a;
+    --text-secondary: #475569;
+    --text-muted: #64748b;
+    --text-inverse: #ffffff;
+
+    --border: #e2e8f0;
+    --border-subtle: #e2e8f0;
+    --border-strong: #cbd5e1;
+
+    --input-bg: #ffffff;
+    --input-border: #cbd5e1;
+    --input-focus: #2563eb;
+
+    --shadow-soft: 0 4px 20px -2px rgba(15, 23, 42, 0.05), 0 2px 6px -1px rgba(15, 23, 42, 0.03);
+    --shadow-hover: 0 12px 28px -4px rgba(15, 23, 42, 0.08), 0 4px 10px -2px rgba(15, 23, 42, 0.04);
+    --shadow-lg: 0 20px 25px -5px rgba(15, 23, 42, 0.08), 0 8px 10px -6px rgba(15, 23, 42, 0.04);
+    --shadow-glow: 0 8px 16px -4px rgba(37, 99, 235, 0.25);
+
+    --glass-bg: rgba(255, 255, 255, 0.82);
+    --glass-border: rgba(226, 232, 240, 0.8);
+    --modal-backdrop: rgba(15, 23, 42, 0.55);
+}
+
+/* Dark Mode Tokens */
+[data-theme="dark"] {
+    --primary: #3b82f6;
+    --primary-hover: #60a5fa;
+    --primary-subtle: rgba(59, 130, 246, 0.15);
+    --primary-glow: rgba(59, 130, 246, 0.28);
+
+    --success: #10b981;
+    --success-hover: #34d399;
+    --success-subtle: rgba(16, 185, 129, 0.18);
+    --success-text: #6ee7b7;
+
+    --warning: #f59e0b;
+    --warning-hover: #fbbf24;
+    --warning-subtle: rgba(245, 158, 11, 0.18);
+    --warning-text: #fde68a;
+
+    --danger: #f43f5e;
+    --danger-hover: #fb7185;
+    --danger-subtle: rgba(244, 63, 94, 0.2);
+    --danger-text: #fca5a5;
+
+    --info: #38bdf8;
+    --info-subtle: rgba(56, 189, 248, 0.18);
+
+    --bg: #0b0f19;
+    --background: #0b0f19;
+    --bg-app: #0b0f19;
+    --bg-surface: #111827;
+    --bg-surface-elevated: #1e293b;
+    --bg-subtle: #172033;
+    --card-bg: #111827;
+    --surface: #111827;
+
+    --text-main: #f8fafc;
+    --text-primary: #f8fafc;
+    --text-secondary: #cbd5e1;
+    --text-muted: #94a3b8;
+    --text-inverse: #0b0f19;
+
+    --border: #243048;
+    --border-subtle: #243048;
+    --border-strong: #334155;
+
+    --input-bg: #0d1322;
+    --input-border: #2a3752;
+    --input-focus: #60a5fa;
+
+    --shadow-soft: 0 4px 20px -2px rgba(0, 0, 0, 0.5), 0 2px 6px -1px rgba(0, 0, 0, 0.35);
+    --shadow-hover: 0 12px 28px -4px rgba(0, 0, 0, 0.65), 0 4px 10px -2px rgba(0, 0, 0, 0.5);
+    --shadow-lg: 0 20px 25px -5px rgba(0, 0, 0, 0.75), 0 8px 10px -6px rgba(0, 0, 0, 0.6);
+    --shadow-glow: 0 8px 20px -2px rgba(59, 130, 246, 0.35);
+
+    --glass-bg: rgba(17, 24, 39, 0.85);
+    --glass-border: rgba(36, 48, 72, 0.85);
+    --modal-backdrop: rgba(3, 7, 18, 0.78);
+}
+
+/* Base Styles */
+html {
+    box-sizing: border-box;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+}
+
+*, *:before, *:after {
+    box-sizing: inherit;
+}
+
+body {
+    background-color: var(--bg);
+    color: var(--text-main);
+    transition: background-color 0.25s ease, color 0.25s ease, border-color 0.25s ease;
+}
+
+/* ==========================================================================
+   THEME TOGGLE BUTTON COMPONENT
+   ========================================================================== */
+.theme-toggle-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 38px;
+    height: 38px;
+    border-radius: 10px;
+    border: 1px solid var(--border);
+    background: var(--bg-surface);
+    color: var(--text-secondary);
+    cursor: pointer;
+    font-size: 15px;
+    transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+    box-shadow: var(--shadow-soft);
+    padding: 0;
+    flex-shrink: 0;
+}
+
+.theme-toggle-btn:hover {
+    color: var(--primary);
+    border-color: var(--primary);
+    background: var(--primary-subtle);
+    transform: translateY(-1px);
+}
+
+.theme-toggle-btn:active {
+    transform: translateY(0);
+}
+
+/* ==========================================================================
+   COMMON PREMIUM COMPONENT OVERRIDES
+   ========================================================================== */
+
+/* Cards */
+.card, .action-card, .login-card, .login-box, .stat-card, .driver-item, .truck-item, .panel {
+    background-color: var(--bg-surface) !important;
+    border-color: var(--border) !important;
+    color: var(--text-main);
+}
+
+/* Header & Navbars */
+.header, .header-bar, .navbar-custom, .topbar {
+    background-color: var(--bg-surface) !important;
+    border-color: var(--border) !important;
+}
+
+/* Inputs & Form Controls */
+input[type="text"], input[type="password"], input[type="number"], input[type="search"], input[type="url"], input[type="tel"], input[type="email"], select, textarea, .form-control {
+    background-color: var(--input-bg) !important;
+    color: var(--text-main) !important;
+    border: 1px solid var(--input-border) !important;
+}
+
+input:focus, select:focus, textarea:focus, .form-control:focus {
+    border-color: var(--primary) !important;
+    box-shadow: 0 0 0 3px var(--primary-glow) !important;
+    outline: none !important;
+}
+
+/* Search Bar & Custom Containers */
+.search-filter-bar {
+    background-color: var(--card-bg) !important;
+    border-color: var(--border) !important;
+}
+.search-filter-bar input {
+    background-color: transparent !important;
+    color: var(--text-main) !important;
+    border: none !important;
+}
+
+.btn-outline {
+    background-color: var(--card-bg) !important;
+    border-color: var(--border) !important;
+    color: var(--text-main) !important;
+}
+.btn-outline:hover:not(:disabled) {
+    background-color: var(--bg-subtle) !important;
+    border-color: var(--border-strong) !important;
+}
+
+/* Modals */
+.modal, .modal-backdrop {
+    background: var(--modal-backdrop) !important;
+}
+
+.modal-content, .modal-content-lg, .modal-content-xl, .modal-dialog > div, .modal-box {
+    background-color: var(--card-bg) !important;
+    border-color: var(--border) !important;
+    color: var(--text-main) !important;
+    box-shadow: var(--shadow-lg) !important;
+}
+
+/* User management and template dropdowns */
+.user-table-desktop, .template-dropdown-menu, .user-cards-mobile > div {
+    background-color: var(--card-bg) !important;
+    border-color: var(--border) !important;
+    color: var(--text-main) !important;
+}
+.template-dropdown-item {
+    color: var(--text-main) !important;
+}
+.template-dropdown-item:hover {
+    background-color: var(--bg-subtle) !important;
+}
+.perm-card-label {
+    background-color: var(--card-bg) !important;
+    border-color: var(--border) !important;
+    color: var(--text-main) !important;
+}
+.perm-card-label:hover {
+    background-color: var(--bg-subtle) !important;
+    border-color: var(--border-strong) !important;
+}
+.perm-card-label.is-checked {
+    background-color: var(--primary-subtle) !important;
+    border-color: var(--primary) !important;
+}
+
+/* Tables */
+table, .table {
+    color: var(--text-main) !important;
+}
+
+table th, .table th {
+    background-color: var(--bg-subtle) !important;
+    color: var(--text-muted) !important;
+    border-color: var(--border) !important;
+}
+
+table td, .table td {
+    border-color: var(--border) !important;
+    color: var(--text-main) !important;
+}
+
+table tr:hover, .table tr:hover {
+    background-color: var(--primary-subtle) !important;
+}
+
+/* Pill / Badge Overrides for Dark Mode */
+[data-theme="dark"] .t-pill.online {
+    background: rgba(16, 185, 129, 0.2) !important;
+    color: #6ee7b7 !important;
+}
+
+[data-theme="dark"] .t-pill.weak {
+    background: rgba(245, 158, 11, 0.2) !important;
+    color: #fde68a !important;
+}
+
+[data-theme="dark"] .t-pill.offline {
+    background: #1e293b !important;
+    color: #94a3b8 !important;
+}
+
+[data-theme="dark"] .t-pill.syncing {
+    background: rgba(59, 130, 246, 0.2) !important;
+    color: #93c5fd !important;
+}
+
+[data-theme="dark"] .t-pill.gps-disabled {
+    background: rgba(239, 68, 68, 0.2) !important;
+    color: #fca5a5 !important;
+}
+
+/* Leaflet Tile Inversion for Dark Mode (seamless night map) */
+[data-theme="dark"] .leaflet-tile-pane {
+    filter: brightness(0.85) invert(1) contrast(2.6) hue-rotate(200deg) saturate(0.35);
+}
+
+[data-theme="dark"] .leaflet-container {
+    background-color: #0b0f19 !important;
+}
+
+[data-theme="dark"] .leaflet-popup-content-wrapper,
+[data-theme="dark"] .leaflet-popup-tip {
+    background-color: #111827 !important;
+    color: #f8fafc !important;
+    box-shadow: 0 10px 25px rgba(0, 0, 0, 0.7) !important;
+    border: 1px solid #243048 !important;
+}

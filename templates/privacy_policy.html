@@ -3,38 +3,55 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Privacy Policy - TrashTrekyx Driver</title>
+    <title>Privacy Policy &mdash; TrashTrekyx</title>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Manrope:wght@600;700;800&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <link rel="stylesheet" href="/static/theme.css">
+    <script src="/static/theme.js"></script>
     <style>
-        :root {
-            --primary: #2F5FFF;
-            --text-main: #0f172a;
-            --text-muted: #475569;
-            --bg: #f8fafc;
-            --card-bg: #ffffff;
-            --border: #e2e8f0;
-        }
         body {
-            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+            font-family: 'Inter', sans-serif;
             background-color: var(--bg);
             color: var(--text-main);
             line-height: 1.6;
             margin: 0;
-            padding: 24px 16px;
+            padding: 32px 16px;
         }
         .container {
-            max-width: 800px;
+            max-width: 820px;
             margin: 0 auto;
-            background: var(--card-bg);
-            padding: 40px 32px;
-            border-radius: 16px;
-            box-shadow: 0 4px 20px rgba(0,0,0,0.05);
+            background: var(--bg-surface);
+            padding: 48px 40px;
+            border-radius: 20px;
+            box-shadow: var(--shadow-soft);
             border: 1px solid var(--border);
         }
-        h1 {
+        .header-actions {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 24px;
+        }
+        .back-link {
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
             color: var(--primary);
-            font-size: 26px;
+            text-decoration: none;
+            font-size: 14px;
+            font-weight: 600;
+        }
+        .back-link:hover {
+            text-decoration: underline;
+        }
+        h1 {
+            font-family: 'Manrope', sans-serif;
+            color: var(--primary);
+            font-size: 28px;
+            font-weight: 800;
             margin-top: 0;
             margin-bottom: 8px;
+            letter-spacing: -0.02em;
         }
         .meta {
             color: var(--text-muted);
@@ -44,76 +61,80 @@
             padding-bottom: 12px;
         }
         h2 {
+            font-family: 'Manrope', sans-serif;
             font-size: 18px;
+            font-weight: 700;
             color: var(--text-main);
-            margin-top: 24px;
-            margin-bottom: 8px;
+            margin-top: 28px;
+            margin-bottom: 10px;
         }
         p, li {
-            color: var(--text-muted);
+            color: var(--text-secondary);
             font-size: 15px;
         }
         ul {
             padding-left: 20px;
         }
         .highlight-box {
-            background: #eff6ff;
+            background: var(--primary-subtle);
             border-left: 4px solid var(--primary);
-            padding: 16px;
-            border-radius: 8px;
+            padding: 16px 20px;
+            border-radius: 10px;
             margin: 20px 0;
+            color: var(--text-main);
         }
         .highlight-box p {
-            color: #1e3a8a;
             margin: 0;
-            font-weight: 500;
+            color: var(--text-main);
+            font-size: 14px;
+        }
+        @media (max-width: 600px) {
+            .container {
+                padding: 28px 20px;
+            }
         }
     </style>
 </head>
 <body>
     <div class="container">
-        <h1>Privacy Policy for TrashTrekyx Driver</h1>
-        <div class="meta">Last Updated: October 12, 2026 &middot; Application: TrashTrekyx (com.wasteroute.driver)</div>
+        <div class="header-actions">
+            <a href="/" class="back-link"><i class="fa-solid fa-arrow-left"></i> Return to TrashTrekyx</a>
+            <button type="button" class="theme-toggle-btn" onclick="window.toggleTheme()" aria-label="Toggle theme" title="Switch Light/Dark Mode">
+                <i class="fa-solid fa-moon"></i>
+            </button>
+        </div>
 
-        <p>This Privacy Policy describes how <strong>TrashTrekyx</strong> ("we", "our", or "us") collects, uses, and safeguards information obtained from drivers and authorized fleet personnel using the <strong>TrashTrekyx Driver</strong> mobile application and related fleet management services.</p>
+        <h1>Privacy Policy</h1>
+        <div class="meta">TrashTrekyx Driver & Fleet Management &bull; Last Updated: November 2026</div>
+
+        <p>This Privacy Policy outlines how the <strong>TrashTrekyx Driver</strong> application collects, uses, and protects your information, specifically focusing on location services and driver tracking.</p>
 
         <div class="highlight-box">
-            <p><strong>Prominent Notice on Location Data Collection:</strong><br>
-            TrashTrekyx Driver collects real-time location data (including foreground and background location) to enable live fleet tracking, route progress monitoring, and turn-by-turn waste collection dispatch by your administrator, even when the application is closed or not in use during an active driver shift.</p>
+            <p><strong>Summary:</strong> TrashTrekyx collects background location data exclusively to enable real-time route progress tracking, dynamic stop sequencing, and fleet navigation while an active shift is in progress.</p>
         </div>
 
         <h2>1. Information We Collect</h2>
+        <p>To provide reliable route navigation and waste collection verification, the app collects:</p>
         <ul>
-            <li><strong>Location Information:</strong> Precise GPS coordinates (latitude and longitude) captured periodically while a driver is logged into an active route.</li>
-            <li><strong>Device & Authentication Information:</strong> Assigned driver credentials, assigned truck identifiers, device hardware state, and application performance metrics.</li>
-            <li><strong>Route Operations Data:</strong> Timestamps of stops reached, customer confirmations, skipped stops, and collection completions.</li>
+            <li><strong>Precise Location Data:</strong> GPS coordinates, heading, speed, and hardware satellite timestamps collected in both the foreground and background while tracking is active.</li>
+            <li><strong>Authentication Data:</strong> Driver credentials and vehicle assignment tokens.</li>
+            <li><strong>Operation Metrics:</strong> Stop completions, skips, bag delivery confirmations, and customer note logs.</li>
         </ul>
 
-        <h2>2. How We Use Your Information</h2>
+        <h2>2. Use of Background Location</h2>
+        <p>The app requires continuous background location access to:</p>
         <ul>
-            <li>To display real-time truck locations on the central dispatch management map.</li>
-            <li>To dynamically optimize collection routes and rebalance assigned stops based on current traffic and vehicle proximity.</li>
-            <li>To verify stop completion and delivery of municipal/commercial waste collection services.</li>
+            <li>Provide turn-by-turn guidance even when the screen is locked or another navigation tool is active.</li>
+            <li>Automatically verify arrival at collection points.</li>
+            <li>Enable dispatcher fleet visibility on the live tracking dashboard.</li>
+            <li>Queue and synchronize route completion telemetry in cellular dead zones.</li>
         </ul>
 
-        <h2>3. Background Location Tracking Disclosure</h2>
-        <p>Because drivers frequently switch to navigation applications (such as Google Maps) or lock their mobile device screens while driving between collection locations, TrashTrekyx Driver requires continuous background location access. Tracking begins when a driver starts an assigned shift and automatically pauses when the shift ends or the driver logs out.</p>
+        <h2>3. Data Retention and Security</h2>
+        <p>Location data is transmitted securely via TLS encryption to our server and Firebase Realtime Database. Offline coordinates are durably recorded in an encrypted device queue and purged once synchronized.</p>
 
-        <h2>4. Data Sharing & Third-Party Services</h2>
-        <p>We do <strong>not</strong> sell, rent, or trade your personal or location data to any third-party advertisers or data brokers. Location data is securely transmitted solely to:</p>
-        <ul>
-            <li><strong>Google Firebase Realtime Database:</strong> For encrypted, real-time synchronization with authorized administrative dashboards.</li>
-            <li><strong>Google Maps Platform:</strong> For navigation and reverse geocoding services.</li>
-        </ul>
-
-        <h2>5. Data Security & Retention</h2>
-        <p>All data transmitted between the TrashTrekyx Driver mobile app and our backend servers is encrypted using industry-standard TLS/SSL encryption. GPS tracking data is retained only for operational reporting, route verification, and audit purposes.</p>
-
-        <h2>6. Your Rights & Control</h2>
-        <p>Drivers may stop location tracking at any time by ending their shift, logging out of the application, or revoking location permissions in Android device settings. Please note that active location permission is required for fleet assignment and dispatch operations.</p>
-
-        <h2>7. Contact Us</h2>
-        <p>If you have any questions or concerns regarding this Privacy Policy or data practices, please contact your fleet administration or email us at support@onroute.app.</p>
+        <h2>4. Contact Information</h2>
+        <p>If you have any questions or concerns regarding this policy, please contact your fleet operations administrator.</p>
     </div>
 </body>
 </html>

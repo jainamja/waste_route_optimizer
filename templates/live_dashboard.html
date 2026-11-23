@@ -15,6 +15,8 @@
     <script src="https://cdn.jsdelivr.net/npm/sortablejs@latest/Sortable.min.js"></script>
     <!-- Leaflet -->
     <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+    <link rel="stylesheet" href="/static/theme.css">
+    <script src="/static/theme.js"></script>
     <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
 
     <style>
@@ -617,6 +619,9 @@
             <a href="/download_excel" class="btn btn-outline" id="export-btn" style="display:none; text-decoration:none;">
                 <i class="fa-solid fa-file-excel"></i> Export Report
             </a>
+            <button type="button" class="theme-toggle-btn" onclick="window.toggleTheme()" aria-label="Toggle light/dark theme" title="Toggle theme">
+                <i class="fa-solid fa-moon"></i>
+            </button>
             <a href="/" class="btn" style="background:var(--primary); color:white; border:none; margin-left:8px; text-decoration:none;"><i class="fa-solid fa-house"></i> Control Panel</a>
             <a href="/logout" class="btn" style="background:var(--border); color:var(--text-main); text-decoration:none; margin-left:8px;"><i class="fa-solid fa-arrow-right-from-bracket"></i> Logout</a>
         </div>
