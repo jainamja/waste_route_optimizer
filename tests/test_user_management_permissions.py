@@ -734,3 +734,144 @@ def test_complete_acceptance_workflow_the_rahul_test(client):
     res = client.post('/login', data={'username': 'rahul', 'password': 'RahulPassword123'})
     assert res.status_code == 200
     assert b'deactivated' in res.data or b'Invalid' in res.data
+
+
+def test_permission_definitions_and_labels_integrity():
+    """Test that all 44 permissions across 8 modules have valid, non-empty display names and descriptions."""
+    assert len(PERMISSION_MODULES) == 8
+    total_perms = 0
+    all_keys = set()
+
+    expected_labels = {
+        'routes.generate_view': 'View Route Generator',
+        'routes.generate_create': 'Generate Routes',
+        'routes.generate_upload': 'Upload Customer Files',
+        'routes.generate_save_template': 'Save Route Templates',
+        'routes.view': 'View Routes',
+        'routes.view_details': 'View Route Details',
+        'routes.edit': 'Edit Routes',
+        'routes.assign_driver': 'Assign Drivers',
+        'routes.deploy': 'Deploy Routes',
+        'routes.delete': 'Delete Routes',
+        'tracking.view_map': 'View Live Map',
+        'tracking.view_trucks': 'View Truck Locations',
+        'tracking.view_driver_progress': 'View Driver Progress',
+        'tracking.view_details': 'Access Tracking Details',
+        'customers.view': 'View Customers',
+        'customers.create': 'Add Customers',
+        'customers.edit': 'Edit Customers',
+        'customers.archive': 'Archive Customers',
+        'customers.import_excel': 'Import Excel Files',
+        'customers.import_word': 'Import Word Files',
+        'customers.import_csv': 'Import CSV Files',
+        'customers.export': 'Export Customers',
+        'templates.view': 'View Templates',
+        'templates.create': 'Create Templates',
+        'templates.edit': 'Edit Templates',
+        'templates.delete': 'Delete Templates',
+        'templates.add_customer': 'Add Customers to Templates',
+        'templates.remove_customer': 'Remove Customers from Templates',
+        'templates.deploy': 'Deploy Templates',
+        'drivers.view': 'View Drivers',
+        'drivers.create': 'Create Drivers',
+        'drivers.edit': 'Edit Drivers',
+        'drivers.delete': 'Delete Drivers',
+        'drivers.assign_truck': 'Assign Trucks',
+        'trucks.view': 'View Trucks',
+        'trucks.create': 'Add Trucks',
+        'trucks.edit': 'Edit Trucks',
+        'trucks.delete': 'Delete Trucks',
+        'users.view': 'View Admin Users',
+        'users.create': 'Create Admin Users',
+        'users.edit': 'Edit Admin Users',
+        'users.change_permissions': 'Change Permissions',
+        'users.activate_deactivate': 'Activate / Deactivate Users',
+        'users.revoke': 'Revoke User Access'
+    }
+
+    for mod in PERMISSION_MODULES:
+        assert 'id' in mod and mod['id'].strip()
+        assert 'name' in mod and mod['name'].strip()
+        assert 'permissions' in mod and len(mod['permissions']) > 0
+
+        for p in mod['permissions']:
+            total_perms += 1
+            key = p['key']
+            all_keys.add(key)
+
+            # Assert key is valid
+            assert key in expected_labels, f"Unexpected permission key: {key}"
+
+            # Assert non-empty and matching name and title
+            assert 'name' in p and p['name'].strip()
+            assert 'title' in p and p['title'].strip()
+            assert p['name'] == p['title']
+            assert p['name'] == expected_labels[key]
+
+            # Assert non-empty and matching desc and description
+            assert 'desc' in p and p['desc'].strip()
+            assert 'description' in p and p['description'].strip()
+            assert p['desc'] == p['description']
+
+            # Assert is_sensitive is boolean
+            assert isinstance(p.get('is_sensitive'), bool)
+
+    assert total_perms == 44
+    assert len(all_keys) == 44
+    assert all_keys == ALL_PERMISSION_KEYS
+
+
+def test_api_admin_permissions_meta_endpoint_labels(client):
+    """Test that /api/admin/permissions_meta returns non-empty names and descriptions for every permission."""
+    with app.app_context():
+        admin = User.query.filter_by(username='admin').first()
+
+    # Log in as admin
+    login_user(client, admin)
+
+    res = client.get('/api/admin/permissions_meta')
+    assert res.status_code == 200
+    data = res.get_json()
+    assert data['success'] is True
+    modules = data['modules']
+    assert len(modules) == 8
+
+    count = 0
+    for mod in modules:
+        assert mod['name'].strip()
+        for p in mod['permissions']:
+            count += 1
+            assert p['name'].strip()
+            assert p['title'].strip()
+            assert p['desc'].strip()
+            assert p['description'].strip()
+            assert p['name'] == p['title']
+            assert p['desc'] == p['description']
+    assert count == 44
+
+
+def test_admin_dashboard_template_permission_card_bindings(client):
+    """Test that admin_dashboard.html includes robust label bindings, full card clickability, and accessibility."""
+    with open('templates/admin_dashboard.html', 'r', encoding='utf-8') as f:
+        html = f.read()
+
+    # 1. Fallback label and description bindings
+    assert 'const permName = p.name || p.title || p.key;' in html
+    assert 'const permDesc = p.desc || p.description || \'\';' in html
+
+    # 2. Card clickability via label for="..." and input id="..."
+    assert '<label for="${inputId}" class="perm-card-label' in html
+    assert '<input type="checkbox" id="${inputId}"' in html
+
+    # 3. Accessibility attribute
+    assert 'aria-label="${escapeHtml(permName)}"' in html
+
+    # 4. Display spans for title and description
+    assert '<span class="perm-title-text">${escapeHtml(permName)}</span>' in html
+    assert '<div class="perm-desc-text">${escapeHtml(permDesc)}</div>' in html
+
+    # 5. CSS classes for card hover, checked, and text styling
+    assert '.perm-card-label {' in html
+    assert '.perm-card-label.is-checked {' in html
+    assert '.perm-title-text {' in html
+    assert '.perm-desc-text {' in html

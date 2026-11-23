@@ -2366,95 +2366,103 @@ PERMISSION_MODULES = [
         'id': 'routes_generate',
         'name': 'Generate New Routes',
         'permissions': [
-            {'key': 'routes.generate_view', 'name': 'View Route Generator', 'desc': 'Access route generator interface and maps', 'is_sensitive': False},
-            {'key': 'routes.generate_create', 'name': 'Generate Routes', 'desc': 'Run AI route optimization algorithms', 'is_sensitive': False},
-            {'key': 'routes.generate_upload', 'name': 'Upload Customer Files', 'desc': 'Upload Excel or CSV files for optimization', 'is_sensitive': False},
-            {'key': 'routes.generate_save_template', 'name': 'Save Route Templates', 'desc': 'Save generated routes as reusable templates', 'is_sensitive': False}
+            {'key': 'routes.generate_view', 'name': 'View Route Generator', 'title': 'View Route Generator', 'desc': 'Access route generator interface and maps', 'description': 'Access route generator interface and maps', 'is_sensitive': False},
+            {'key': 'routes.generate_create', 'name': 'Generate Routes', 'title': 'Generate Routes', 'desc': 'Run AI route optimization algorithms', 'description': 'Run AI route optimization algorithms', 'is_sensitive': False},
+            {'key': 'routes.generate_upload', 'name': 'Upload Customer Files', 'title': 'Upload Customer Files', 'desc': 'Upload Excel or CSV files for optimization', 'description': 'Upload Excel or CSV files for optimization', 'is_sensitive': False},
+            {'key': 'routes.generate_save_template', 'name': 'Save Route Templates', 'title': 'Save Route Templates', 'desc': 'Save generated routes as reusable templates', 'description': 'Save generated routes as reusable templates', 'is_sensitive': False}
         ]
     },
     {
         'id': 'routes_dashboard',
         'name': 'Route Dashboard',
         'permissions': [
-            {'key': 'routes.view', 'name': 'View Routes', 'desc': 'View route summaries and dashboard', 'is_sensitive': False},
-            {'key': 'routes.view_details', 'name': 'View Route Details', 'desc': 'Inspect stop sequences and customer profiles', 'is_sensitive': False},
-            {'key': 'routes.edit', 'name': 'Edit Routes', 'desc': 'Modify stops, reorder routes, rebalance clusters', 'is_sensitive': False},
-            {'key': 'routes.assign_driver', 'name': 'Assign Drivers', 'desc': 'Assign routes to active drivers and trucks', 'is_sensitive': False},
-            {'key': 'routes.deploy', 'name': 'Deploy Routes', 'desc': 'Deploy routes to live fleet tracking', 'is_sensitive': True},
-            {'key': 'routes.delete', 'name': 'Delete Routes', 'desc': 'Unassign and remove operational routes', 'is_sensitive': True}
+            {'key': 'routes.view', 'name': 'View Routes', 'title': 'View Routes', 'desc': 'View route summaries and dashboard', 'description': 'View route summaries and dashboard', 'is_sensitive': False},
+            {'key': 'routes.view_details', 'name': 'View Route Details', 'title': 'View Route Details', 'desc': 'Inspect stop sequences and customer profiles', 'description': 'Inspect stop sequences and customer profiles', 'is_sensitive': False},
+            {'key': 'routes.edit', 'name': 'Edit Routes', 'title': 'Edit Routes', 'desc': 'Modify stops, reorder routes, rebalance clusters', 'description': 'Modify stops, reorder routes, rebalance clusters', 'is_sensitive': False},
+            {'key': 'routes.assign_driver', 'name': 'Assign Drivers', 'title': 'Assign Drivers', 'desc': 'Assign routes to active drivers and trucks', 'description': 'Assign routes to active drivers and trucks', 'is_sensitive': False},
+            {'key': 'routes.deploy', 'name': 'Deploy Routes', 'title': 'Deploy Routes', 'desc': 'Deploy routes to live fleet tracking', 'description': 'Deploy routes to live fleet tracking', 'is_sensitive': True},
+            {'key': 'routes.delete', 'name': 'Delete Routes', 'title': 'Delete Routes', 'desc': 'Unassign and remove operational routes', 'description': 'Unassign and remove operational routes', 'is_sensitive': True}
         ]
     },
     {
         'id': 'live_tracking',
         'name': 'Live Tracking',
         'permissions': [
-            {'key': 'tracking.view_map', 'name': 'View Live Map', 'desc': 'View live tracking map and real-time trucks', 'is_sensitive': False},
-            {'key': 'tracking.view_trucks', 'name': 'View Truck Locations', 'desc': 'Monitor real-time GPS coordinates of fleet', 'is_sensitive': False},
-            {'key': 'tracking.view_driver_progress', 'name': 'View Driver Progress', 'desc': 'Track stop completion percentages and metrics', 'is_sensitive': False},
-            {'key': 'tracking.view_details', 'name': 'Access Tracking Details', 'desc': 'Inspect telemetry, timestamps, and status details', 'is_sensitive': False}
+            {'key': 'tracking.view_map', 'name': 'View Live Map', 'title': 'View Live Map', 'desc': 'View live tracking map and real-time trucks', 'description': 'View live tracking map and real-time trucks', 'is_sensitive': False},
+            {'key': 'tracking.view_trucks', 'name': 'View Truck Locations', 'title': 'View Truck Locations', 'desc': 'Monitor real-time GPS coordinates of fleet', 'description': 'Monitor real-time GPS coordinates of fleet', 'is_sensitive': False},
+            {'key': 'tracking.view_driver_progress', 'name': 'View Driver Progress', 'title': 'View Driver Progress', 'desc': 'Track stop completion percentages and metrics', 'description': 'Track stop completion percentages and metrics', 'is_sensitive': False},
+            {'key': 'tracking.view_details', 'name': 'Access Tracking Details', 'title': 'Access Tracking Details', 'desc': 'Inspect telemetry, timestamps, and status details', 'description': 'Inspect telemetry, timestamps, and status details', 'is_sensitive': False}
         ]
     },
     {
         'id': 'master_customers',
         'name': 'Master Customer List',
         'permissions': [
-            {'key': 'customers.view', 'name': 'View Customers', 'desc': 'Browse and search master customer directory', 'is_sensitive': False},
-            {'key': 'customers.create', 'name': 'Add Customers', 'desc': 'Register new customers into master database', 'is_sensitive': False},
-            {'key': 'customers.edit', 'name': 'Edit Customers', 'desc': 'Modify customer names, addresses, and coordinates', 'is_sensitive': False},
-            {'key': 'customers.archive', 'name': 'Archive Customers', 'desc': 'Archive or delete customers from master list', 'is_sensitive': True},
-            {'key': 'customers.import_excel', 'name': 'Import Excel Files', 'desc': 'Bulk import customers from .xlsx and .xls files', 'is_sensitive': False},
-            {'key': 'customers.import_word', 'name': 'Import Word Files', 'desc': 'Bulk import customers from .docx table files', 'is_sensitive': False},
-            {'key': 'customers.import_csv', 'name': 'Import CSV Files', 'desc': 'Bulk import customers from .csv files', 'is_sensitive': False},
-            {'key': 'customers.export', 'name': 'Export Customers', 'desc': 'Download master customer database exports', 'is_sensitive': False}
+            {'key': 'customers.view', 'name': 'View Customers', 'title': 'View Customers', 'desc': 'Browse and search master customer directory', 'description': 'Browse and search master customer directory', 'is_sensitive': False},
+            {'key': 'customers.create', 'name': 'Add Customers', 'title': 'Add Customers', 'desc': 'Register new customers into master database', 'description': 'Register new customers into master database', 'is_sensitive': False},
+            {'key': 'customers.edit', 'name': 'Edit Customers', 'title': 'Edit Customers', 'desc': 'Modify customer names, addresses, and coordinates', 'description': 'Modify customer names, addresses, and coordinates', 'is_sensitive': False},
+            {'key': 'customers.archive', 'name': 'Archive Customers', 'title': 'Archive Customers', 'desc': 'Archive or delete customers from master list', 'description': 'Archive or delete customers from master list', 'is_sensitive': True},
+            {'key': 'customers.import_excel', 'name': 'Import Excel Files', 'title': 'Import Excel Files', 'desc': 'Bulk import customers from .xlsx and .xls files', 'description': 'Bulk import customers from .xlsx and .xls files', 'is_sensitive': False},
+            {'key': 'customers.import_word', 'name': 'Import Word Files', 'title': 'Import Word Files', 'desc': 'Bulk import customers from .docx table files', 'description': 'Bulk import customers from .docx table files', 'is_sensitive': False},
+            {'key': 'customers.import_csv', 'name': 'Import CSV Files', 'title': 'Import CSV Files', 'desc': 'Bulk import customers from .csv files', 'description': 'Bulk import customers from .csv files', 'is_sensitive': False},
+            {'key': 'customers.export', 'name': 'Export Customers', 'title': 'Export Customers', 'desc': 'Download master customer database exports', 'description': 'Download master customer database exports', 'is_sensitive': False}
         ]
     },
     {
         'id': 'templates',
         'name': 'Saved Templates Library',
         'permissions': [
-            {'key': 'templates.view', 'name': 'View Templates', 'desc': 'Browse saved route templates library', 'is_sensitive': False},
-            {'key': 'templates.create', 'name': 'Create Templates', 'desc': 'Create new route templates', 'is_sensitive': False},
-            {'key': 'templates.edit', 'name': 'Edit Templates', 'desc': 'Modify existing saved templates', 'is_sensitive': False},
-            {'key': 'templates.delete', 'name': 'Delete Templates', 'desc': 'Permanently delete saved templates', 'is_sensitive': True},
-            {'key': 'templates.add_customer', 'name': 'Add Customers to Templates', 'desc': 'Directly append customers to saved templates', 'is_sensitive': False},
-            {'key': 'templates.remove_customer', 'name': 'Remove Customers from Templates', 'desc': 'Remove customer stops from saved templates', 'is_sensitive': False},
-            {'key': 'templates.deploy', 'name': 'Deploy Templates', 'desc': 'Deploy saved template to live fleet', 'is_sensitive': True}
+            {'key': 'templates.view', 'name': 'View Templates', 'title': 'View Templates', 'desc': 'Browse saved route templates library', 'description': 'Browse saved route templates library', 'is_sensitive': False},
+            {'key': 'templates.create', 'name': 'Create Templates', 'title': 'Create Templates', 'desc': 'Create new route templates', 'description': 'Create new route templates', 'is_sensitive': False},
+            {'key': 'templates.edit', 'name': 'Edit Templates', 'title': 'Edit Templates', 'desc': 'Modify existing saved templates', 'description': 'Modify existing saved templates', 'is_sensitive': False},
+            {'key': 'templates.delete', 'name': 'Delete Templates', 'title': 'Delete Templates', 'desc': 'Permanently delete saved templates', 'description': 'Permanently delete saved templates', 'is_sensitive': True},
+            {'key': 'templates.add_customer', 'name': 'Add Customers to Templates', 'title': 'Add Customers to Templates', 'desc': 'Directly append customers to saved templates', 'description': 'Directly append customers to saved templates', 'is_sensitive': False},
+            {'key': 'templates.remove_customer', 'name': 'Remove Customers from Templates', 'title': 'Remove Customers from Templates', 'desc': 'Remove customer stops from saved templates', 'description': 'Remove customer stops from saved templates', 'is_sensitive': False},
+            {'key': 'templates.deploy', 'name': 'Deploy Templates', 'title': 'Deploy Templates', 'desc': 'Deploy saved template to live fleet', 'description': 'Deploy saved template to live fleet', 'is_sensitive': True}
         ]
     },
     {
         'id': 'drivers',
         'name': 'Driver Management',
         'permissions': [
-            {'key': 'drivers.view', 'name': 'View Drivers', 'desc': 'View driver roster and current assignments', 'is_sensitive': False},
-            {'key': 'drivers.create', 'name': 'Create Drivers', 'desc': 'Create new driver login accounts', 'is_sensitive': False},
-            {'key': 'drivers.edit', 'name': 'Edit Drivers', 'desc': 'Update driver names and credentials', 'is_sensitive': False},
-            {'key': 'drivers.delete', 'name': 'Delete Drivers', 'desc': 'Permanently delete driver accounts', 'is_sensitive': True},
-            {'key': 'drivers.assign_truck', 'name': 'Assign Trucks', 'desc': 'Change driver truck allocations and RTDB sync', 'is_sensitive': False}
+            {'key': 'drivers.view', 'name': 'View Drivers', 'title': 'View Drivers', 'desc': 'View driver roster and current assignments', 'description': 'View driver roster and current assignments', 'is_sensitive': False},
+            {'key': 'drivers.create', 'name': 'Create Drivers', 'title': 'Create Drivers', 'desc': 'Create new driver login accounts', 'description': 'Create new driver login accounts', 'is_sensitive': False},
+            {'key': 'drivers.edit', 'name': 'Edit Drivers', 'title': 'Edit Drivers', 'desc': 'Update driver names and credentials', 'description': 'Update driver names and credentials', 'is_sensitive': False},
+            {'key': 'drivers.delete', 'name': 'Delete Drivers', 'title': 'Delete Drivers', 'desc': 'Permanently delete driver accounts', 'description': 'Permanently delete driver accounts', 'is_sensitive': True},
+            {'key': 'drivers.assign_truck', 'name': 'Assign Trucks', 'title': 'Assign Trucks', 'desc': 'Change driver truck allocations and RTDB sync', 'description': 'Change driver truck allocations and RTDB sync', 'is_sensitive': False}
         ]
     },
     {
         'id': 'trucks',
         'name': 'Truck Management',
         'permissions': [
-            {'key': 'trucks.view', 'name': 'View Trucks', 'desc': 'View fleet vehicles and operational status', 'is_sensitive': False},
-            {'key': 'trucks.create', 'name': 'Add Trucks', 'desc': 'Register new trucks into the fleet', 'is_sensitive': False},
-            {'key': 'trucks.edit', 'name': 'Edit Trucks', 'desc': 'Update truck capacities and descriptions', 'is_sensitive': False},
-            {'key': 'trucks.delete', 'name': 'Delete Trucks', 'desc': 'Remove trucks from active fleet', 'is_sensitive': True}
+            {'key': 'trucks.view', 'name': 'View Trucks', 'title': 'View Trucks', 'desc': 'View fleet vehicles and operational status', 'description': 'View fleet vehicles and operational status', 'is_sensitive': False},
+            {'key': 'trucks.create', 'name': 'Add Trucks', 'title': 'Add Trucks', 'desc': 'Register new trucks into the fleet', 'description': 'Register new trucks into the fleet', 'is_sensitive': False},
+            {'key': 'trucks.edit', 'name': 'Edit Trucks', 'title': 'Edit Trucks', 'desc': 'Update truck capacities and descriptions', 'description': 'Update truck capacities and descriptions', 'is_sensitive': False},
+            {'key': 'trucks.delete', 'name': 'Delete Trucks', 'title': 'Delete Trucks', 'desc': 'Remove trucks from active fleet', 'description': 'Remove trucks from active fleet', 'is_sensitive': True}
         ]
     },
     {
         'id': 'users',
         'name': 'User Management',
         'permissions': [
-            {'key': 'users.view', 'name': 'View Admin Users', 'desc': 'View admin user accounts, roles, and status', 'is_sensitive': True},
-            {'key': 'users.create', 'name': 'Create Admin Users', 'desc': 'Create new admin accounts with initial permissions', 'is_sensitive': True},
-            {'key': 'users.edit', 'name': 'Edit Admin Users', 'desc': 'Update admin names, emails, and credentials', 'is_sensitive': True},
-            {'key': 'users.change_permissions', 'name': 'Change Permissions', 'desc': 'Grant or revoke feature-level permissions', 'is_sensitive': True},
-            {'key': 'users.activate_deactivate', 'name': 'Activate / Deactivate Users', 'desc': 'Enable or disable admin accounts', 'is_sensitive': True},
-            {'key': 'users.revoke', 'name': 'Revoke User Access', 'desc': 'Instantly invalidate all active user sessions', 'is_sensitive': True}
+            {'key': 'users.view', 'name': 'View Admin Users', 'title': 'View Admin Users', 'desc': 'View admin user accounts, roles, and status', 'description': 'View admin user accounts, roles, and status', 'is_sensitive': True},
+            {'key': 'users.create', 'name': 'Create Admin Users', 'title': 'Create Admin Users', 'desc': 'Create new admin accounts with initial permissions', 'description': 'Create new admin accounts with initial permissions', 'is_sensitive': True},
+            {'key': 'users.edit', 'name': 'Edit Admin Users', 'title': 'Edit Admin Users', 'desc': 'Update admin names, emails, and credentials', 'description': 'Update admin names, emails, and credentials', 'is_sensitive': True},
+            {'key': 'users.change_permissions', 'name': 'Change Permissions', 'title': 'Change Permissions', 'desc': 'Grant or revoke feature-level permissions', 'description': 'Grant or revoke feature-level permissions', 'is_sensitive': True},
+            {'key': 'users.activate_deactivate', 'name': 'Activate / Deactivate Users', 'title': 'Activate / Deactivate Users', 'desc': 'Enable or disable admin accounts', 'description': 'Enable or disable admin accounts', 'is_sensitive': True},
+            {'key': 'users.revoke', 'name': 'Revoke User Access', 'title': 'Revoke User Access', 'desc': 'Instantly invalidate all active user sessions', 'description': 'Instantly invalidate all active user sessions', 'is_sensitive': True}
         ]
     }
 ]
+
+# Ensure bidirectional alias compatibility: title <-> name, description <-> desc
+for _mod in PERMISSION_MODULES:
+    for _p in _mod.get('permissions', []):
+        _p['title'] = _p.get('title') or _p.get('name') or _p.get('key')
+        _p['name'] = _p.get('name') or _p.get('title') or _p.get('key')
+        _p['description'] = _p.get('description') or _p.get('desc') or ''
+        _p['desc'] = _p.get('desc') or _p.get('description') or ''
 
 ALL_PERMISSION_KEYS = {p['key'] for mod in PERMISSION_MODULES for p in mod['permissions']}
 

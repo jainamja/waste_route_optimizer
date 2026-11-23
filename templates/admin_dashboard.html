@@ -73,6 +73,43 @@
             .stat-strip { grid-template-columns: 1fr !important; gap: 8px !important; }
             .stat-card { padding: 12px !important; }
         }
+
+        /* Permission Cards */
+        .perm-card-label {
+            display: flex;
+            align-items: flex-start;
+            gap: 10px;
+            background: #ffffff;
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            padding: 9px 11px;
+            cursor: pointer;
+            font-size: 12px;
+            transition: border-color 0.15s ease, background-color 0.15s ease, box-shadow 0.15s ease;
+            user-select: none;
+            box-sizing: border-box;
+        }
+        .perm-card-label:hover {
+            border-color: #94a3b8;
+            background: #f8fafc;
+        }
+        .perm-card-label.is-checked {
+            border-color: #3b82f6;
+            background: #eff6ff;
+            box-shadow: 0 1px 3px rgba(59, 130, 246, 0.12);
+        }
+        .perm-title-text {
+            color: #0f172a;
+            font-weight: 600;
+            font-size: 12.5px;
+            line-height: 1.3;
+        }
+        .perm-desc-text {
+            color: var(--text-muted);
+            font-size: 11px;
+            margin-top: 2px;
+            line-height: 1.35;
+        }
 </style>
 <script>
 (function() {
@@ -1643,18 +1680,24 @@ Do you want to proceed and apply these changes permanently?`;
                             </div>
                         </div>
                         <div style="display:grid; grid-template-columns:repeat(auto-fit, minmax(260px, 1fr)); gap:8px;">
-                            ${mod.permissions.map(p => `
-                                <label style="display:flex; align-items:flex-start; gap:8px; background:white; border:1px solid var(--border); border-radius:8px; padding:8px 10px; cursor:pointer; font-size:12px;">
-                                    <input type="checkbox" class="${prefix}-perm-checkbox" data-module="${mod.id}" data-perm="${p.key}" onchange="updatePermCountSummary('${prefix}')" style="margin-top:2px; cursor:pointer;">
-                                    <div style="flex:1;">
-                                        <div style="font-weight:600; color:var(--text-main); display:flex; align-items:center; flex-wrap:wrap; gap:4px;">
-                                            <span>${escapeHtml(p.title)}</span>
-                                            ${p.is_sensitive ? '<span style="background:#fef2f2; color:#b91c1c; font-size:10px; padding:1px 5px; border-radius:4px; font-weight:700;">Sensitive</span>' : ''}
+                            ${mod.permissions.map(p => {
+                                const permName = p.name || p.title || p.key;
+                                const permDesc = p.desc || p.description || '';
+                                const safeKey = (p.key || '').replace(/[^a-zA-Z0-9_-]/g, '_');
+                                const inputId = `${prefix}-perm-${safeKey}`;
+                                return `
+                                    <label for="${inputId}" class="perm-card-label ${prefix}-perm-card" id="${prefix}-card-${safeKey}">
+                                        <input type="checkbox" id="${inputId}" class="${prefix}-perm-checkbox" data-module="${mod.id}" data-perm="${p.key}" onchange="updatePermCountSummary('${prefix}')" aria-label="${escapeHtml(permName)}" style="margin-top:2px; cursor:pointer;">
+                                        <div style="flex:1;">
+                                            <div style="font-weight:600; color:var(--text-main); display:flex; align-items:center; flex-wrap:wrap; gap:5px;">
+                                                <span class="perm-title-text">${escapeHtml(permName)}</span>
+                                                ${p.is_sensitive ? '<span style="background:#fef2f2; color:#b91c1c; font-size:10px; padding:1px 6px; border-radius:4px; font-weight:700; border:1px solid #fecaca;">Sensitive</span>' : ''}
+                                            </div>
+                                            ${permDesc ? `<div class="perm-desc-text">${escapeHtml(permDesc)}</div>` : ''}
                                         </div>
-                                        <div style="color:var(--text-muted); font-size:11px; margin-top:2px; line-height:1.3;">${escapeHtml(p.description)}</div>
-                                    </div>
-                                </label>
-                            `).join('')}
+                                    </label>
+                                `;
+                            }).join('')}
                         </div>
                     </div>
                 `;
@@ -1685,9 +1728,19 @@ Do you want to proceed and apply these changes permanently?`;
         }
 
         function updatePermCountSummary(prefix) {
-            const checkedBoxes = document.querySelectorAll(`.${prefix}-perm-checkbox:checked`);
+            const allBoxes = document.querySelectorAll(`.${prefix}-perm-checkbox`);
+            let checkedCount = 0;
+            allBoxes.forEach(b => {
+                const card = b.closest('.perm-card-label');
+                if (b.checked) {
+                    checkedCount++;
+                    if (card) card.classList.add('is-checked');
+                } else {
+                    if (card) card.classList.remove('is-checked');
+                }
+            });
             const countEl = document.getElementById(`${prefix}-user-perm-count`);
-            if (countEl) countEl.innerText = checkedBoxes.length;
+            if (countEl) countEl.innerText = checkedCount;
         }
 
         function toggleSuperadminCheckbox(prefix) {
@@ -2112,11 +2165,17 @@ Do you want to proceed and apply these changes permanently?`;
                             <div style="display:grid; grid-template-columns:repeat(auto-fit, minmax(260px, 1fr)); gap:6px;">
                                 ${mod.permissions.map(p => {
                                     const hasIt = isSuper || granted.has(p.key);
+                                    const permName = p.name || p.title || p.key;
+                                    const permDesc = p.desc || p.description || '';
                                     return `
-                                        <div style="display:flex; align-items:center; gap:8px; background:white; border:1px solid ${hasIt ? '#bbf7d0' : '#e2e8f0'}; border-radius:6px; padding:6px 10px; font-size:12px;">
-                                            <i class="${hasIt ? 'fa-solid fa-circle-check' : 'fa-solid fa-circle-xmark'}" style="color:${hasIt ? '#15803d' : '#94a3b8'}; font-size:14px;"></i>
+                                        <div style="display:flex; align-items:flex-start; gap:8px; background:white; border:1px solid ${hasIt ? '#bbf7d0' : '#e2e8f0'}; border-radius:6px; padding:7px 10px; font-size:12px;">
+                                            <i class="${hasIt ? 'fa-solid fa-circle-check' : 'fa-solid fa-circle-xmark'}" style="color:${hasIt ? '#15803d' : '#94a3b8'}; font-size:14px; margin-top:2px;"></i>
                                             <div style="flex:1;">
-                                                <span style="font-weight:${hasIt ? '600' : 'normal'}; color:${hasIt ? 'var(--text-main)' : 'var(--text-muted)'};">${escapeHtml(p.title)}</span>
+                                                <div style="display:flex; align-items:center; flex-wrap:wrap; gap:4px;">
+                                                    <span style="font-weight:${hasIt ? '600' : 'normal'}; color:${hasIt ? 'var(--text-main)' : 'var(--text-muted)'};">${escapeHtml(permName)}</span>
+                                                    ${p.is_sensitive ? '<span style="background:#fef2f2; color:#b91c1c; font-size:9px; padding:1px 5px; border-radius:4px; font-weight:700;">Sensitive</span>' : ''}
+                                                </div>
+                                                ${permDesc ? `<div style="color:var(--text-muted); font-size:11px; margin-top:2px; line-height:1.25;">${escapeHtml(permDesc)}</div>` : ''}
                                             </div>
                                         </div>
                                     `;
