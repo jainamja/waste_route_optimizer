@@ -551,8 +551,11 @@
             <label style="font-size:13px; font-weight:600; display:block; margin-bottom:6px;">Address *</label>
             <input type="text" id="new-cust-address" placeholder="e.g. 123 Main St, Sector 5" style="width:100%; box-sizing:border-box; padding:10px 12px; margin-bottom:14px; border:1px solid var(--border); border-radius:10px; font-family:'Inter', sans-serif;">
 
-            <label style="font-size:13px; font-weight:600; display:block; margin-bottom:6px;">Phone Number (Optional)</label>
+            <label style="font-size:13px; font-weight:600; display:block; margin-bottom:6px;">Phone Number *</label>
             <input type="tel" id="new-cust-phone" placeholder="e.g. 9876543210" style="width:100%; box-sizing:border-box; padding:10px 12px; margin-bottom:14px; border:1px solid var(--border); border-radius:10px; font-family:'Inter', sans-serif;">
+
+            <label style="font-size:13px; font-weight:600; display:block; margin-bottom:6px;">Google Maps Location URL *</label>
+            <input type="url" id="new-cust-maps-url" placeholder="e.g. https://maps.app.goo.gl/... or https://maps.google.com/..." style="width:100%; box-sizing:border-box; padding:10px 12px; margin-bottom:14px; border:1px solid var(--border); border-radius:10px; font-family:'Inter', sans-serif;">
 
             <div style="display:grid; grid-template-columns:1fr 1fr; gap:12px; margin-bottom:24px;">
                 <div>
@@ -587,23 +590,21 @@
             <label style="font-size:13px; font-weight:600; display:block; margin-bottom:6px;">Address *</label>
             <input type="text" id="edit-cust-address" style="width:100%; box-sizing:border-box; padding:10px 12px; margin-bottom:14px; border:1px solid var(--border); border-radius:10px; font-family:'Inter', sans-serif;">
 
-            <label style="font-size:13px; font-weight:600; display:block; margin-bottom:6px;">Phone Number</label>
-            <input type="tel" id="edit-cust-phone" style="width:100%; box-sizing:border-box; padding:10px 12px; margin-bottom:14px; border:1px solid var(--border); border-radius:10px; font-family:'Inter', sans-serif;">
+            <label style="font-size:13px; font-weight:600; display:block; margin-bottom:6px;">Phone Number *</label>
+            <input type="tel" id="edit-cust-phone" placeholder="e.g. 9876543210" style="width:100%; box-sizing:border-box; padding:10px 12px; margin-bottom:14px; border:1px solid var(--border); border-radius:10px; font-family:'Inter', sans-serif;">
 
-            <div style="display:grid; grid-template-columns:1fr 1fr; gap:12px; margin-bottom:14px;">
+            <label style="font-size:13px; font-weight:600; display:block; margin-bottom:6px;">Google Maps Location URL *</label>
+            <input type="url" id="edit-cust-maps-url" placeholder="e.g. https://maps.app.goo.gl/... or https://maps.google.com/..." style="width:100%; box-sizing:border-box; padding:10px 12px; margin-bottom:14px; border:1px solid var(--border); border-radius:10px; font-family:'Inter', sans-serif;">
+
+            <div style="display:grid; grid-template-columns:1fr 1fr; gap:12px; margin-bottom:24px;">
                 <div>
-                    <label style="font-size:13px; font-weight:600; display:block; margin-bottom:6px;">Latitude</label>
-                    <input type="number" step="any" id="edit-cust-lat" style="width:100%; box-sizing:border-box; padding:10px 12px; border:1px solid var(--border); border-radius:10px; font-family:'Inter', sans-serif;">
+                    <label style="font-size:13px; font-weight:600; display:block; margin-bottom:6px;">Latitude (Optional)</label>
+                    <input type="number" step="any" id="edit-cust-lat" placeholder="e.g. 23.0225" style="width:100%; box-sizing:border-box; padding:10px 12px; border:1px solid var(--border); border-radius:10px; font-family:'Inter', sans-serif;">
                 </div>
                 <div>
-                    <label style="font-size:13px; font-weight:600; display:block; margin-bottom:6px;">Longitude</label>
-                    <input type="number" step="any" id="edit-cust-lng" style="width:100%; box-sizing:border-box; padding:10px 12px; border:1px solid var(--border); border-radius:10px; font-family:'Inter', sans-serif;">
+                    <label style="font-size:13px; font-weight:600; display:block; margin-bottom:6px;">Longitude (Optional)</label>
+                    <input type="number" step="any" id="edit-cust-lng" placeholder="e.g. 72.5714" style="width:100%; box-sizing:border-box; padding:10px 12px; border:1px solid var(--border); border-radius:10px; font-family:'Inter', sans-serif;">
                 </div>
-            </div>
-
-            <div style="display:flex; align-items:center; gap:8px; margin-bottom:24px;">
-                <input type="checkbox" id="edit-cust-deliver-bag" style="width:auto; margin:0; cursor:pointer;">
-                <label for="edit-cust-deliver-bag" style="font-size:13px; cursor:pointer; color:var(--text-main);">Deliver Waste Collection Bag</label>
             </div>
 
             <div style="display:flex; gap:12px;">
@@ -718,6 +719,7 @@
                                 <th style="padding:10px 12px; font-weight:700;">Customer Name</th>
                                 <th style="padding:10px 12px; font-weight:700;">Address</th>
                                 <th style="padding:10px 12px; font-weight:700;">Phone</th>
+                                <th style="padding:10px 12px; font-weight:700;">Google Maps URL</th>
                                 <th style="padding:10px 12px; font-weight:700;">Coordinates</th>
                                 <th style="padding:10px 12px; font-weight:700;">Status</th>
                                 <th style="padding:10px 12px; font-weight:700;">Message</th>
@@ -728,8 +730,13 @@
                     </table>
                 </div>
 
-                <div style="display:flex; justify-content:space-between; align-items:center; gap:12px;">
-                    <button class="btn btn-outline" onclick="resetImportToUpload()"><i class="fa-solid fa-arrow-left"></i> Choose Another File</button>
+                <div style="display:flex; justify-content:space-between; align-items:center; gap:12px; flex-wrap:wrap;">
+                    <div style="display:flex; gap:8px; align-items:center;">
+                        <button class="btn btn-outline" onclick="resetImportToUpload()"><i class="fa-solid fa-arrow-left"></i> Choose Another File</button>
+                        <button class="btn btn-outline" id="btn-download-error-report" onclick="downloadImportErrorReport()" style="display:none; color:#b91c1c; border-color:#fecaca; background:#fef2f2; font-size:13px;" title="Download CSV report of skipped duplicates and invalid rows">
+                            <i class="fa-solid fa-file-arrow-down"></i> Download Skipped Report (CSV)
+                        </button>
+                    </div>
                     <button class="btn btn-primary" id="btn-confirm-import" onclick="confirmImportExecution()"><i class="fa-solid fa-file-circle-check"></i> Import Valid Customers (<span id="btn-valid-count">0</span>)</button>
                 </div>
             </div>
@@ -1281,6 +1288,16 @@ Do you want to proceed and apply these changes permanently?`;
 
                 let bagBadge = c.deliver_bag ? `<span style="font-size:11px; background:#fef3c7; color:#d97706; padding:2px 8px; border-radius:12px; font-weight:600;"><i class="fa-solid fa-bag-shopping"></i> Bag</span>` : '';
 
+                let mapsUrl = c.google_maps_url || c.location_url || '';
+                let mapsLink = '';
+                if (mapsUrl && (mapsUrl.startsWith('http://') || mapsUrl.startsWith('https://'))) {
+                    mapsLink = `<div style="margin-top:5px;">
+                        <a href="${escapeHtml(mapsUrl)}" target="_blank" rel="noopener noreferrer" style="color:var(--primary); font-size:12px; font-weight:600; text-decoration:none; display:inline-flex; align-items:center; gap:5px;" title="Open location in Google Maps">
+                            <i class="fa-solid fa-arrow-up-right-from-square" style="font-size:11px;"></i> View on Google Maps
+                        </a>
+                    </div>`;
+                }
+
                 html += `
                     <div class="driver-item cust-item">
                         <div style="display:flex; align-items:flex-start; gap:14px; flex:1; min-width:0;">
@@ -1297,6 +1314,7 @@ Do you want to proceed and apply these changes permanently?`;
                                     <i class="fa-solid fa-location-dot" style="font-size:11px; margin-right:4px;"></i>${escapeHtml(c.address)}
                                     ${c.phone ? ` &nbsp;•&nbsp; <i class="fa-solid fa-phone" style="font-size:11px; margin-right:3px;"></i>${escapeHtml(c.phone)}` : ''}
                                 </p>
+                                ${mapsLink}
                                 ${templateBadges ? `<div style="margin-top:6px; display:flex; flex-wrap:wrap; gap:4px;">${templateBadges}</div>` : ''}
                             </div>
                         </div>
@@ -1354,16 +1372,30 @@ Do you want to proceed and apply these changes permanently?`;
             return String(str).replace(/'/g, "\\'").replace(/"/g, '\\"');
         }
 
+        function isValidGoogleMapsUrl(url) {
+            if (!url || typeof url !== 'string') return false;
+            let trimmed = url.trim();
+            if (!trimmed.startsWith('https://')) return false;
+            let lower = trimmed.toLowerCase();
+            return lower.includes('google.') && (lower.includes('/maps') || lower.includes('maps.app.goo.gl') || lower.includes('goo.gl/maps') || lower.includes('maps.google.'));
+        }
+
+        function isValidPhoneNumber(phone) {
+            if (!phone || typeof phone !== 'string') return false;
+            let digits = phone.replace(/\D/g, '');
+            return digits.length >= 7 && digits.length <= 15;
+        }
+
         function openAddCustomerModal() {
             const errDiv = document.getElementById('add-cust-error');
             if (errDiv) errDiv.style.display = 'none';
             document.getElementById('new-cust-name').value = '';
             document.getElementById('new-cust-address').value = '';
             document.getElementById('new-cust-phone').value = '';
+            const mapsInput = document.getElementById('new-cust-maps-url');
+            if (mapsInput) mapsInput.value = '';
             document.getElementById('new-cust-lat').value = '';
             document.getElementById('new-cust-lng').value = '';
-            const bagEl = document.getElementById('new-cust-deliver-bag');
-            if (bagEl) bagEl.checked = false;
             document.getElementById('add-customer-modal').style.display = 'flex';
         }
 
@@ -1375,20 +1407,40 @@ Do you want to proceed and apply these changes permanently?`;
             const name = document.getElementById('new-cust-name').value.trim();
             const address = document.getElementById('new-cust-address').value.trim();
             const phone = document.getElementById('new-cust-phone').value.trim();
+            const mapsInput = document.getElementById('new-cust-maps-url');
+            const google_maps_url = mapsInput ? mapsInput.value.trim() : '';
             const lat = document.getElementById('new-cust-lat').value.trim();
             const lng = document.getElementById('new-cust-lng').value.trim();
-            const bagEl = document.getElementById('new-cust-deliver-bag');
-            const deliver_bag = bagEl ? bagEl.checked : false;
             const errDiv = document.getElementById('add-cust-error');
             const btn = document.getElementById('btn-save-customer');
 
             if (!name) {
-                errDiv.innerText = 'Customer name is required.';
+                errDiv.innerText = 'Customer Name is required.';
                 errDiv.style.display = 'block';
                 return;
             }
             if (!address) {
-                errDiv.innerText = 'Customer address is required.';
+                errDiv.innerText = 'Customer Address is required.';
+                errDiv.style.display = 'block';
+                return;
+            }
+            if (!phone) {
+                errDiv.innerText = 'Phone Number is required.';
+                errDiv.style.display = 'block';
+                return;
+            }
+            if (!isValidPhoneNumber(phone)) {
+                errDiv.innerText = 'Please provide a valid phone number (7 to 15 digits).';
+                errDiv.style.display = 'block';
+                return;
+            }
+            if (!google_maps_url) {
+                errDiv.innerText = 'Google Maps Location URL is required.';
+                errDiv.style.display = 'block';
+                return;
+            }
+            if (!isValidGoogleMapsUrl(google_maps_url)) {
+                errDiv.innerText = 'Invalid Google Maps URL. Must start with https:// and point to a valid Google Maps address (e.g. https://maps.app.goo.gl/... or https://maps.google.com/...).';
                 errDiv.style.display = 'block';
                 return;
             }
@@ -1397,7 +1449,13 @@ Do you want to proceed and apply these changes permanently?`;
             btn.innerHTML = '<i class="fa-solid fa-circle-notch fa-spin"></i> Saving...';
 
             try {
-                let payload = { name, address, phone: phone || null, deliver_bag };
+                let payload = { 
+                    name, 
+                    address, 
+                    phone, 
+                    google_maps_url,
+                    location_url: google_maps_url
+                };
                 if (lat) payload.lat = parseFloat(lat);
                 if (lng) payload.lng = parseFloat(lng);
 
@@ -1431,9 +1489,10 @@ Do you want to proceed and apply these changes permanently?`;
             document.getElementById('edit-cust-name').value = cust.name || '';
             document.getElementById('edit-cust-address').value = cust.address || '';
             document.getElementById('edit-cust-phone').value = cust.phone || '';
+            const editMapsInput = document.getElementById('edit-cust-maps-url');
+            if (editMapsInput) editMapsInput.value = cust.google_maps_url || cust.location_url || '';
             document.getElementById('edit-cust-lat').value = (cust.lat !== null && cust.lat !== undefined) ? cust.lat : '';
             document.getElementById('edit-cust-lng').value = (cust.lng !== null && cust.lng !== undefined) ? cust.lng : '';
-            document.getElementById('edit-cust-deliver-bag').checked = !!cust.deliver_bag;
             const errDiv = document.getElementById('edit-cust-error');
             if (errDiv) errDiv.style.display = 'none';
 
@@ -1449,9 +1508,10 @@ Do you want to proceed and apply these changes permanently?`;
             const name = document.getElementById('edit-cust-name').value.trim();
             const address = document.getElementById('edit-cust-address').value.trim();
             const phone = document.getElementById('edit-cust-phone').value.trim();
+            const editMapsInput = document.getElementById('edit-cust-maps-url');
+            const google_maps_url = editMapsInput ? editMapsInput.value.trim() : '';
             const lat = document.getElementById('edit-cust-lat').value.trim();
             const lng = document.getElementById('edit-cust-lng').value.trim();
-            const deliver_bag = document.getElementById('edit-cust-deliver-bag').checked;
             const errDiv = document.getElementById('edit-cust-error');
             const btn = document.getElementById('btn-update-customer');
 
@@ -1465,12 +1525,38 @@ Do you want to proceed and apply these changes permanently?`;
                 errDiv.style.display = 'block';
                 return;
             }
+            if (!phone) {
+                errDiv.innerText = 'Phone Number is required.';
+                errDiv.style.display = 'block';
+                return;
+            }
+            if (!isValidPhoneNumber(phone)) {
+                errDiv.innerText = 'Please provide a valid phone number (7 to 15 digits).';
+                errDiv.style.display = 'block';
+                return;
+            }
+            if (!google_maps_url) {
+                errDiv.innerText = 'Google Maps Location URL is required.';
+                errDiv.style.display = 'block';
+                return;
+            }
+            if (!isValidGoogleMapsUrl(google_maps_url)) {
+                errDiv.innerText = 'Invalid Google Maps URL. Must start with https:// and point to a valid Google Maps address.';
+                errDiv.style.display = 'block';
+                return;
+            }
 
             btn.disabled = true;
             btn.innerHTML = '<i class="fa-solid fa-circle-notch fa-spin"></i> Saving...';
 
             try {
-                let payload = { name, address, phone: phone || null, deliver_bag };
+                let payload = { 
+                    name, 
+                    address, 
+                    phone, 
+                    google_maps_url,
+                    location_url: google_maps_url
+                };
                 payload.lat = lat ? parseFloat(lat) : null;
                 payload.lng = lng ? parseFloat(lng) : null;
 
@@ -1699,6 +1785,12 @@ Do you want to proceed and apply these changes permanently?`;
             }
         }
 
+        function downloadImportErrorReport() {
+            if (currentImportPreview && currentImportPreview.preview_id) {
+                window.location.href = `/api/master_customers/import_error_report/${currentImportPreview.preview_id}`;
+            }
+        }
+
         function renderImportPreviewTable(data) {
             document.getElementById('import-stage-upload').style.display = 'none';
             document.getElementById('import-stage-preview').style.display = 'block';
@@ -1711,6 +1803,15 @@ Do you want to proceed and apply these changes permanently?`;
 
             const btnConfirm = document.getElementById('btn-confirm-import');
             if (btnConfirm) btnConfirm.disabled = (data.ready_to_import_count === 0);
+
+            const errReportBtn = document.getElementById('btn-download-error-report');
+            if (errReportBtn) {
+                if ((data.duplicate_count > 0 || data.invalid_count > 0) && data.preview_id) {
+                    errReportBtn.style.display = 'inline-flex';
+                } else {
+                    errReportBtn.style.display = 'none';
+                }
+            }
 
             const tbody = document.getElementById('import-preview-tbody');
             let rowsHtml = '';
@@ -1726,13 +1827,26 @@ Do you want to proceed and apply these changes permanently?`;
                 }
 
                 let coordsText = (r.lat && r.lng) ? `${r.lat.toFixed(4)}, ${r.lng.toFixed(4)}` : '<span style="color:var(--text-muted);">None</span>';
+                let gUrl = r.google_maps_url || r.location_url || '';
+                let urlDisplay = '';
+                if (gUrl) {
+                    if (gUrl.startsWith('http')) {
+                        let shortUrl = gUrl.length > 25 ? gUrl.substring(0, 22) + '...' : gUrl;
+                        urlDisplay = `<a href="${escapeHtml(gUrl)}" target="_blank" rel="noopener noreferrer" style="color:var(--primary); text-decoration:none; display:inline-flex; align-items:center; gap:3px;" title="${escapeHtml(gUrl)}"><i class="fa-solid fa-arrow-up-right-from-square" style="font-size:10px;"></i> ${escapeHtml(shortUrl)}</a>`;
+                    } else {
+                        urlDisplay = escapeHtml(gUrl);
+                    }
+                } else {
+                    urlDisplay = '<span style="color:#b91c1c; font-size:11px; font-weight:600;">Missing</span>';
+                }
 
                 rowsHtml += `
-                    <tr style="border-bottom:1px solid var(--border); ${r.status !== 'VALID' ? 'background:#fafafa;' : ''}">
+                    <tr style="border-bottom:1px solid var(--border); ${r.status === 'INVALID' ? 'background:#fef2f2;' : r.status === 'DUPLICATE' ? 'background:#fffbeb;' : ''}">
                         <td style="padding:8px 12px; color:var(--text-muted); font-size:12px;">${r.row_num || ''}</td>
                         <td style="padding:8px 12px; font-weight:600;">${escapeHtml(r.name || '')}</td>
                         <td style="padding:8px 12px; color:var(--text-main);">${escapeHtml(r.address || '')}</td>
                         <td style="padding:8px 12px; color:var(--text-muted);">${escapeHtml(r.phone || '')}</td>
+                        <td style="padding:8px 12px; font-size:12px;">${urlDisplay}</td>
                         <td style="padding:8px 12px; font-size:12px;">${coordsText}</td>
                         <td style="padding:8px 12px;">${statusBadge}</td>
                         <td style="padding:8px 12px; font-size:12px; color:${r.status === 'INVALID' ? '#b91c1c' : r.status === 'DUPLICATE' ? '#b45309' : '#15803d'};">${escapeHtml(r.message || '')}</td>
