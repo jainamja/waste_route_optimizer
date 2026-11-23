@@ -512,6 +512,7 @@
                             </a>
                         </div>
                     </div>
+                    <button id="btn-sync-template-customers" onclick="openSyncTemplateCustomersModal()" class="btn btn-outline" style="background:white;" title="Sync and import all customers from saved route templates into Master Customer List"><i class="fa-solid fa-arrows-rotate" style="color:var(--primary);"></i> Sync From Templates</button>
                     <button id="btn-import-customers" onclick="openImportModal()" class="btn btn-outline" style="background:white;"><i class="fa-solid fa-file-import"></i> Import Customers</button>
                     <button id="btn-add-customer" onclick="openAddCustomerModal()" class="btn btn-primary"><i class="fa-solid fa-user-plus"></i> Add Customer</button>
                 </div>
@@ -848,6 +849,97 @@
                 <h4 style="margin:0 0 8px 0; font-size:18px; font-family:'Manrope', sans-serif;">Import Completed</h4>
                 <p id="import-result-summary" style="font-size:14px; color:var(--text-muted); margin-bottom:20px;">Customers successfully saved to Master Customer database.</p>
                 <button class="btn btn-primary" onclick="closeImportModal()"><i class="fa-solid fa-check"></i> Done</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Sync Template Customers Modal -->
+    <div id="sync-template-customers-modal" class="modal-backdrop">
+        <div class="modal-content-xl" style="max-width:840px;">
+            <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:16px;">
+                <div>
+                    <h3 style="margin:0; font-family:'Manrope', sans-serif; font-size:20px;"><i class="fa-solid fa-arrows-rotate" style="color:var(--primary); margin-right:8px;"></i>Sync Customers from Saved Templates</h3>
+                    <p style="color:var(--text-muted); font-size:13px; margin:4px 0 0 0;">Extract all existing customers from saved route templates into the Master Customer List with intelligent deduplication and template link preservation.</p>
+                </div>
+                <button onclick="closeSyncTemplateCustomersModal()" style="background:none; border:none; color:var(--text-muted); cursor:pointer; font-size:18px; padding:4px;"><i class="fa-solid fa-xmark"></i></button>
+            </div>
+
+            <div id="sync-error-message" style="display:none; padding:10px 14px; background:#fef2f2; border:1px solid #fecaca; border-radius:8px; color:#b91c1c; font-size:13px; margin-bottom:16px;"></div>
+
+            <!-- Stage 1: Initial Confirmation -->
+            <div id="sync-stage-initial">
+                <div style="background:#f8fafc; border:1px solid var(--border); border-radius:12px; padding:18px; margin-bottom:20px;">
+                    <div style="font-weight:700; color:var(--text-main); font-size:14px; margin-bottom:8px;">How Synchronization Works:</div>
+                    <ul style="margin:0; padding-left:20px; font-size:13px; color:var(--text-muted); line-height:1.7;">
+                        <li><strong>Safe & Non-Destructive:</strong> All existing saved templates, stop sequences, and route structures remain completely intact.</li>
+                        <li><strong>Duplicate Prevention:</strong> Matches customers by normalized phone number, Google Maps URL, coordinates, and name + address. Multiple templates sharing the same customer will not create duplicate records.</li>
+                        <li><strong>Template Relationship:</strong> Links every template stop to its central Master Customer record so template assignments are visible in the Master Customer List.</li>
+                        <li><strong>Idempotent:</strong> Safe to run repeatedly anytime without creating duplicate customers.</li>
+                    </ul>
+                </div>
+                <div style="display:flex; justify-content:flex-end; gap:10px;">
+                    <button class="btn btn-outline" onclick="closeSyncTemplateCustomersModal()">Cancel</button>
+                    <button class="btn btn-primary" onclick="startTemplateCustomersSync()"><i class="fa-solid fa-play"></i> Start Synchronization</button>
+                </div>
+            </div>
+
+            <!-- Stage 2: In-Progress Spinner -->
+            <div id="sync-stage-running" style="display:none; text-align:center; padding:36px 16px;">
+                <div style="font-size:36px; color:var(--primary); margin-bottom:14px;"><i class="fa-solid fa-circle-notch fa-spin"></i></div>
+                <h4 style="margin:0 0 6px 0; font-size:17px; font-family:'Manrope', sans-serif;">Synchronizing Template Customers...</h4>
+                <p style="font-size:13px; color:var(--text-muted); margin:0;">Analyzing saved templates, resolving customer records, and deduplicating data.</p>
+            </div>
+
+            <!-- Stage 3: Results -->
+            <div id="sync-stage-results" style="display:none;">
+                <div style="display:grid; grid-template-columns:repeat(auto-fit, minmax(115px, 1fr)); gap:10px; margin-bottom:18px;">
+                    <div style="background:#f8fafc; border:1px solid var(--border); border-radius:10px; padding:10px; text-align:center;">
+                        <div style="font-size:11px; color:var(--text-muted); font-weight:600;">Templates</div>
+                        <div style="font-size:20px; font-weight:800; color:var(--text-main); margin-top:2px;" id="sync-stat-scanned">0</div>
+                    </div>
+                    <div style="background:#f8fafc; border:1px solid var(--border); border-radius:10px; padding:10px; text-align:center;">
+                        <div style="font-size:11px; color:var(--text-muted); font-weight:600;">Stops Read</div>
+                        <div style="font-size:20px; font-weight:800; color:var(--text-main); margin-top:2px;" id="sync-stat-processed">0</div>
+                    </div>
+                    <div style="background:#f0fdf4; border:1px solid #bbf7d0; border-radius:10px; padding:10px; text-align:center;">
+                        <div style="font-size:11px; color:#166534; font-weight:600;">Newly Added</div>
+                        <div style="font-size:20px; font-weight:800; color:#15803d; margin-top:2px;" id="sync-stat-new">0</div>
+                    </div>
+                    <div style="background:#eff6ff; border:1px solid #bfdbfe; border-radius:10px; padding:10px; text-align:center;">
+                        <div style="font-size:11px; color:#1e40af; font-weight:600;">Already Existed</div>
+                        <div style="font-size:20px; font-weight:800; color:#2563eb; margin-top:2px;" id="sync-stat-existing">0</div>
+                    </div>
+                    <div style="background:#fffbeb; border:1px solid #fde68a; border-radius:10px; padding:10px; text-align:center;">
+                        <div style="font-size:11px; color:#92400e; font-weight:600;">Dups Skipped</div>
+                        <div style="font-size:20px; font-weight:800; color:#b45309; margin-top:2px;" id="sync-stat-dups">0</div>
+                    </div>
+                    <div style="background:#fdf2f8; border:1px solid #fbcfe8; border-radius:10px; padding:10px; text-align:center;">
+                        <div style="font-size:11px; color:#9d174d; font-weight:600;">Needs Review</div>
+                        <div style="font-size:20px; font-weight:800; color:#be185d; margin-top:2px;" id="sync-stat-review">0</div>
+                    </div>
+                </div>
+
+                <div id="sync-review-list-container" style="display:none; margin-bottom:18px;">
+                    <div style="font-size:13px; font-weight:700; color:var(--text-main); margin-bottom:8px;"><i class="fa-solid fa-triangle-exclamation" style="color:#f59e0b; margin-right:6px;"></i>Records Requiring Manual Review (Missing or Fallback Data)</div>
+                    <div style="max-height:220px; overflow-y:auto; border:1px solid var(--border); border-radius:8px;">
+                        <table style="width:100%; border-collapse:collapse; font-size:12px; text-align:left;">
+                            <thead style="background:#f8fafc; position:sticky; top:0;">
+                                <tr>
+                                    <th style="padding:8px; border-bottom:1px solid var(--border);">Customer Name</th>
+                                    <th style="padding:8px; border-bottom:1px solid var(--border);">Template</th>
+                                    <th style="padding:8px; border-bottom:1px solid var(--border);">Address</th>
+                                    <th style="padding:8px; border-bottom:1px solid var(--border);">Phone</th>
+                                    <th style="padding:8px; border-bottom:1px solid var(--border);">Review Notes</th>
+                                </tr>
+                            </thead>
+                            <tbody id="sync-review-tbody"></tbody>
+                        </table>
+                    </div>
+                </div>
+
+                <div style="display:flex; justify-content:flex-end;">
+                    <button class="btn btn-primary" onclick="closeSyncTemplateCustomersModal()"><i class="fa-solid fa-check"></i> Close & Refresh Customers</button>
+                </div>
             </div>
         </div>
     </div>
@@ -1824,6 +1916,83 @@ Do you want to proceed and apply these changes permanently?`;
                 closeTemplateDropdown();
             }
         });
+
+        // ============================================================================
+        // TEMPLATE CUSTOMERS SYNCHRONIZATION JAVASCRIPT
+        // ============================================================================
+        function openSyncTemplateCustomersModal() {
+            document.getElementById('sync-template-customers-modal').style.display = 'flex';
+            document.getElementById('sync-stage-initial').style.display = 'block';
+            document.getElementById('sync-stage-running').style.display = 'none';
+            document.getElementById('sync-stage-results').style.display = 'none';
+            const errDiv = document.getElementById('sync-error-message');
+            if (errDiv) errDiv.style.display = 'none';
+        }
+
+        function closeSyncTemplateCustomersModal() {
+            document.getElementById('sync-template-customers-modal').style.display = 'none';
+            loadMasterCustomers();
+        }
+
+        async function startTemplateCustomersSync() {
+            document.getElementById('sync-stage-initial').style.display = 'none';
+            document.getElementById('sync-stage-running').style.display = 'block';
+            document.getElementById('sync-stage-results').style.display = 'none';
+            const errDiv = document.getElementById('sync-error-message');
+            if (errDiv) errDiv.style.display = 'none';
+
+            try {
+                const res = await fetch('/api/admin/migrate_template_customers', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' }
+                });
+                const data = await res.json();
+                document.getElementById('sync-stage-running').style.display = 'none';
+
+                if (data.success) {
+                    document.getElementById('sync-stage-results').style.display = 'block';
+                    document.getElementById('sync-stat-scanned').textContent = data.templates_scanned || 0;
+                    document.getElementById('sync-stat-processed').textContent = data.processed || 0;
+                    document.getElementById('sync-stat-new').textContent = data.newly_added || 0;
+                    document.getElementById('sync-stat-existing').textContent = data.already_existing || 0;
+                    document.getElementById('sync-stat-dups').textContent = data.duplicates_skipped || 0;
+                    document.getElementById('sync-stat-review').textContent = data.requires_manual_review || 0;
+
+                    const reviewContainer = document.getElementById('sync-review-list-container');
+                    if (data.manual_review_items && data.manual_review_items.length > 0) {
+                        reviewContainer.style.display = 'block';
+                        const tbody = document.getElementById('sync-review-tbody');
+                        tbody.innerHTML = '';
+                        data.manual_review_items.forEach(item => {
+                            const tr = document.createElement('tr');
+                            tr.innerHTML = `
+                                <td style="padding:8px; border-bottom:1px solid #f1f5f9; font-weight:600;">${item.name || ''}</td>
+                                <td style="padding:8px; border-bottom:1px solid #f1f5f9;">${item.template_name || ''}</td>
+                                <td style="padding:8px; border-bottom:1px solid #f1f5f9; font-size:12px; color:var(--text-muted);">${item.address || '—'}</td>
+                                <td style="padding:8px; border-bottom:1px solid #f1f5f9; font-size:12px;">${item.phone || '—'}</td>
+                                <td style="padding:8px; border-bottom:1px solid #f1f5f9; font-size:12px; color:#b45309;">${(item.reasons || []).join('; ')}</td>
+                            `;
+                            tbody.appendChild(tr);
+                        });
+                    } else {
+                        reviewContainer.style.display = 'none';
+                    }
+                } else {
+                    document.getElementById('sync-stage-initial').style.display = 'block';
+                    if (errDiv) {
+                        errDiv.textContent = data.error || 'Failed to complete migration.';
+                        errDiv.style.display = 'block';
+                    }
+                }
+            } catch (err) {
+                document.getElementById('sync-stage-running').style.display = 'none';
+                document.getElementById('sync-stage-initial').style.display = 'block';
+                if (errDiv) {
+                    errDiv.textContent = 'Network or server error during migration: ' + err.message;
+                    errDiv.style.display = 'block';
+                }
+            }
+        }
 
         // ============================================================================
         // BULK CUSTOMER IMPORT JAVASCRIPT

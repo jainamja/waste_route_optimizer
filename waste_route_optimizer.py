@@ -4567,7 +4567,8 @@ def assign_driver():
                 'status': c.status, 'truck_id': 1, 'stop_number': c.stop_number,
                 'confirmation': c.confirmation if c.confirmation else 'NOT_CONFIRMED',
                 'deliver_bag': bool(getattr(c, 'deliver_bag', False)),
-                'customer_status': getattr(c, 'customer_status', 'ACTIVE') or 'ACTIVE'
+                'customer_status': getattr(c, 'customer_status', 'ACTIVE') or 'ACTIVE',
+                'master_customer_id': getattr(c, 'master_customer_id', None)
             } for c in cust_rows]
             meta_rows = Metadata.query.all()
             meta_dict = {m.key: m.value for m in meta_rows}
@@ -6112,7 +6113,8 @@ def assign_route():
             customer_status=c.get('customer_status', 'ACTIVE'),
             geocode_quality=c.get('geocode_quality', 'UNKNOWN'),
             coord_source=c.get('coord_source', 'UNKNOWN'),
-            is_manually_corrected=c.get('is_manually_corrected', False)
+            is_manually_corrected=c.get('is_manually_corrected', False),
+            master_customer_id=c.get('master_customer_id') or (raw_id if raw_id > 0 and raw_id < 1000000 else None)
         )
         db.session.add(new_cust)
         
@@ -6211,7 +6213,8 @@ def save_template():
         'customer_status': getattr(c, 'customer_status', 'ACTIVE') or 'ACTIVE',
         'geocode_quality': getattr(c, 'geocode_quality', 'UNKNOWN') or 'UNKNOWN',
         'coord_source': getattr(c, 'coord_source', 'UNKNOWN') or 'UNKNOWN',
-        'is_manually_corrected': getattr(c, 'is_manually_corrected', False) or False
+        'is_manually_corrected': getattr(c, 'is_manually_corrected', False) or False,
+        'master_customer_id': getattr(c, 'master_customer_id', None)
     } for c in cust_rows]
     
     if not t and not target_is_assigned:
@@ -7496,6 +7499,377 @@ def add_customer_to_template(template_id):
         'added': added_count,
         'skipped': skipped_count,
         'message': f"Added {added_count} customer(s) to '{template.name}'."
+    })
+
+# ============================================================================
+# TEMPLATE CUSTOMERS TO MASTER CUSTOMER MIGRATION & SYNCHRONIZATION
+# ============================================================================
+
+def migrate_saved_template_customers_to_master(db_session=None):
+    """
+    One-time & idempotent migration that extracts all customer records from every
+    SavedTemplate into the MasterCustomer list (master_customers table).
+
+    Deduplication rules:
+    - Direct ID / master_customer_id matching against existing MasterCustomer records.
+    - Normalized phone number matching (>= 7 digits).
+    - Normalized Google Maps URL and/or extracted GPS coordinates matching.
+    - Normalized name AND normalized address matching.
+    - Exact coordinates matching with matching name.
+    - Two different customers are NEVER merged solely because their names match.
+    - Safe ID allocation avoiding collisions with existing MasterCustomer and Customer tables.
+    - Enriches each template customer entry in customers_json with master_customer_id.
+    - Completely idempotent: safe to run multiple times without creating duplicates.
+    - Legacy records missing phone/address/URL are handled safely with fallbacks and flagged for review.
+    """
+    from flask import has_app_context
+    if not has_app_context():
+        with app.app_context():
+            return migrate_saved_template_customers_to_master(db_session=db.session)
+
+    session = db_session or db.session
+    import json
+    import re
+
+    templates = session.query(SavedTemplate).order_by(SavedTemplate.id.asc()).all()
+    existing_mcs = session.query(MasterCustomer).all()
+    initial_master_ids = set(mc.id for mc in existing_mcs)
+
+    max_master = session.query(db.func.max(MasterCustomer.id)).scalar() or 0
+    max_cust = session.query(db.func.max(Customer.id)).scalar() or 0
+    next_available_id = max(max_master, max_cust, 0) + 1
+
+    id_to_mc = {mc.id: mc for mc in existing_mcs}
+    phone_to_mc = {}
+    for mc in existing_mcs:
+        if mc.phone:
+            p = normalize_phone_for_dedup(mc.phone)
+            if p:
+                phone_to_mc[p] = mc
+
+    url_to_mc = {}
+    url_coords_to_mc = {}
+    for mc in existing_mcs:
+        u = (mc.google_maps_url or mc.location_url or '').strip().lower()
+        if u:
+            url_to_mc[u.rstrip('/')] = mc
+            lat_c, lng_c = extract_coords_from_gmaps_url_fast(u)
+            if lat_c is not None and lng_c is not None:
+                url_coords_to_mc[(round(lat_c, 4), round(lng_c, 4))] = mc
+        if mc.lat is not None and mc.lng is not None:
+            try:
+                url_coords_to_mc[(round(float(mc.lat), 4), round(float(mc.lng), 4))] = mc
+            except Exception:
+                pass
+
+    name_addr_to_mc = {}
+    for mc in existing_mcs:
+        n = re.sub(r'\s+', ' ', (mc.name or '').strip().lower())
+        a = normalize_address_for_dedup(mc.address)
+        if n and a:
+            name_addr_to_mc[(n, a)] = mc
+
+    coords_name_to_mc = {}
+    for mc in existing_mcs:
+        if mc.lat is not None and mc.lng is not None and mc.name:
+            try:
+                coords_name_to_mc[(round(float(mc.lat), 4), round(float(mc.lng), 4), re.sub(r'\s+', ' ', mc.name.strip().lower()))] = mc
+            except Exception:
+                pass
+
+    processed_count = 0
+    newly_added_ids = set()
+    already_existing_count = 0
+    duplicates_skipped_count = 0
+    manual_review_items = []
+    seen_review_keys = set()
+
+    for tmpl in templates:
+        raw_json = tmpl.customers_json
+        if not raw_json:
+            continue
+        try:
+            cust_list = json.loads(raw_json)
+        except Exception:
+            continue
+        if not isinstance(cust_list, list):
+            continue
+
+        tmpl_modified = False
+
+        for c in cust_list:
+            if not isinstance(c, dict):
+                continue
+
+            raw_id = c.get('id')
+            c_name = (c.get('name') or '').strip()
+
+            # Skip depot / facility stops
+            is_depot = False
+            try:
+                if raw_id is not None and int(raw_id) <= -1000:
+                    is_depot = True
+            except Exception:
+                pass
+            if c_name in ['End Location / Depot', 'Start Location / Depot', 'Depot'] or c.get('is_depot') is True:
+                is_depot = True
+            if is_depot:
+                continue
+
+            processed_count += 1
+            matched_mc = None
+
+            # 1. Direct ID / master_customer_id check
+            raw_mid = c.get('master_customer_id')
+            if raw_mid:
+                try:
+                    raw_mid_int = int(raw_mid)
+                    if raw_mid_int in id_to_mc:
+                        matched_mc = id_to_mc[raw_mid_int]
+                except Exception:
+                    pass
+
+            # 2. Normalized phone check
+            if not matched_mc:
+                phone = c.get('phone')
+                if phone:
+                    p_norm = normalize_phone_for_dedup(phone)
+                    if p_norm and p_norm in phone_to_mc:
+                        matched_mc = phone_to_mc[p_norm]
+
+            # 3. Google Maps URL / location_url check
+            if not matched_mc:
+                url = (c.get('google_maps_url') or c.get('location_url') or '').strip()
+                if url:
+                    u_clean = url.lower().rstrip('/')
+                    if u_clean in url_to_mc:
+                        matched_mc = url_to_mc[u_clean]
+                    else:
+                        ulat, ulng = extract_coords_from_gmaps_url_fast(url)
+                        if ulat is not None and ulng is not None:
+                            ukey = (round(ulat, 4), round(ulng, 4))
+                            if ukey in url_coords_to_mc:
+                                matched_mc = url_coords_to_mc[ukey]
+
+            # 4. Name + Address check (Requires BOTH name and address to match)
+            if not matched_mc:
+                n_norm = re.sub(r'\s+', ' ', c_name.lower())
+                a_norm = normalize_address_for_dedup(c.get('address') or '')
+                if n_norm and a_norm:
+                    na_key = (n_norm, a_norm)
+                    if na_key in name_addr_to_mc:
+                        matched_mc = name_addr_to_mc[na_key]
+
+            # 5. Coordinates + Name check
+            if not matched_mc:
+                lat = c.get('lat')
+                lng = c.get('lng')
+                n_norm = re.sub(r'\s+', ' ', c_name.lower())
+                if lat is not None and lng is not None and n_norm:
+                    try:
+                        cn_key = (round(float(lat), 4), round(float(lng), 4), n_norm)
+                        if cn_key in coords_name_to_mc:
+                            matched_mc = coords_name_to_mc[cn_key]
+                    except Exception:
+                        pass
+
+            # 6. Legacy stop ID check (only if stop name matches candidate MasterCustomer name)
+            if not matched_mc and raw_id is not None:
+                try:
+                    raw_id_int = int(raw_id)
+                    if raw_id_int in id_to_mc:
+                        cand_mc = id_to_mc[raw_id_int]
+                        cand_n = re.sub(r'\s+', ' ', (cand_mc.name or '').strip().lower())
+                        n_norm = re.sub(r'\s+', ' ', c_name.lower())
+                        if cand_n and cand_n == n_norm:
+                            matched_mc = cand_mc
+                except Exception:
+                    pass
+
+            if matched_mc:
+                if matched_mc.id in initial_master_ids:
+                    already_existing_count += 1
+                else:
+                    duplicates_skipped_count += 1
+
+                if c.get('master_customer_id') != matched_mc.id:
+                    c['master_customer_id'] = matched_mc.id
+                    tmpl_modified = True
+            else:
+                # Create NEW MasterCustomer
+                review_reasons = []
+
+                name_val = c_name or f"Customer {raw_id or next_available_id}"
+                if not c_name:
+                    review_reasons.append("Missing customer name; defaulted to generic name")
+
+                raw_addr = (c.get('address') or '').strip()
+                lat_val = c.get('lat')
+                lng_val = c.get('lng')
+                if raw_addr:
+                    addr_val = raw_addr
+                else:
+                    if lat_val is not None and lng_val is not None:
+                        try:
+                            addr_val = f"Coordinates: {float(lat_val):.6f}, {float(lng_val):.6f}"
+                            review_reasons.append("Missing address; auto-generated fallback from GPS coordinates")
+                        except Exception:
+                            addr_val = "Address Pending Verification"
+                            review_reasons.append("Missing address; invalid coordinates")
+                    else:
+                        addr_val = "Address Pending Verification"
+                        review_reasons.append("Missing address; requires manual verification")
+
+                raw_phone = (c.get('phone') or '').strip()
+                if raw_phone:
+                    is_ph_ok, ph_msg = validate_phone_number(raw_phone)
+                    if is_ph_ok:
+                        phone_val = ph_msg
+                    else:
+                        phone_val = raw_phone
+                        review_reasons.append(f"Phone number requires review ({raw_phone}): {ph_msg}")
+                else:
+                    phone_val = None
+                    review_reasons.append("Missing phone number")
+
+                raw_url = (c.get('google_maps_url') or c.get('location_url') or '').strip()
+                is_coords_ok, lat_f, lng_f, _ = validate_coordinates(lat_val, lng_val)
+                if (not is_coords_ok or lat_f is None or lng_f is None) and raw_url:
+                    clat, clng = extract_coords_from_gmaps_url_fast(raw_url)
+                    if clat is not None and clng is not None:
+                        lat_f, lng_f = clat, clng
+
+                if raw_url:
+                    is_u_ok, u_msg = validate_google_maps_url(raw_url)
+                    if not is_u_ok:
+                        review_reasons.append(f"Google Maps URL does not meet standards: {raw_url}")
+                    url_val = raw_url
+                else:
+                    if lat_f is not None and lng_f is not None:
+                        url_val = f"https://www.google.com/maps?q={lat_f:.6f},{lng_f:.6f}"
+                        review_reasons.append("Missing Google Maps URL; auto-generated from coordinates")
+                    else:
+                        url_val = ""
+                        review_reasons.append("Missing Google Maps URL")
+
+                if lat_f is None or lng_f is None:
+                    review_reasons.append("Missing latitude/longitude coordinates")
+
+                # ID allocation
+                candidate_id = None
+                if c.get('master_customer_id'):
+                    try:
+                        cand_id_int = int(c.get('master_customer_id'))
+                        if cand_id_int > 0 and cand_id_int not in id_to_mc:
+                            candidate_id = cand_id_int
+                    except Exception:
+                        pass
+                if not candidate_id:
+                    candidate_id = next_available_id
+                    next_available_id += 1
+                else:
+                    next_available_id = max(next_available_id, candidate_id + 1)
+
+                deliver_bag = bool(c.get('deliver_bag', False))
+                c_status = c.get('customer_status') or 'ACTIVE'
+                geo_qual = c.get('geocode_quality') or ('EXACT' if (lat_f is not None and lng_f is not None) else 'UNKNOWN')
+                coord_src = c.get('coord_source') or ('TEMPLATE' if (lat_f is not None and lng_f is not None) else 'UNKNOWN')
+                man_corr = bool(c.get('is_manually_corrected', False))
+
+                new_mc = MasterCustomer(
+                    id=candidate_id,
+                    name=name_val,
+                    phone=phone_val,
+                    address=addr_val,
+                    location_url=url_val,
+                    google_maps_url=url_val,
+                    lat=lat_f,
+                    lng=lng_f,
+                    deliver_bag=deliver_bag,
+                    customer_status=c_status,
+                    geocode_quality=geo_qual,
+                    coord_source=coord_src,
+                    is_manually_corrected=man_corr
+                )
+                session.add(new_mc)
+                newly_added_ids.add(new_mc.id)
+                id_to_mc[new_mc.id] = new_mc
+
+                if phone_val:
+                    np = normalize_phone_for_dedup(phone_val)
+                    if np:
+                        phone_to_mc[np] = new_mc
+                if url_val:
+                    url_to_mc[url_val.lower().rstrip('/')] = new_mc
+                    if lat_f is not None and lng_f is not None:
+                        url_coords_to_mc[(round(lat_f, 4), round(lng_f, 4))] = new_mc
+                if lat_f is not None and lng_f is not None:
+                    url_coords_to_mc[(round(lat_f, 4), round(lng_f, 4))] = new_mc
+                    coords_name_to_mc[(round(lat_f, 4), round(lng_f, 4), re.sub(r'\s+', ' ', name_val.lower()))] = new_mc
+                n_key = (re.sub(r'\s+', ' ', name_val.lower()), normalize_address_for_dedup(addr_val))
+                if n_key[0] and n_key[1]:
+                    name_addr_to_mc[n_key] = new_mc
+
+                if review_reasons:
+                    review_key = (new_mc.id, tmpl.id)
+                    if review_key not in seen_review_keys:
+                        seen_review_keys.add(review_key)
+                        manual_review_items.append({
+                            'template_id': tmpl.id,
+                            'template_name': tmpl.name,
+                            'customer_id': c.get('id'),
+                            'master_customer_id': new_mc.id,
+                            'name': name_val,
+                            'phone': phone_val,
+                            'address': addr_val,
+                            'google_maps_url': url_val,
+                            'lat': lat_f,
+                            'lng': lng_f,
+                            'reasons': review_reasons
+                        })
+
+                c['master_customer_id'] = new_mc.id
+                tmpl_modified = True
+
+        if tmpl_modified:
+            tmpl.customers_json = json.dumps(cust_list)
+
+    session.commit()
+
+    return {
+        'success': True,
+        'templates_scanned': len(templates),
+        'processed': processed_count,
+        'newly_added': len(newly_added_ids),
+        'already_existing': already_existing_count,
+        'duplicates_skipped': duplicates_skipped_count,
+        'requires_manual_review': len(manual_review_items),
+        'manual_review_items': manual_review_items
+    }
+
+
+@app.route('/api/admin/migrate_template_customers', methods=['POST'])
+@any_permission_required('customers.create', 'customers.import_excel', 'customers.import_word', 'customers.import_csv')
+def api_migrate_template_customers():
+    try:
+        stats = migrate_saved_template_customers_to_master()
+        return jsonify(stats)
+    except Exception as e:
+        db.session.rollback()
+        import traceback
+        traceback.print_exc()
+        return jsonify({'success': False, 'error': f"Migration failed: {str(e)}"}), 500
+
+
+@app.route('/api/admin/migrate_template_customers/status', methods=['GET'])
+@permission_required('customers.view')
+def api_migrate_template_customers_status():
+    master_count = MasterCustomer.query.count()
+    tmpl_count = SavedTemplate.query.count()
+    return jsonify({
+        'success': True,
+        'master_customers_count': master_count,
+        'saved_templates_count': tmpl_count
     })
 
 # ============================================================================
