@@ -7908,6 +7908,207 @@ def master_customers_sample_word():
         mimetype='application/vnd.openxmlformats-officedocument.wordprocessingml.document'
     )
 
+
+@app.route('/api/master_customers/template/excel', methods=['GET'])
+@any_permission_required('customers.import_excel', 'customers.view')
+def master_customers_template_excel():
+    import openpyxl, io
+    from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
+    from openpyxl.comments import Comment
+
+    wb = openpyxl.Workbook()
+    ws = wb.active
+    ws.title = "Customers"
+
+    headers = [
+        'Customer Name',
+        'Address',
+        'Phone Number',
+        'Google Maps Location URL',
+        'Latitude',
+        'Longitude'
+    ]
+    ws.append(headers)
+
+    font_header = Font(name='Arial', size=11, bold=True, color='FFFFFF')
+    fill_mandatory = PatternFill(start_color='1D4ED8', end_color='1D4ED8', fill_type='solid')
+    fill_optional = PatternFill(start_color='64748B', end_color='64748B', fill_type='solid')
+    align_center = Alignment(horizontal='center', vertical='center', wrap_text=True)
+
+    thin_border = Border(
+        left=Side(style='thin', color='CBD5E1'),
+        right=Side(style='thin', color='CBD5E1'),
+        top=Side(style='thin', color='CBD5E1'),
+        bottom=Side(style='thin', color='CBD5E1')
+    )
+
+    ws.row_dimensions[1].height = 28
+
+    comments = [
+        "MANDATORY: Customer or business full name.",
+        "MANDATORY: Customer street address.",
+        "MANDATORY: 10-digit mobile phone number.",
+        "MANDATORY: Valid Google Maps link (https://maps.google.com/... or https://goo.gl/maps/...).",
+        "OPTIONAL: Latitude in decimal format (e.g. 23.0225).",
+        "OPTIONAL: Longitude in decimal format (e.g. 72.5714)."
+    ]
+
+    for col_idx, cell in enumerate(ws[1], start=1):
+        cell.font = font_header
+        cell.alignment = align_center
+        cell.border = thin_border
+        if col_idx <= 4:
+            cell.fill = fill_mandatory
+        else:
+            cell.fill = fill_optional
+        if col_idx <= len(comments):
+            cell.comment = Comment(comments[col_idx - 1], 'TrashTrekyx')
+
+    font_data = Font(name='Arial', size=10, color='1E293B')
+    align_left = Alignment(horizontal='left', vertical='center')
+    align_center_data = Alignment(horizontal='center', vertical='center')
+
+    # Add 10 clean blank entry rows ready for user data entry
+    for r_idx in range(2, 12):
+        ws.row_dimensions[r_idx].height = 22
+        for c_idx in range(1, 7):
+            cell = ws.cell(row=r_idx, column=c_idx, value='')
+            cell.font = font_data
+            cell.border = thin_border
+            cell.number_format = '@'
+            if c_idx in [3, 5, 6]:
+                cell.alignment = align_center_data
+            else:
+                cell.alignment = align_left
+
+    col_widths = {
+        'A': 28,
+        'B': 38,
+        'C': 22,
+        'D': 46,
+        'E': 16,
+        'F': 16
+    }
+    for col_letter, width in col_widths.items():
+        ws.column_dimensions[col_letter].width = width
+
+    ws.freeze_panes = 'A2'
+
+    buf = io.BytesIO()
+    wb.save(buf)
+    buf.seek(0)
+    return send_file(
+        buf,
+        as_attachment=True,
+        download_name='TrashTrekyx_Customer_Template.xlsx',
+        mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+    )
+
+
+@app.route('/api/master_customers/template/word', methods=['GET'])
+@any_permission_required('customers.import_word', 'customers.view')
+def master_customers_template_word():
+    import docx, io
+    from docx.shared import Pt, RGBColor
+    from docx.enum.text import WD_ALIGN_PARAGRAPH
+    from docx.oxml import parse_xml
+    from docx.oxml.ns import nsdecls
+
+    doc = docx.Document()
+
+    heading = doc.add_heading("TrashTrekyx — Blank Customer Import Template", level=1)
+    if heading.runs:
+        heading.runs[0].font.color.rgb = RGBColor(0x1D, 0x4E, 0xD8)
+
+    p_inst = doc.add_paragraph()
+    r1 = p_inst.add_run("Instructions: ")
+    r1.bold = True
+    r1.font.size = Pt(10)
+
+    r2 = p_inst.add_run(
+        "Customer Name, Address, Phone Number, and Google Maps Location URL are mandatory fields. "
+        "Latitude and Longitude are optional. Google Maps links must be valid HTTPS URLs "
+        "(e.g., https://maps.google.com/... or https://goo.gl/maps/...). "
+        "Type or paste your customer records directly into the table rows below. "
+        "Do not alter or delete the column header row. Blank rows will be ignored automatically during import."
+    )
+    r2.font.size = Pt(10)
+    r2.font.italic = True
+    p_inst.paragraph_format.space_after = Pt(14)
+
+    headers = [
+        'Customer Name',
+        'Address',
+        'Phone Number',
+        'Google Maps Location URL',
+        'Latitude',
+        'Longitude'
+    ]
+
+    table = doc.add_table(rows=1, cols=len(headers))
+    table.style = 'Table Grid'
+
+    hdr_cells = table.rows[0].cells
+    for idx, h in enumerate(headers):
+        hdr_cells[idx].text = h
+        if idx < 4:
+            hdr_cells[idx]._tc.get_or_add_tcPr().append(parse_xml('<w:shd ' + nsdecls('w') + ' w:fill="1D4ED8"/>'))
+        else:
+            hdr_cells[idx]._tc.get_or_add_tcPr().append(parse_xml('<w:shd ' + nsdecls('w') + ' w:fill="64748B"/>'))
+
+        for p_elem in hdr_cells[idx].paragraphs:
+            p_elem.alignment = WD_ALIGN_PARAGRAPH.CENTER
+            for run in p_elem.runs:
+                run.font.bold = True
+                run.font.size = Pt(10)
+                run.font.color.rgb = RGBColor(0xFF, 0xFF, 0xFF)
+
+    for _ in range(10):
+        row_cells = table.add_row().cells
+        for c in row_cells:
+            c.text = ''
+
+    buf = io.BytesIO()
+    doc.save(buf)
+    buf.seek(0)
+    return send_file(
+        buf,
+        as_attachment=True,
+        download_name='TrashTrekyx_Customer_Template.docx',
+        mimetype='application/vnd.openxmlformats-officedocument.wordprocessingml.document'
+    )
+
+
+@app.route('/api/master_customers/template/csv', methods=['GET'])
+@any_permission_required('customers.import_csv', 'customers.view')
+def master_customers_template_csv():
+    import csv, io
+
+    headers = [
+        'Customer Name',
+        'Address',
+        'Phone Number',
+        'Google Maps Location URL',
+        'Latitude',
+        'Longitude'
+    ]
+
+    buf = io.StringIO()
+    writer = csv.writer(buf, lineterminator='\r\n')
+    writer.writerow(headers)
+    for _ in range(5):
+        writer.writerow(['', '', '', '', '', ''])
+
+    csv_bytes = buf.getvalue().encode('utf-8-sig')
+    out = io.BytesIO(csv_bytes)
+    return send_file(
+        out,
+        as_attachment=True,
+        download_name='TrashTrekyx_Customer_Template.csv',
+        mimetype='text/csv'
+    )
+
+
 @app.route('/api/dynamic_recalculate', methods=['POST'])
 @permission_required('routes.generate_create')
 def dynamic_recalculate():

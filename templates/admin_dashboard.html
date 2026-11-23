@@ -178,6 +178,19 @@
                 justify-content: center !important;
                 text-align: center !important;
             }
+            .template-dropdown-wrapper {
+                flex: 1 1 100% !important;
+                width: 100% !important;
+            }
+            .template-dropdown-wrapper .btn {
+                width: 100% !important;
+            }
+            .template-dropdown-menu {
+                left: 0 !important;
+                right: 0 !important;
+                width: 100% !important;
+                min-width: 100% !important;
+            }
 
             /* Customer List and Driver List Items on Mobile */
             .driver-item {
@@ -304,6 +317,40 @@
             margin-top: 2px;
             line-height: 1.35;
         }
+
+        /* Template Dropdown Styles */
+        .template-dropdown-wrapper {
+            position: relative;
+            display: inline-block;
+        }
+        .template-dropdown-menu {
+            display: none;
+            position: absolute;
+            left: 0;
+            top: calc(100% + 6px);
+            background: #ffffff;
+            border: 1px solid var(--border);
+            border-radius: 12px;
+            box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.12), 0 8px 10px -6px rgba(0, 0, 0, 0.08);
+            min-width: 280px;
+            z-index: 150;
+            overflow: hidden;
+            padding: 6px 0;
+        }
+        .template-dropdown-item {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            padding: 10px 16px;
+            text-decoration: none;
+            transition: background 0.15s ease;
+        }
+        .template-dropdown-item:hover {
+            background: #f8fafc;
+        }
+        .template-dropdown-item:active {
+            background: #f1f5f9;
+        }
 </style>
 <script>
 (function() {
@@ -414,6 +461,37 @@
                     <p style="margin:4px 0 0 0; color:var(--text-muted); font-size:13px;">Manage all registered customers, add new customers, and add them directly to your saved route templates.</p>
                 </div>
                 <div class="section-header-actions" style="display:flex; gap:10px; align-items:center;">
+                    <div class="template-dropdown-wrapper">
+                        <button id="btn-download-blank-template" type="button" onclick="toggleTemplateDropdown(event)" class="btn btn-outline" style="background:white;" aria-haspopup="true" aria-expanded="false" title="Download blank customer import templates">
+                            <i class="fa-solid fa-file-arrow-down" style="color:var(--primary);"></i> Download Blank Template <i class="fa-solid fa-chevron-down" style="font-size:11px; margin-left:5px; transition:transform 0.2s;" id="template-dropdown-chevron"></i>
+                        </button>
+                        <div id="template-dropdown-menu" class="template-dropdown-menu" role="menu">
+                            <div style="padding:8px 16px; font-size:11px; font-weight:700; text-transform:uppercase; letter-spacing:0.5px; color:var(--text-muted); border-bottom:1px solid #f1f5f9;">
+                                Blank Customer Templates
+                            </div>
+                            <a href="/api/master_customers/template/excel" class="template-dropdown-item" download="TrashTrekyx_Customer_Template.xlsx" onclick="closeTemplateDropdown()" role="menuitem">
+                                <i class="fa-solid fa-file-excel" style="color:#107c41; font-size:18px; width:22px; text-align:center;"></i>
+                                <div>
+                                    <div style="font-weight:600; color:var(--text-main); font-size:13px;">Download Excel Template (.xlsx)</div>
+                                    <div style="font-size:11px; color:var(--text-muted);">Formatted columns & frozen header</div>
+                                </div>
+                            </a>
+                            <a href="/api/master_customers/template/word" class="template-dropdown-item" download="TrashTrekyx_Customer_Template.docx" onclick="closeTemplateDropdown()" role="menuitem">
+                                <i class="fa-solid fa-file-word" style="color:#185abd; font-size:18px; width:22px; text-align:center;"></i>
+                                <div>
+                                    <div style="font-weight:600; color:var(--text-main); font-size:13px;">Download Word Template (.docx)</div>
+                                    <div style="font-size:11px; color:var(--text-muted);">Table format with instructions</div>
+                                </div>
+                            </a>
+                            <a href="/api/master_customers/template/csv" class="template-dropdown-item" download="TrashTrekyx_Customer_Template.csv" onclick="closeTemplateDropdown()" role="menuitem">
+                                <i class="fa-solid fa-file-csv" style="color:#0284c7; font-size:18px; width:22px; text-align:center;"></i>
+                                <div>
+                                    <div style="font-weight:600; color:var(--text-main); font-size:13px;">Download CSV Template (.csv)</div>
+                                    <div style="font-size:11px; color:var(--text-muted);">Standard UTF-8 comma-separated</div>
+                                </div>
+                            </a>
+                        </div>
+                    </div>
                     <button id="btn-import-customers" onclick="openImportModal()" class="btn btn-outline" style="background:white;"><i class="fa-solid fa-file-import"></i> Import Customers</button>
                     <button id="btn-add-customer" onclick="openAddCustomerModal()" class="btn btn-primary"><i class="fa-solid fa-user-plus"></i> Add Customer</button>
                 </div>
@@ -670,16 +748,19 @@
                     <input type="file" id="import-file-input" accept=".xlsx,.xls,.docx,.csv" style="display:none;" onchange="handleImportFileSelected(event)">
                 </div>
 
-                <!-- Download Sample Templates Section -->
+                <!-- Download Blank Templates Section -->
                 <div style="margin-top:20px; padding:16px; background:#f8fafc; border:1px solid var(--border); border-radius:12px;">
-                    <div style="font-size:13px; font-weight:700; color:var(--text-main); margin-bottom:8px;"><i class="fa-solid fa-download" style="margin-right:6px; color:var(--primary);"></i> Download Sample Import Templates</div>
-                    <p style="font-size:12px; color:var(--text-muted); margin:0 0 12px 0;">Use these pre-formatted templates to ensure proper column names and easy data entry.</p>
-                    <div style="display:flex; gap:12px; flex-wrap:wrap;">
-                        <a href="/api/master_customers/sample_excel" class="btn btn-outline" style="background:white; font-size:13px; padding:8px 14px;" download>
-                            <i class="fa-solid fa-file-excel" style="color:#107c41;"></i> Download Sample Excel (.xlsx)
+                    <div style="font-size:13px; font-weight:700; color:var(--text-main); margin-bottom:8px;"><i class="fa-solid fa-download" style="margin-right:6px; color:var(--primary);"></i> Download Blank Customer Templates</div>
+                    <p style="font-size:12px; color:var(--text-muted); margin:0 0 12px 0;">Use these pre-formatted blank templates to fill in customer data and upload directly.</p>
+                    <div style="display:flex; gap:10px; flex-wrap:wrap;">
+                        <a href="/api/master_customers/template/excel" class="btn btn-outline" style="background:white; font-size:13px; padding:8px 14px;" download="TrashTrekyx_Customer_Template.xlsx">
+                            <i class="fa-solid fa-file-excel" style="color:#107c41;"></i> Blank Excel (.xlsx)
                         </a>
-                        <a href="/api/master_customers/sample_word" class="btn btn-outline" style="background:white; font-size:13px; padding:8px 14px;" download>
-                            <i class="fa-solid fa-file-word" style="color:#185abd;"></i> Download Sample Word (.docx)
+                        <a href="/api/master_customers/template/word" class="btn btn-outline" style="background:white; font-size:13px; padding:8px 14px;" download="TrashTrekyx_Customer_Template.docx">
+                            <i class="fa-solid fa-file-word" style="color:#185abd;"></i> Blank Word (.docx)
+                        </a>
+                        <a href="/api/master_customers/template/csv" class="btn btn-outline" style="background:white; font-size:13px; padding:8px 14px;" download="TrashTrekyx_Customer_Template.csv">
+                            <i class="fa-solid fa-file-csv" style="color:#0284c7;"></i> Blank CSV (.csv)
                         </a>
                     </div>
                 </div>
@@ -1683,6 +1764,46 @@ Do you want to proceed and apply these changes permanently?`;
                 btn.innerHTML = '<i class="fa-solid fa-plus"></i> Add to Template';
             }
         }
+
+        // ============================================================================
+        // BLANK TEMPLATE DROPDOWN JAVASCRIPT
+        // ============================================================================
+        function toggleTemplateDropdown(e) {
+            if (e) {
+                e.stopPropagation();
+                e.preventDefault();
+            }
+            const menu = document.getElementById('template-dropdown-menu');
+            const chevron = document.getElementById('template-dropdown-chevron');
+            const btn = document.getElementById('btn-download-blank-template');
+            if (!menu) return;
+            const isVisible = menu.style.display === 'block';
+            if (isVisible) {
+                menu.style.display = 'none';
+                if (chevron) chevron.style.transform = 'rotate(0deg)';
+                if (btn) btn.setAttribute('aria-expanded', 'false');
+            } else {
+                menu.style.display = 'block';
+                if (chevron) chevron.style.transform = 'rotate(180deg)';
+                if (btn) btn.setAttribute('aria-expanded', 'true');
+            }
+        }
+
+        function closeTemplateDropdown() {
+            const menu = document.getElementById('template-dropdown-menu');
+            const chevron = document.getElementById('template-dropdown-chevron');
+            const btn = document.getElementById('btn-download-blank-template');
+            if (menu) menu.style.display = 'none';
+            if (chevron) chevron.style.transform = 'rotate(0deg)';
+            if (btn) btn.setAttribute('aria-expanded', 'false');
+        }
+
+        document.addEventListener('click', function(e) {
+            const wrapper = document.querySelector('.template-dropdown-wrapper');
+            if (wrapper && !wrapper.contains(e.target)) {
+                closeTemplateDropdown();
+            }
+        });
 
         // ============================================================================
         // BULK CUSTOMER IMPORT JAVASCRIPT
