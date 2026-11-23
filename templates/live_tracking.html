@@ -109,8 +109,11 @@
         .t-card-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px; }
         .t-title { font-weight: 700; font-size: 15px; }
         .t-driver { font-size: 13px; color: var(--text-muted); font-weight:500; }
-        .t-pill { font-size: 11px; font-weight: 700; padding: 3px 8px; border-radius: 10px; }
+        .t-pill { font-size: 11px; font-weight: 700; padding: 3px 8px; border-radius: 10px; display: inline-flex; align-items: center; gap: 4px; }
         .t-pill.online { background: #dcfce7; color: #166534; }
+        .t-pill.weak { background: #fef3c7; color: #92400e; }
+        .t-pill.syncing { background: #dbeafe; color: #1e40af; }
+        .t-pill.gps-disabled { background: #fee2e2; color: #991b1b; }
         .t-pill.offline { background: #f1f5f9; color: #475569; }
         .t-pill.finished { background: #10b981; color: white; }
         
@@ -201,6 +204,34 @@
         .btn-chat-toggle:hover {
             background: #eff6ff;
             border-color: #93c5fd;
+        }
+        .btn-trail-toggle {
+            padding: 6px 10px;
+            font-size: 11px;
+            font-weight: 700;
+            border-radius: 8px;
+            border: 1px solid #cbd5e1;
+            background: #ffffff;
+            color: #059669;
+            cursor: pointer;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            gap: 5px;
+            transition: all 0.2s;
+            white-space: nowrap;
+            position: relative;
+            box-shadow: 0 1px 2px rgba(0,0,0,0.04);
+        }
+        .btn-trail-toggle:hover {
+            background: #ecfdf5;
+            border-color: #6ee7b7;
+        }
+        .btn-trail-toggle.active {
+            background: #10b981;
+            color: white;
+            border-color: #10b981;
+            box-shadow: 0 2px 8px rgba(16, 185, 129, 0.35);
         }
         .t-card.route-active {
             box-shadow: 0 4px 16px rgba(47, 95, 255, 0.12);
@@ -444,6 +475,7 @@
         let liveTruckMarkers = {};
         let visibleRouteTrucks = new Set();
         let activeRouteLayers = {}; // tId -> route layer state
+        let activeTrailLayers = {}; // tId -> Leaflet layerGroup
         let routeRenderTokens = {};
 
         const TRUCK_COLORS = [
@@ -485,14 +517,23 @@
             .then(() => {
             if (!window.liveTrucks) window.liveTrucks = {};
 
+            function parseTimestamp(val) {
+                if (!val) return 0;
+                if (typeof val === 'number') return val;
+                let n = Number(val);
+                if (!isNaN(n) && n > 0) return n;
+                let p = Date.parse(val);
+                return isNaN(p) ? 0 : p;
+            }
+
             function mergeTruckData(key, data) {
                 if (!data || !key) return;
                 let existing = window.liveTrucks[key];
-                let newTs = Number(data.lastUpdated || data.timestamp || 0);
-                let oldTs = Number(existing?.lastUpdated || existing?.timestamp || 0);
+                let newTs = Math.max(parseTimestamp(data.timestamp), parseTimestamp(data.lastUpdated));
+                let oldTs = Math.max(parseTimestamp(existing?.timestamp), parseTimestamp(existing?.lastUpdated));
                 
-                // Never overwrite fresher live data with an older/stale snapshot
-                if (!existing || newTs >= oldTs || (oldTs - newTs < 3000)) {
+                // Strictly enforce monotonic ordering: never overwrite fresher live position with an older snapshot
+                if (!existing || newTs >= oldTs) {
                     window.liveTrucks[key] = Object.assign(existing || {}, data);
                 }
             }
@@ -809,14 +850,130 @@
 
         function isTruckOnline(truckData) {
             if (!truckData) return false;
-            if (truckData.status === 'offline') return false;
+            if (truckData.status === 'offline' || truckData.status === 'gps_disabled') return false;
             if (truckData.routeCompleted && truckData.status !== 'online') return false;
-            let ts = truckData.lastUpdated || truckData.timestamp;
+            let ts = parseTimestamp(truckData.timestamp || truckData.lastUpdated);
             if (!ts) return false;
-            let diff = Date.now() - Number(ts);
+            let diff = Date.now() - ts;
             if (diff > 120000) return false;
-            if (truckData.status === 'online') return true;
+            if (truckData.status === 'online' || truckData.status === 'syncing') return true;
             return diff < 60000;
+        }
+
+        function getGpsStatusInfo(tData, isFinished) {
+            if (isFinished) {
+                return { label: 'Finished', cls: 'finished', dotColor: '#10b981' };
+            }
+            if (!tData) {
+                return { label: 'Offline', cls: 'offline', dotColor: '#94a3b8' };
+            }
+            if (tData.status === 'gps_disabled') {
+                return { label: 'GPS Disabled', cls: 'gps-disabled', dotColor: '#ef4444' };
+            }
+            if (tData.status === 'syncing') {
+                return { label: 'Syncing', cls: 'syncing', dotColor: '#3b82f6' };
+            }
+            let ts = parseTimestamp(tData.timestamp || tData.lastUpdated);
+            let diff = Date.now() - ts;
+            let isFresh = ts > 0 && diff < 120000;
+            
+            if (tData.status === 'offline' || !isFresh) {
+                return { label: 'Offline', cls: 'offline', dotColor: '#94a3b8' };
+            }
+            
+            let acc = tData.accuracy !== undefined && tData.accuracy !== null ? parseFloat(tData.accuracy) : null;
+            if (acc !== null && !isNaN(acc) && acc > 30) {
+                return { label: `Weak GPS (±${Math.round(acc)}m)`, cls: 'weak', dotColor: '#f59e0b' };
+            }
+            
+            return { label: 'Live', cls: 'online', dotColor: '#10b981' };
+        }
+
+        function toggleTruckTrail(tId) {
+            let strId = String(tId);
+            let btn = document.getElementById(`btn-trail-${tId}`);
+            if (activeTrailLayers[strId]) {
+                map.removeLayer(activeTrailLayers[strId]);
+                delete activeTrailLayers[strId];
+                if (btn) {
+                    btn.classList.remove('active');
+                    btn.innerHTML = `<i class="fa-solid fa-shoe-prints"></i> Trail`;
+                }
+                return;
+            }
+
+            if (btn) {
+                btn.innerHTML = `<i class="fa-solid fa-spinner fa-spin"></i> Trail`;
+            }
+
+            fetch(`/api/truck_telemetry/${tId}?limit=300`)
+                .then(r => r.json())
+                .then(data => {
+                    if (!data.success || !data.telemetry || data.telemetry.length === 0) {
+                        alert(`No telemetry breadcrumbs recorded yet for Truck ${tId}.`);
+                        if (btn) {
+                            btn.classList.remove('active');
+                            btn.innerHTML = `<i class="fa-solid fa-shoe-prints"></i> Trail`;
+                        }
+                        return;
+                    }
+
+                    let trailGroup = L.layerGroup();
+                    let latlngs = [];
+                    let tColor = getTruckColor(tId);
+
+                    data.telemetry.forEach((pt, idx) => {
+                        let lat = parseFloat(pt.latitude);
+                        let lng = parseFloat(pt.longitude);
+                        if (!isNaN(lat) && !isNaN(lng)) {
+                            latlngs.push([lat, lng]);
+                            let timeStr = pt.capture_time ? new Date(pt.capture_time).toLocaleTimeString() : '';
+                            let acc = pt.accuracy ? `±${Math.round(pt.accuracy)}m` : 'N/A';
+                            let spd = pt.speed ? `${Math.round(pt.speed * 3.6)} km/h` : '0 km/h';
+
+                            let ptMarker = L.circleMarker([lat, lng], {
+                                radius: 4,
+                                fillColor: tColor,
+                                color: '#ffffff',
+                                weight: 1.5,
+                                opacity: 0.9,
+                                fillOpacity: 0.8
+                            }).bindPopup(`
+                                <div style="font-size:12px; font-family:inherit; min-width:140px;">
+                                    <b>Truck ${tId} Breadcrumb #${idx + 1}</b><br>
+                                    <span style="color:#64748b;">Time:</span> ${timeStr}<br>
+                                    <span style="color:#64748b;">Accuracy:</span> ${acc}<br>
+                                    <span style="color:#64748b;">Speed:</span> ${spd}
+                                </div>
+                            `);
+                            trailGroup.addLayer(ptMarker);
+                        }
+                    });
+
+                    if (latlngs.length > 1) {
+                        let poly = L.polyline(latlngs, {
+                            color: tColor,
+                            weight: 3.5,
+                            opacity: 0.75,
+                            dashArray: '6, 6'
+                        });
+                        trailGroup.addLayer(poly);
+                    }
+
+                    trailGroup.addTo(map);
+                    activeTrailLayers[strId] = trailGroup;
+                    if (btn) {
+                        btn.classList.add('active');
+                        btn.innerHTML = `<i class="fa-solid fa-eye-slash"></i> Trail (${data.count})`;
+                    }
+                })
+                .catch(err => {
+                    console.error("Error fetching truck telemetry trail:", err);
+                    if (btn) {
+                        btn.classList.remove('active');
+                        btn.innerHTML = `<i class="fa-solid fa-shoe-prints"></i> Trail`;
+                    }
+                });
         }
 
         function calculateBearing(lat1, lng1, lat2, lng2) {
@@ -1111,10 +1268,8 @@
                 // If route is finished and truck is offline, remove from active list
                 if (isFinished && !isOnline) return;
                 
-                let pillHtml = '';
-                if (isFinished) pillHtml = `<span class="t-pill finished">Finished</span>`;
-                else if (isOnline) pillHtml = `<span class="t-pill online">Online</span>`;
-                else pillHtml = `<span class="t-pill offline">Offline</span>`;
+                let gpsInfo = getGpsStatusInfo(tData, isFinished);
+                let pillHtml = `<span class="t-pill ${gpsInfo.cls}"><span style="width:6px; height:6px; border-radius:50%; background:${gpsInfo.dotColor};"></span>${gpsInfo.label}</span>`;
                 
                 let statsStr = "";
                 let progStyle = "display:none;";
@@ -1127,6 +1282,26 @@
                     progStyle = "";
                     statsStr = `${tComp} done &middot; ${tSkip} skipped &middot; ${tCanc} cancelled &middot; ${tLeft} left`;
                     if (tNotConf > 0) statsStr += ` <span class="t-stats-muted">(${tNotConf} not confirmed)</span>`;
+                }
+
+                let telemetryBadge = '';
+                if (tData && (tData.accuracy || tData.speed || tData.timestamp || tData.lastUpdated)) {
+                    let accStr = tData.accuracy ? `±${Math.round(tData.accuracy)}m` : '';
+                    let speedVal = tData.speed ? Math.round(parseFloat(tData.speed) * (parseFloat(tData.speed) > 20 ? 1 : 3.6)) : 0;
+                    let speedStr = `${speedVal} km/h`;
+                    let timeAgo = '';
+                    let ts = parseTimestamp(tData.timestamp || tData.lastUpdated);
+                    if (ts > 0) {
+                        let sec = Math.max(0, Math.floor((Date.now() - ts) / 1000));
+                        timeAgo = sec < 60 ? `${sec}s ago` : `${Math.floor(sec/60)}m ago`;
+                    }
+                    telemetryBadge = `
+                        <div style="display:flex; justify-content:space-between; align-items:center; font-size:11px; font-weight:600; color:var(--text-muted); margin-top:8px; background:#f8fafc; padding:5px 8px; border-radius:6px; border:1px solid #e2e8f0;">
+                            ${accStr ? `<span title="GPS Accuracy (Horizontal)"><i class="fa-solid fa-crosshairs"></i> ${accStr}</span>` : '<span></span>'}
+                            <span><i class="fa-solid fa-gauge"></i> ${speedStr}</span>
+                            ${timeAgo ? `<span title="Last Satellite Position Fix"><i class="fa-regular fa-clock"></i> ${timeAgo}</span>` : ''}
+                        </div>
+                    `;
                 }
                 
                 let pctComp = tTotal > 0 ? (tComp / tTotal) * 100 : 0;
@@ -1175,12 +1350,15 @@
                                     ${pillHtml}
                                 </div>
                             </div>
-                            <div style="display:flex; gap:8px; align-items:center; width:100%;" onclick="event.stopPropagation();">
+                            <div style="display:flex; gap:6px; align-items:center; width:100%;" onclick="event.stopPropagation();">
                                 ${hasAssignedRoute ? `
                                 <button onclick="toggleTruckRoute('${tId}');" class="btn-route-toggle ${isRouteActive ? 'active' : ''}" style="flex:1;" title="${isRouteActive ? 'Click to hide this route path' : 'Click to show ONLY this truck route'}">
-                                    <i class="fa-solid fa-route"></i> ${isRouteActive ? 'Hide Path' : 'Show Route'}
+                                    <i class="fa-solid fa-route"></i> ${isRouteActive ? 'Hide' : 'Route'}
                                 </button>
                                 ` : ''}
+                                <button onclick="toggleTruckTrail('${tId}');" class="btn-trail-toggle ${activeTrailLayers[String(tId)] ? 'active' : ''}" id="btn-trail-${tId}" style="flex:1;" title="View GPS breadcrumbs and offline synced trail">
+                                    <i class="fa-solid fa-shoe-prints"></i> ${activeTrailLayers[String(tId)] ? 'Hide Trail' : 'Trail'}
+                                </button>
                                 <button onclick="openAdminChat('${tId}', '${typeof escapeAdminString === 'function' ? escapeAdminString(dName) : dName}');" class="btn-chat-toggle" style="flex:1;" title="Chat with driver">
                                     <i class="fa-solid fa-comment-dots"></i> Chat
                                     <span class="truck-unread-badge" id="truck-unread-badge-${tId}" style="${tUnread > 0 ? 'display:inline-flex;' : 'display:none;'} background:#ef4444; color:white; font-size:10px; font-weight:800; border-radius:10px; min-width:16px; height:16px; padding:0 4px; align-items:center; justify-content:center;">${tUnread}</span>
@@ -1193,6 +1371,7 @@
                             <div class="prog-bar-canc" style="width: ${tTotal>0?(tCanc/tTotal)*100:0}%; background:#fca5a5;"></div>
                         </div>
                         <div class="t-stats">${statsStr}</div>
+                        ${telemetryBadge}
                         ${(() => {
                             let lastStop = compList.length > 0 ? compList[compList.length - 1] : null;
                             let nextStop = leftList.length > 0 ? leftList[0] : null;
@@ -1391,20 +1570,26 @@
                 
                 let isRouteActive = visibleRouteTrucks.has(String(tId));
                 let isOnlyThis = (visibleRouteTrucks.size === 1 && visibleRouteTrucks.has(String(tId)));
+                let accStr = tData.accuracy ? ` &bull; &plusmn;${Math.round(tData.accuracy)}m` : '';
+                let speedVal = tData.speed ? Math.round(parseFloat(tData.speed) * (parseFloat(tData.speed) > 20 ? 1 : 3.6)) : 0;
+                let speedStr = ` &bull; ${speedVal} km/h`;
 
                 let popupHtml = `
-                    <div style="font-family:inherit; min-width:170px; padding:2px;">
+                    <div style="font-family:inherit; min-width:180px; padding:2px;">
                         <div style="font-weight:700; font-size:14px; color:#0f172a; display:flex; align-items:center; gap:6px;">
                             <span style="width:10px; height:10px; border-radius:50%; background:${tColor}; display:inline-block;"></span>
                             Truck ${tId}
                             ${isRouteActive && hasAssigned ? `<span style="font-size:10px; background:${tColor}; color:white; padding:1px 5px; border-radius:8px; margin-left:auto;">Active</span>` : ''}
                         </div>
                         <div style="font-size:12px; color:#475569; margin-bottom:4px;">${dName}</div>
-                        <div style="font-size:12px;">${timeStr}</div>
+                        <div style="font-size:12px;">${timeStr}${accStr}${speedStr}</div>
                         ${countsStr}
                         <div style="display:flex; gap:6px; margin-top:8px;">
                             <button onclick="openAdminChat('${tId}', '${typeof escapeAdminString === 'function' ? escapeAdminString(dName) : dName}')" style="flex:1; padding:6px 8px; background:#2563eb; color:white; border:none; border-radius:6px; font-weight:700; font-size:11px; cursor:pointer; display:flex; align-items:center; justify-content:center; gap:4px;">
                                 <i class="fa-solid fa-comment-dots"></i> Message
+                            </button>
+                            <button onclick="toggleTruckTrail('${tId}')" style="padding:6px 8px; background:#10b981; color:white; border:none; border-radius:6px; font-weight:700; font-size:11px; cursor:pointer;" title="Toggle GPS Trail">
+                                <i class="fa-solid fa-shoe-prints"></i>
                             </button>
                             ${hasAssigned ? `
                             <button onclick="focusTruckRoute('${tId}')" style="flex:1; padding:6px 8px; background:${tColor}; color:white; border:none; border-radius:6px; font-weight:700; font-size:11px; cursor:pointer; display:flex; align-items:center; justify-content:center; gap:4px;">

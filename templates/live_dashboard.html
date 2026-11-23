@@ -742,7 +742,12 @@
                     for(let tId in trucks) {
                         let truck = trucks[tId];
                         let tNum = tId;
-                        let isFresh = truck.lastUpdated ? (Date.now() - Number(truck.lastUpdated) < 180000) : true;
+                        let ts = Number(truck.timestamp || 0);
+                        if (!ts && truck.lastUpdated) {
+                            let p = Date.parse(truck.lastUpdated);
+                            ts = isNaN(p) ? (Number(truck.lastUpdated) || 0) : p;
+                        }
+                        let isFresh = ts ? (Date.now() - ts < 180000) : true;
                         if(truck.status === 'online' && truck.currentLat && truck.currentLng && isFresh) {
                             if(liveTruckMarkers[tNum]) {
                                 liveTruckMarkers[tNum].setLatLng([truck.currentLat, truck.currentLng]);
@@ -754,7 +759,8 @@
                                     iconAnchor: [17, 17]
                                 });
                                 liveTruckMarkers[tNum] = L.marker([truck.currentLat, truck.currentLng], {icon: truckIcon}).addTo(map);
-                                liveTruckMarkers[tNum].bindPopup("<b>Truck " + tNum + "</b> (Live)");
+                                let accInfo = truck.accuracy ? `<br><small style="color:#64748b;">Accuracy: ±${Math.round(truck.accuracy)}m</small>` : '';
+                                liveTruckMarkers[tNum].bindPopup("<b>Truck " + tNum + "</b> (Live)" + accInfo);
                             }
                         } else {
                             if(liveTruckMarkers[tNum]) {

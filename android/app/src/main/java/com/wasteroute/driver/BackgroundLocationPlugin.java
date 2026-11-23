@@ -96,6 +96,24 @@ public class BackgroundLocationPlugin extends Plugin {
     }
 
     @PluginMethod
+    public void getQueueStatus(PluginCall call) {
+        try {
+            GpsDatabaseHelper dbHelper = GpsDatabaseHelper.getInstance(getContext());
+            int pending = dbHelper.getPendingCount();
+            int total = dbHelper.getTotalCount();
+            long oldestPendingTime = dbHelper.getOldestPendingCaptureTime();
+
+            JSObject ret = new JSObject();
+            ret.put("pendingCount", pending);
+            ret.put("totalCount", total);
+            ret.put("oldestPendingTime", oldestPendingTime);
+            call.resolve(ret);
+        } catch (Exception e) {
+            call.reject("Failed to query queue status: " + e.getMessage());
+        }
+    }
+
+    @PluginMethod
     public void bringToFront(PluginCall call) {
         try {
             Context context = getContext();

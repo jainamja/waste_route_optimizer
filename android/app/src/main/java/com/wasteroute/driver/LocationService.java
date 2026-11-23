@@ -10,6 +10,7 @@ import android.content.Context;
 import android.content.Intent;
 import android.content.pm.ServiceInfo;
 import android.location.Location;
+import android.location.LocationManager;
 import android.media.Ringtone;
 import android.media.RingtoneManager;
 import android.net.Uri;
@@ -60,11 +61,39 @@ public class LocationService extends Service {
     private long lastProcessedAlertTime = 0;
     private boolean alertPollingStarted = false;
 
+    private GpsDatabaseHelper dbHelper;
+    private GpsAccuracyValidator accuracyValidator;
+    private GpsSyncManager syncManager;
+    private NotificationManager notificationManager;
+    private LocationManager locationManager;
+
     @Override
     public void onCreate() {
         super.onCreate();
         fusedLocationClient = LocationServices.getFusedLocationProviderClient(this);
         lastProcessedAlertTime = System.currentTimeMillis();
+
+        dbHelper = GpsDatabaseHelper.getInstance(this);
+        accuracyValidator = new GpsAccuracyValidator();
+        notificationManager = (NotificationManager) getSystemService(Context.NOTIFICATION_SERVICE);
+        locationManager = (LocationManager) getSystemService(Context.LOCATION_SERVICE);
+
+        syncManager = new GpsSyncManager(this, dbHelper, new GpsSyncManager.TokenProvider() {
+            @Override
+            public String getFlaskToken() {
+                return flaskToken;
+            }
+
+            @Override
+            public String getFirebaseIdToken() {
+                return idToken;
+            }
+
+            @Override
+            public void refreshTokens() {
+                ensureIdToken();
+            }
+        });
     }
 
     @SuppressLint("MissingPermission")
@@ -83,6 +112,9 @@ public class LocationService extends Service {
                     flaskToken = intent.getStringExtra("flaskToken");
                 }
                 Log.i(TAG, "LocationService received token update from app");
+                if (syncManager != null) {
+                    syncManager.triggerSync();
+                }
                 return START_STICKY;
             }
             if (intent.hasExtra("driverId")) driverId = intent.getStringExtra("driverId");
@@ -100,13 +132,13 @@ public class LocationService extends Service {
         }
         if (driverId == null && truckId != null) driverId = truckId;
         if (truckId == null && driverId != null) truckId = driverId;
-        
+
         createNotificationChannels();
-        
+
         Intent notificationIntent = new Intent(this, MainActivity.class);
         PendingIntent pendingIntent = PendingIntent.getActivity(this,
                 0, notificationIntent, PendingIntent.FLAG_IMMUTABLE);
-                
+
         Notification notification = new NotificationCompat.Builder(this, CHANNEL_ID)
                 .setContentTitle("🚚 Route tracking active")
                 .setContentText("Your location is being shared with the fleet dashboard.")
@@ -115,21 +147,58 @@ public class LocationService extends Service {
                 .setOngoing(true)
                 .setPriority(NotificationCompat.PRIORITY_LOW)
                 .build();
-                
+
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
             startForeground(1, notification, ServiceInfo.FOREGROUND_SERVICE_TYPE_LOCATION);
         } else {
             startForeground(1, notification);
         }
-        
+
         startLocationUpdates();
 
         if (!alertPollingStarted) {
             alertPollingStarted = true;
             startAlertPolling();
         }
-        
+
+        if (syncManager != null) {
+            syncManager.triggerSync();
+        }
+
         return START_STICKY;
+    }
+
+    private void updateForegroundNotification(boolean isWeak) {
+        try {
+            int pending = dbHelper != null ? dbHelper.getPendingCount() : 0;
+            String text;
+            if (syncManager != null && !syncManager.isConnected()) {
+                text = "Offline tracking: " + pending + " GPS fixes queued locally";
+            } else if (pending > 0) {
+                text = "Syncing queue: " + pending + " fixes uploading...";
+            } else if (isWeak) {
+                text = "Route tracking active (Weak GPS)";
+            } else {
+                text = "Route tracking active • Location stream operational";
+            }
+
+            Intent notificationIntent = new Intent(this, MainActivity.class);
+            PendingIntent pendingIntent = PendingIntent.getActivity(this,
+                    0, notificationIntent, PendingIntent.FLAG_IMMUTABLE);
+
+            Notification notification = new NotificationCompat.Builder(this, CHANNEL_ID)
+                    .setContentTitle("🚚 TrashTrekyx Live Route Tracking")
+                    .setContentText(text)
+                    .setSmallIcon(android.R.drawable.ic_menu_mylocation)
+                    .setContentIntent(pendingIntent)
+                    .setOngoing(true)
+                    .setPriority(NotificationCompat.PRIORITY_LOW)
+                    .build();
+
+            if (notificationManager != null) {
+                notificationManager.notify(1, notification);
+            }
+        } catch (Exception ignored) {}
     }
 
     private void startAlertPolling() {
@@ -290,7 +359,7 @@ public class LocationService extends Service {
             conn.setRequestMethod("GET");
             conn.setConnectTimeout(3000);
             conn.setReadTimeout(3000);
-            
+
             int code = conn.getResponseCode();
             if (code == 401) {
                 idToken = null; // refresh next time
@@ -316,7 +385,7 @@ public class LocationService extends Service {
             return;
         }
 
-        // High-frequency real-time GPS streaming (1.5s interval with 1.0s fastest rate)
+        // High-accuracy continuous GPS tracking (1.5s interval with 1.0s fastest rate)
         LocationRequest locationRequest = new LocationRequest.Builder(Priority.PRIORITY_HIGH_ACCURACY, 1500)
                 .setMinUpdateIntervalMillis(1000)
                 .setMinUpdateDistanceMeters(0.5f)
@@ -327,7 +396,7 @@ public class LocationService extends Service {
             public void onLocationResult(LocationResult locationResult) {
                 if (locationResult == null) return;
                 for (Location location : locationResult.getLocations()) {
-                    sendLocationToFirebase(location);
+                    processIncomingLocation(location);
                 }
             }
         };
@@ -335,36 +404,83 @@ public class LocationService extends Service {
         fusedLocationClient.requestLocationUpdates(locationRequest, locationCallback, Looper.getMainLooper());
     }
 
-    private void sendLocationToFirebase(Location loc) {
+    private void processIncomingLocation(Location loc) {
+        if (loc == null) return;
         if (driverId == null && truckId == null) return;
-        
+
         final String effectiveDriverId = driverId != null ? driverId : truckId;
         final String effectiveTruckId = truckId != null ? truckId : driverId;
 
         locationExecutor.execute(() -> {
             try {
-                ensureIdToken();
-                if (idToken == null || idToken.isEmpty()) {
-                    Log.w(TAG, "No valid idToken available for Firebase upload");
+                // Check if GPS is enabled on device
+                if (locationManager != null && !locationManager.isProviderEnabled(LocationManager.GPS_PROVIDER)) {
+                    Log.w(TAG, "GPS Provider is disabled on device");
+                    if (idToken != null && !idToken.isEmpty()) {
+                        String gpsDisabledPayload = String.format(Locale.US,
+                                "{\"status\": \"gps_disabled\", \"lastUpdated\": %d}",
+                                System.currentTimeMillis());
+                        patchToFirebase("https://wasteroutelive-default-rtdb.firebaseio.com/trucks/" + effectiveTruckId + ".json?auth=" + idToken, gpsDisabledPayload);
+                    }
+                    updateForegroundNotification(true);
                     return;
                 }
 
-                long now = System.currentTimeMillis();
-                String singlePayload = String.format(Locale.US,
-                        "{\"currentLat\": %.6f, \"currentLng\": %.6f, \"speed\": %.2f, \"heading\": %.2f, \"accuracy\": %.1f, \"lastUpdated\": %d, \"timestamp\": %d, \"status\": \"online\"}",
-                        loc.getLatitude(), loc.getLongitude(), loc.getSpeed(), loc.getBearing(), loc.getAccuracy(),
-                        now, now);
+                // 1. Accuracy and Reasonableness Validation
+                GpsAccuracyValidator.ValidationResult result = accuracyValidator.validate(loc);
+                if (!result.isValid) {
+                    Log.w(TAG, "Rejected invalid GPS reading: " + result.reason);
+                    return;
+                }
 
-                // Direct PATCH to scoped truck node (matches restricted Firebase Security Rules)
-                patchToFirebase("https://wasteroutelive-default-rtdb.firebaseio.com/trucks/" + effectiveTruckId + ".json?auth=" + idToken, singlePayload);
+                long captureTime = loc.getTime() > 0 ? loc.getTime() : System.currentTimeMillis();
 
-                // Also update driver_locations node if effectiveDriverId is available
-                if (effectiveDriverId != null && !effectiveDriverId.isEmpty() && !effectiveDriverId.equals(effectiveTruckId)) {
-                    patchToFirebase("https://wasteroutelive-default-rtdb.firebaseio.com/driver_locations/" + effectiveDriverId + ".json?auth=" + idToken, singlePayload);
+                // 2. Persist to Durable SQLite Queue BEFORE Network Attempt
+                GpsRecord record = new GpsRecord();
+                record.driverId = effectiveDriverId;
+                record.truckId = effectiveTruckId;
+                record.assignmentId = effectiveTruckId;
+                record.latitude = loc.getLatitude();
+                record.longitude = loc.getLongitude();
+                record.accuracy = loc.hasAccuracy() ? loc.getAccuracy() : 0.0f;
+                record.speed = loc.hasSpeed() ? loc.getSpeed() : 0.0f;
+                record.bearing = loc.hasBearing() ? loc.getBearing() : 0.0f;
+                record.provider = loc.getProvider() != null ? loc.getProvider() : "fused";
+                record.captureTime = captureTime;
+
+                long rowId = dbHelper.insert(record);
+
+                // 3. Update persistent notification with status
+                updateForegroundNotification(result.isWeakAccuracy);
+
+                // 4. If live eligible and network connected, upload real-time point directly to Firebase
+                if (result.isLiveEligible && syncManager != null && syncManager.isConnected()) {
+                    ensureIdToken();
+                    if (idToken != null && !idToken.isEmpty()) {
+                        String statusStr = "online";
+                        String singlePayload = String.format(Locale.US,
+                                "{\"currentLat\": %.6f, \"currentLng\": %.6f, \"speed\": %.2f, \"heading\": %.2f, \"accuracy\": %.1f, \"lastUpdated\": %d, \"timestamp\": %d, \"status\": \"%s\"}",
+                                loc.getLatitude(), loc.getLongitude(),
+                                loc.hasSpeed() ? loc.getSpeed() : 0.0f,
+                                loc.hasBearing() ? loc.getBearing() : 0.0f,
+                                loc.hasAccuracy() ? loc.getAccuracy() : 0.0f,
+                                captureTime, captureTime, statusStr);
+
+                        patchToFirebase("https://wasteroutelive-default-rtdb.firebaseio.com/trucks/" + effectiveTruckId + ".json?auth=" + idToken, singlePayload);
+
+                        if (effectiveDriverId != null && !effectiveDriverId.isEmpty() && !effectiveDriverId.equals(effectiveTruckId)) {
+                            patchToFirebase("https://wasteroutelive-default-rtdb.firebaseio.com/driver_locations/" + effectiveDriverId + ".json?auth=" + idToken, singlePayload);
+                        }
+                    }
+                }
+
+                // 5. Trigger background synchronization for any queued records
+                if (syncManager != null) {
+                    syncManager.triggerSync();
                 }
 
             } catch (Exception e) {
-                Log.e(TAG, "sendLocationToFirebase error", e);
+                Log.e(TAG, "processIncomingLocation error", e);
             }
         });
     }
@@ -503,6 +619,10 @@ public class LocationService extends Service {
     public void onDestroy() {
         super.onDestroy();
         isRunning = false;
+
+        if (syncManager != null) {
+            syncManager.unregister();
+        }
 
         try {
             locationExecutor.shutdownNow();

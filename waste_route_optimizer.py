@@ -15,6 +15,8 @@ from aco_vrp import ACO_VRP
 import requests
 from functools import lru_cache
 import time
+import datetime
+import uuid
 from flask_sqlalchemy import SQLAlchemy
 from flask_cors import CORS
 
@@ -282,6 +284,39 @@ class AssignmentOutbox(db.Model):
     created_at = db.Column(db.DateTime, server_default=db.func.now())
     updated_at = db.Column(db.DateTime, server_default=db.func.now(), onupdate=db.func.now())
 
+class TruckTelemetryHistory(db.Model):
+    __tablename__ = 'truck_telemetry_history'
+    event_id = db.Column(db.String(64), primary_key=True)
+    driver_id = db.Column(db.Integer, nullable=True, index=True)
+    truck_id = db.Column(db.Integer, nullable=False, index=True)
+    assignment_id = db.Column(db.String(64), nullable=True)
+    latitude = db.Column(db.Float, nullable=False)
+    longitude = db.Column(db.Float, nullable=False)
+    accuracy = db.Column(db.Float, nullable=True)
+    speed = db.Column(db.Float, nullable=True)
+    bearing = db.Column(db.Float, nullable=True)
+    provider = db.Column(db.String(32), nullable=True)
+    capture_time = db.Column(db.BigInteger, nullable=False, index=True) # milliseconds
+    sequence_number = db.Column(db.BigInteger, nullable=True)
+    synced_at = db.Column(db.DateTime, server_default=db.func.now(), index=True)
+
+    def to_dict(self):
+        return {
+            'event_id': self.event_id,
+            'driver_id': self.driver_id,
+            'truck_id': self.truck_id,
+            'assignment_id': self.assignment_id,
+            'latitude': self.latitude,
+            'longitude': self.longitude,
+            'accuracy': self.accuracy,
+            'speed': self.speed,
+            'bearing': self.bearing,
+            'provider': self.provider,
+            'capture_time': self.capture_time,
+            'sequence_number': self.sequence_number,
+            'synced_at': self.synced_at.strftime('%Y-%m-%d %H:%M:%S') if self.synced_at else None
+        }
+
 with app.app_context():
     db.create_all()
     
@@ -292,6 +327,7 @@ with app.app_context():
         db.session.execute(text("CREATE INDEX IF NOT EXISTS ix_saved_templates_assigned ON saved_templates (is_assigned_instance);"))
         db.session.execute(text("CREATE INDEX IF NOT EXISTS ix_assignment_outbox_driver_id ON assignment_outbox (driver_id);"))
         db.session.execute(text("CREATE INDEX IF NOT EXISTS ix_assignment_outbox_status ON assignment_outbox (status);"))
+        db.session.execute(text("CREATE INDEX IF NOT EXISTS ix_truck_telemetry_truck_capture ON truck_telemetry_history (truck_id, capture_time);"))
         db.session.commit()
     except Exception:
         db.session.rollback()
@@ -6566,6 +6602,265 @@ def live_route_sync():
             "lng": c.lng
         }
     return jsonify({'success': True, 'routes': routes})
+
+
+@app.route('/api/driver/telemetry_sync', methods=['POST'])
+def driver_telemetry_sync():
+    """
+    Durable offline GPS telemetry synchronization endpoint.
+    Receives batched GPS records collected while offline or live.
+    Guarantees:
+    1. Caller authentication (driver or admin).
+    2. Idempotency via unique event_id deduplication.
+    3. Coordinate sanity validation (bounds check [-90,90], [-180,180], reject Null Island).
+    4. Durable storage in TruckTelemetryHistory.
+    5. Strict Ordering Rule: Firebase RTDB /trucks/{truck_id} live position is only updated
+       if the batch's newest capture_time is >= the current live position timestamp in RTDB.
+       Historical offline backlogs will never overwrite a more recent live position.
+    """
+    auth_header = request.headers.get('Authorization', '')
+    token = None
+    if auth_header.startswith('Bearer '):
+        token = auth_header[7:].strip()
+    token = token or request.headers.get('X-Driver-Token') or request.args.get('token')
+    
+    caller = None
+    if token:
+        caller = verify_auth_token(token)
+    elif session.get('user_id'):
+        caller = db.session.get(User, session.get('user_id'))
+        
+    if not caller or not getattr(caller, 'is_active', True):
+        return jsonify({'error': 'Unauthorized: Valid active driver or admin token required'}), 401
+
+    payload = request.get_json(silent=True) or {}
+    records = payload.get('records', [])
+    if not isinstance(records, list):
+        return jsonify({'error': 'Invalid payload format: records must be an array'}), 400
+
+    if not records:
+        return jsonify({'success': True, 'synced_count': 0, 'deduplicated_count': 0, 'rejected_count': 0, 'total_received': 0})
+
+    saved_count = 0
+    duplicate_count = 0
+    rejected_count = 0
+    truck_latest_fixes = {}
+
+    batch_event_ids = [str(r.get('event_id')).strip() for r in records if r.get('event_id')]
+    existing_ids = set()
+    if batch_event_ids:
+        try:
+            found = db.session.query(TruckTelemetryHistory.event_id).filter(TruckTelemetryHistory.event_id.in_(batch_event_ids)).all()
+            existing_ids = {row[0] for row in found}
+        except Exception as e:
+            app.logger.warning(f"Error querying existing event_ids: {e}")
+
+    new_entities = []
+
+    for r in records:
+        if not isinstance(r, dict):
+            rejected_count += 1
+            continue
+
+        event_id = str(r.get('event_id') or '').strip()
+        if not event_id:
+            event_id = str(uuid.uuid4())
+
+        if event_id in existing_ids:
+            duplicate_count += 1
+            continue
+
+        try:
+            lat = float(r.get('latitude', 0.0))
+            lng = float(r.get('longitude', 0.0))
+        except (ValueError, TypeError):
+            rejected_count += 1
+            continue
+
+        # Coordinate bounds and Null Island validation
+        if not (-90.0 <= lat <= 90.0 and -180.0 <= lng <= 180.0):
+            rejected_count += 1
+            continue
+        if abs(lat) < 0.0001 and abs(lng) < 0.0001:
+            rejected_count += 1
+            continue
+
+        # Truck assignment authorization check
+        raw_truck_id = r.get('truck_id')
+        try:
+            record_truck_id = int(raw_truck_id) if raw_truck_id is not None and str(raw_truck_id).strip() != '' else None
+        except (ValueError, TypeError):
+            record_truck_id = None
+
+        if caller.role != 'ADMIN':
+            assigned_truck = caller.truck_id
+            if assigned_truck is not None and record_truck_id is not None and int(record_truck_id) != int(assigned_truck):
+                rejected_count += 1
+                continue
+            if record_truck_id is None and assigned_truck is not None:
+                record_truck_id = int(assigned_truck)
+
+        if record_truck_id is None:
+            rejected_count += 1
+            continue
+
+        driver_id_val = caller.id
+        if caller.role == 'ADMIN' and r.get('driver_id'):
+            try:
+                driver_id_val = int(r.get('driver_id'))
+            except (ValueError, TypeError):
+                driver_id_val = caller.id
+
+        capture_time = r.get('capture_time')
+        try:
+            capture_time = int(capture_time) if capture_time else int(time.time() * 1000)
+        except (ValueError, TypeError):
+            capture_time = int(time.time() * 1000)
+
+        speed_val = None
+        if r.get('speed') is not None:
+            try: speed_val = float(r.get('speed'))
+            except (ValueError, TypeError): pass
+
+        bearing_val = None
+        if r.get('bearing') is not None:
+            try: bearing_val = float(r.get('bearing'))
+            except (ValueError, TypeError): pass
+
+        accuracy_val = None
+        if r.get('accuracy') is not None:
+            try: accuracy_val = float(r.get('accuracy'))
+            except (ValueError, TypeError): pass
+
+        seq_val = None
+        if r.get('sequence_number') is not None:
+            try: seq_val = int(r.get('sequence_number'))
+            except (ValueError, TypeError): pass
+
+        entity = TruckTelemetryHistory(
+            event_id=event_id,
+            driver_id=driver_id_val,
+            truck_id=record_truck_id,
+            assignment_id=str(r.get('assignment_id') or ''),
+            latitude=lat,
+            longitude=lng,
+            accuracy=accuracy_val,
+            speed=speed_val,
+            bearing=bearing_val,
+            provider=str(r.get('provider') or 'fused')[:32],
+            capture_time=capture_time,
+            sequence_number=seq_val
+        )
+        new_entities.append(entity)
+        existing_ids.add(event_id)
+        saved_count += 1
+
+        # Track latest fix per truck in this batch
+        if record_truck_id not in truck_latest_fixes or capture_time > truck_latest_fixes[record_truck_id]['capture_time']:
+            truck_latest_fixes[record_truck_id] = {
+                'latitude': lat,
+                'longitude': lng,
+                'accuracy': accuracy_val,
+                'speed': speed_val,
+                'bearing': bearing_val,
+                'capture_time': capture_time,
+                'driver_id': driver_id_val
+            }
+
+    if new_entities:
+        try:
+            db.session.bulk_save_objects(new_entities)
+            db.session.commit()
+        except Exception as e:
+            db.session.rollback()
+            app.logger.error(f"Error persisting telemetry batch: {e}")
+            return jsonify({'error': 'Database error persisting telemetry'}), 500
+
+    # Strict Ordering Update for Firebase RTDB
+    firebase_url = "https://wasteroutelive-default-rtdb.firebaseio.com"
+    id_token = get_firebase_token()
+    if id_token and truck_latest_fixes:
+        for tid, latest_fix in truck_latest_fixes.items():
+            try:
+                t_resp = requests.get(f"{firebase_url}/trucks/{tid}.json?auth={id_token}", timeout=3)
+                existing_ts = 0
+                if t_resp.status_code == 200 and t_resp.json():
+                    t_data = t_resp.json()
+                    existing_ts = int(t_data.get('timestamp') or 0)
+
+                # Strict Ordering Rule:
+                # Only update live position if latest fix in batch is >= current live timestamp
+                if latest_fix['capture_time'] >= existing_ts:
+                    now_ms = time.time() * 1000
+                    status_str = "online" if (now_ms - latest_fix['capture_time']) < 120000 else "offline"
+                    patch_payload = {
+                        "currentLat": latest_fix['latitude'],
+                        "currentLng": latest_fix['longitude'],
+                        "speed": latest_fix['speed'] or 0.0,
+                        "heading": latest_fix['bearing'] or 0.0,
+                        "accuracy": latest_fix['accuracy'] or 0.0,
+                        "timestamp": latest_fix['capture_time'],
+                        "lastUpdated": datetime.datetime.fromtimestamp(latest_fix['capture_time'] / 1000.0, tz=datetime.timezone.utc).strftime('%Y-%m-%d %H:%M:%S UTC'),
+                        "status": status_str
+                    }
+                    requests.patch(f"{firebase_url}/trucks/{tid}.json?auth={id_token}", json=patch_payload, timeout=3)
+                    
+                    if latest_fix.get('driver_id'):
+                        requests.patch(f"{firebase_url}/driver_locations/{latest_fix['driver_id']}.json?auth={id_token}", json=patch_payload, timeout=3)
+                else:
+                    app.logger.info(f"[TELEMETRY SYNC] Truck {tid}: batch capture_time ({latest_fix['capture_time']}) is older than existing live timestamp ({existing_ts}). Live marker NOT overwritten.")
+            except Exception as fb_err:
+                app.logger.warning(f"[TELEMETRY SYNC] Failed to update Firebase for truck {tid}: {fb_err}")
+
+    return jsonify({
+        'success': True,
+        'synced_count': saved_count,
+        'deduplicated_count': duplicate_count,
+        'rejected_count': rejected_count,
+        'total_received': len(records)
+    })
+
+
+@app.route('/api/truck_telemetry/<int:truck_id>', methods=['GET'])
+def get_truck_telemetry(truck_id):
+    """
+    Returns recent telemetry breadcrumb points for a given truck.
+    Used by Admin Live Tracking dashboard for route trails and audit history.
+    """
+    auth_header = request.headers.get('Authorization', '')
+    token = None
+    if auth_header.startswith('Bearer '):
+        token = auth_header[7:].strip()
+    token = token or request.headers.get('X-Driver-Token') or request.args.get('token')
+    
+    caller = None
+    if token:
+        caller = verify_auth_token(token)
+    elif session.get('user_id'):
+        caller = db.session.get(User, session.get('user_id'))
+        
+    if not caller or not getattr(caller, 'is_active', True):
+        return jsonify({'error': 'Unauthorized: Valid active driver or admin token required'}), 401
+
+    if caller.role != 'ADMIN' and caller.truck_id and int(caller.truck_id) != int(truck_id):
+        return jsonify({'error': 'Forbidden: Access limited to assigned truck'}), 403
+
+    limit = min(int(request.args.get('limit', 200)), 1000)
+    since_ts = request.args.get('since', type=int)
+
+    query = TruckTelemetryHistory.query.filter_by(truck_id=truck_id)
+    if since_ts:
+        query = query.filter(TruckTelemetryHistory.capture_time >= since_ts)
+    
+    records = query.order_by(TruckTelemetryHistory.capture_time.desc()).limit(limit).all()
+    records.reverse()
+
+    return jsonify({
+        'success': True,
+        'truck_id': truck_id,
+        'count': len(records),
+        'telemetry': [r.to_dict() for r in records]
+    })
 
 
 @app.route('/api/driver_finish_route', methods=['POST'])

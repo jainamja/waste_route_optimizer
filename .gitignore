@@ -3,7 +3,13 @@ __pycache__/
 instance/*
 !instance/routes.db
 node_modules/
-android/
+android/.gradle/
+android/build/
+android/app/build/
+android/.idea/
+android/*.iml
+android/app/*.iml
+android/local.properties
 uploads/
 *.zip
 .env
