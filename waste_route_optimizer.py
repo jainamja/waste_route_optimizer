@@ -183,6 +183,7 @@ class Customer(db.Model):
     phone = db.Column(db.String(50))
     address = db.Column(db.Text)
     location_url = db.Column(db.Text)
+    google_maps_url = db.Column(db.Text)
     lat = db.Column(db.Float)
     lng = db.Column(db.Float)
     status = db.Column(db.String(50), default='PENDING', index=True)
@@ -218,6 +219,7 @@ class MasterCustomer(db.Model):
     phone = db.Column(db.String(50), nullable=True)
     address = db.Column(db.Text, nullable=False)
     location_url = db.Column(db.Text, nullable=True)
+    google_maps_url = db.Column(db.Text, nullable=True)
     lat = db.Column(db.Float, nullable=True)
     lng = db.Column(db.Float, nullable=True)
     deliver_bag = db.Column(db.Boolean, default=False)
@@ -229,12 +231,14 @@ class MasterCustomer(db.Model):
     updated_at = db.Column(db.DateTime, server_default=db.func.now(), onupdate=db.func.now())
 
     def to_dict(self, templates=None):
+        maps_url = self.google_maps_url or self.location_url or ''
         return {
             'id': self.id,
             'name': self.name,
             'phone': self.phone or '',
             'address': self.address or '',
-            'location_url': self.location_url or '',
+            'location_url': maps_url,
+            'google_maps_url': maps_url,
             'lat': self.lat,
             'lng': self.lng,
             'deliver_bag': bool(self.deliver_bag),
@@ -491,6 +495,7 @@ with app.app_context():
                 phone VARCHAR(50),
                 address TEXT NOT NULL,
                 location_url TEXT,
+                google_maps_url TEXT,
                 lat FLOAT,
                 lng FLOAT,
                 deliver_bag BOOLEAN DEFAULT 0,
@@ -504,6 +509,30 @@ with app.app_context():
         """))
         db.session.execute(text("CREATE INDEX IF NOT EXISTS ix_master_customers_status ON master_customers (customer_status);"))
         db.session.execute(text("CREATE INDEX IF NOT EXISTS ix_master_customers_name ON master_customers (name);"))
+        db.session.commit()
+    except:
+        db.session.rollback()
+
+    try:
+        db.session.execute(text("ALTER TABLE master_customers ADD COLUMN google_maps_url TEXT;"))
+        db.session.commit()
+    except:
+        db.session.rollback()
+
+    try:
+        db.session.execute(text("UPDATE master_customers SET google_maps_url = location_url WHERE google_maps_url IS NULL AND location_url IS NOT NULL;"))
+        db.session.commit()
+    except:
+        db.session.rollback()
+
+    try:
+        db.session.execute(text("ALTER TABLE customers ADD COLUMN google_maps_url TEXT;"))
+        db.session.commit()
+    except:
+        db.session.rollback()
+
+    try:
+        db.session.execute(text("UPDATE customers SET google_maps_url = location_url WHERE google_maps_url IS NULL AND location_url IS NOT NULL;"))
         db.session.commit()
     except:
         db.session.rollback()
@@ -728,6 +757,185 @@ with app.app_context():
     except Exception as seed_e:
         print("One-time template seed error:", seed_e)
         db.session.rollback()
+
+import urllib.parse
+
+def validate_customer_name(name):
+    """
+    Mandatory. Reject empty or whitespace-only values. Trim spaces.
+    """
+    if name is None:
+        return False, "Customer Name is required."
+    clean = str(name).strip()
+    if not clean:
+        return False, "Customer Name cannot be empty or whitespace only."
+    return True, clean
+
+def validate_customer_address(address):
+    """
+    Mandatory. Reject empty or whitespace-only values. Preserve full address.
+    """
+    if address is None:
+        return False, "Address is required."
+    clean = str(address).strip()
+    if not clean:
+        return False, "Address cannot be empty or whitespace only."
+    return True, clean
+
+def validate_phone_number(phone):
+    """
+    Mandatory. Support Indian phone numbers and reasonable international formats.
+    Support country codes (+91, 91, +1, etc.), spaces, dashes, parentheses.
+    Reject letters, empty values, or invalid digit counts (must have 7 to 15 digits).
+    """
+    if phone is None:
+        return False, "Phone Number is required."
+    phone_str = str(phone).strip()
+    if not phone_str:
+        return False, "Phone Number is required."
+    if phone_str.endswith('.0'):
+        phone_str = phone_str[:-2].strip()
+    if re.search(r'[a-zA-Z]', phone_str):
+        return False, "Phone number contains invalid alphabetic characters."
+    if not re.match(r'^\+?[0-9\s\-\.\(\)]{7,25}$', phone_str):
+        return False, "Invalid phone number format."
+    digits = re.sub(r'\D', '', phone_str)
+    if len(digits) < 7:
+        return False, "Phone number is too short (minimum 7 digits required)."
+    if len(digits) > 15:
+        return False, "Phone number is too long (maximum 15 digits allowed)."
+    return True, phone_str
+
+def validate_google_maps_url(url):
+    """
+    Mandatory. Validate that URL uses HTTPS and a recognized Google Maps domain
+    or supported Google Maps short-link domain (maps.google.*, google.*/maps,
+    maps.app.goo.gl, goo.gl/maps). Reject unrelated websites and malformed URLs.
+    """
+    if url is None:
+        return False, "Google Maps Location URL is required."
+    url_str = str(url).strip()
+    if not url_str:
+        return False, "Google Maps Location URL is required."
+    if not url_str.lower().startswith('https://'):
+        return False, "Google Maps URL must use HTTPS (e.g. https://maps.google.com/...)."
+    try:
+        parsed = urllib.parse.urlparse(url_str)
+    except Exception:
+        return False, "Malformed Google Maps URL."
+    if parsed.scheme.lower() != 'https':
+        return False, "Google Maps URL must use HTTPS."
+    netloc = (parsed.netloc or '').lower()
+    if ':' in netloc:
+        netloc = netloc.split(':')[0]
+    if not netloc:
+        return False, "Google Maps URL must contain a valid host domain."
+
+    # Supported short links
+    if netloc == 'maps.app.goo.gl':
+        if len(parsed.path) > 1:
+            return True, url_str
+        return False, "Google Maps share link is missing location path."
+    if netloc == 'goo.gl':
+        if parsed.path.startswith('/maps') or len(parsed.path) > 1:
+            return True, url_str
+        return False, "Invalid goo.gl Maps link."
+
+    # Google Maps subdomains: maps.google.* (e.g. maps.google.com, maps.google.co.in)
+    is_maps_google = bool(re.match(r'^(?:[a-z0-9\-]+\.)*maps\.google\.[a-z\.]+$', netloc) or netloc == 'maps.google.com')
+    # Main Google domains: (www.)google.*/maps or /search?*
+    is_google_domain = bool(re.match(r'^(?:www\.)?google\.[a-z\.]+$', netloc))
+
+    if is_maps_google:
+        return True, url_str
+    elif is_google_domain and (parsed.path.startswith('/maps') or (parsed.path.startswith('/search') and 'q=' in parsed.query)):
+        return True, url_str
+    else:
+        return False, "URL must be a valid Google Maps link (e.g. https://maps.google.com/... or https://maps.app.goo.gl/...)."
+
+def validate_coordinates(lat, lng):
+    """
+    Optional coordinates validation.
+    If provided: lat must be between -90 and 90, lng between -180 and 180.
+    """
+    lat_f = None
+    lng_f = None
+    if lat is not None and str(lat).strip() != '':
+        try:
+            lat_f = float(str(lat).strip())
+            if not (-90.0 <= lat_f <= 90.0):
+                return False, None, None, "Latitude must be a valid number between -90 and 90."
+        except (ValueError, TypeError):
+            return False, None, None, "Invalid numeric latitude value."
+
+    if lng is not None and str(lng).strip() != '':
+        try:
+            lng_f = float(str(lng).strip())
+            if not (-180.0 <= lng_f <= 180.0):
+                return False, None, None, "Longitude must be a valid number between -180 and 180."
+        except (ValueError, TypeError):
+            return False, None, None, "Invalid numeric longitude value."
+
+    return True, lat_f, lng_f, None
+
+def extract_coords_from_gmaps_url_fast(url):
+    """
+    Fast sub-millisecond regex extraction of coordinates from Google Maps URLs.
+    """
+    if not url or not isinstance(url, str):
+        return None, None
+    u = url.strip()
+    pin = re.search(r'!3d(-?\d+(?:\.\d+)?)\!4d(-?\d+(?:\.\d+)?)', u)
+    if pin:
+        try:
+            clat, clng = float(pin.group(1)), float(pin.group(2))
+            if (-90.0 <= clat <= 90.0) and (-180.0 <= clng <= 180.0):
+                return clat, clng
+        except (ValueError, TypeError):
+            pass
+    q = re.search(r'[?&]q=(-?\d+(?:\.\d+)?),(-?\d+(?:\.\d+)?)', u)
+    if q:
+        try:
+            clat, clng = float(q.group(1)), float(q.group(2))
+            if (-90.0 <= clat <= 90.0) and (-180.0 <= clng <= 180.0):
+                return clat, clng
+        except (ValueError, TypeError):
+            pass
+    vp = re.search(r'@(-?\d+(?:\.\d+)?),(-?\d+(?:\.\d+)?)', u)
+    if vp:
+        try:
+            clat, clng = float(vp.group(1)), float(vp.group(2))
+            if (-90.0 <= clat <= 90.0) and (-180.0 <= clng <= 180.0):
+                return clat, clng
+        except (ValueError, TypeError):
+            pass
+    ll = re.search(r'[?&]ll=(-?\d+(?:\.\d+)?),(-?\d+(?:\.\d+)?)', u)
+    if ll:
+        try:
+            clat, clng = float(ll.group(1)), float(ll.group(2))
+            if (-90.0 <= clat <= 90.0) and (-180.0 <= clng <= 180.0):
+                return clat, clng
+        except (ValueError, TypeError):
+            pass
+    return None, None
+
+def normalize_phone_for_dedup(phone):
+    if not phone:
+        return ''
+    digits = re.sub(r'\D', '', str(phone).strip())
+    if len(digits) == 12 and digits.startswith('91'):
+        digits = digits[2:]
+    elif len(digits) == 11 and digits.startswith('0'):
+        digits = digits[1:]
+    return digits if len(digits) >= 7 else ''
+
+def normalize_address_for_dedup(address):
+    if not address:
+        return ''
+    addr = str(address).strip().lower()
+    addr = re.sub(r'[\,\.\-\/\#]', ' ', addr)
+    addr = re.sub(r'\s+', ' ', addr).strip()
+    return addr
 
 def _save_url_coordinate_cache(url, lat, lng):
     try:
@@ -982,11 +1190,11 @@ def read_data_file(filepath):
     lng_col = next((c for c in cols if 'lng' in c or 'lon' in c), None) if not coord_col else None
 
     # Smart detect URL
-    loc_url_col = next((c for c in cols if 'location' in c and c != coord_col), None)
+    loc_url_col = next((c for c in cols if ('location' in c or 'map' in c or 'link' in c or 'url' in c) and c != coord_col and c != lat_col and c != lng_col), None)
     if not loc_url_col:
         for c in cols:
             first_val = str(df[c].dropna().head(1).iloc[0]) if len(df[c].dropna()) else ""
-            if 'http' in first_val or 'maps.app' in first_val:
+            if 'http' in first_val or 'maps.app' in first_val or 'goo.gl' in first_val:
                 loc_url_col = c
                 break
 
@@ -1153,6 +1361,7 @@ def read_data_file(filepath):
                 'phone': phone_val,
                 'address': row.get(address_col) if address_col and not pd.isna(row.get(address_col)) else "",
                 'location_url': loc_url_clean,
+                'google_maps_url': loc_url_clean,
                 'lat': cust_lat,
                 'lng': cust_lng,
                 'status': 'PENDING',
@@ -6672,67 +6881,79 @@ def get_master_customers():
 @permission_required('customers.create')
 def add_master_customer():
     data = request.json or {}
-    name = (data.get('name') or '').strip()
-    address = (data.get('address') or '').strip()
-    phone = (data.get('phone') or '').strip() or None
-    location_url = (data.get('location_url') or '').strip() or None
+    name = data.get('name')
+    address = data.get('address')
+    phone = data.get('phone')
+    maps_url = data.get('google_maps_url') or data.get('location_url')
     deliver_bag = bool(data.get('deliver_bag', False))
 
-    if not name:
-        return jsonify({'success': False, 'error': 'Customer name is required'}), 400
-    if not address:
-        return jsonify({'success': False, 'error': 'Customer address is required'}), 400
+    is_name_ok, name_res = validate_customer_name(name)
+    if not is_name_ok:
+        return jsonify({'success': False, 'error': name_res}), 400
+
+    is_addr_ok, addr_res = validate_customer_address(address)
+    if not is_addr_ok:
+        return jsonify({'success': False, 'error': addr_res}), 400
+
+    is_phone_ok, phone_res = validate_phone_number(phone)
+    if not is_phone_ok:
+        return jsonify({'success': False, 'error': phone_res}), 400
+
+    is_url_ok, url_res = validate_google_maps_url(maps_url)
+    if not is_url_ok:
+        return jsonify({'success': False, 'error': url_res}), 400
 
     lat = data.get('lat')
     lng = data.get('lng')
-    if lat is not None and lat != '':
-        try:
-            lat = float(lat)
-            if not (-90.0 <= lat <= 90.0):
-                return jsonify({'success': False, 'error': 'Latitude must be between -90 and 90'}), 400
-        except (ValueError, TypeError):
-            return jsonify({'success': False, 'error': 'Invalid latitude value'}), 400
-    else:
-        lat = None
+    is_coords_ok, lat_f, lng_f, coord_err = validate_coordinates(lat, lng)
+    if not is_coords_ok:
+        return jsonify({'success': False, 'error': coord_err}), 400
 
-    if lng is not None and lng != '':
-        try:
-            lng = float(lng)
-            if not (-180.0 <= lng <= 180.0):
-                return jsonify({'success': False, 'error': 'Longitude must be between -180 and 180'}), 400
-        except (ValueError, TypeError):
-            return jsonify({'success': False, 'error': 'Invalid longitude value'}), 400
-    else:
-        lng = None
+    coord_source = 'MANUAL' if (lat_f is not None and lng_f is not None) else 'UNKNOWN'
+    geocode_quality = 'EXACT' if (lat_f is not None and lng_f is not None) else 'UNKNOWN'
+    if lat_f is None or lng_f is None:
+        c_lat, c_lng = extract_coords_from_gmaps_url_fast(url_res)
+        if c_lat is not None and c_lng is not None:
+            lat_f, lng_f = c_lat, c_lng
+            coord_source = 'MAPS_URL'
+            geocode_quality = 'EXACT'
 
     existing = MasterCustomer.query.filter(
         MasterCustomer.customer_status != 'ARCHIVED',
-        db.func.lower(MasterCustomer.name) == name.lower(),
-        db.func.lower(MasterCustomer.address) == address.lower()
+        db.func.lower(MasterCustomer.name) == name_res.lower(),
+        db.func.lower(MasterCustomer.address) == addr_res.lower()
     ).first()
     if existing:
         return jsonify({'success': False, 'error': 'Customer with this name and address already exists.'}), 409
+
+    norm_phone = normalize_phone_for_dedup(phone_res)
+    if norm_phone:
+        existing_phone_dup = MasterCustomer.query.filter(
+            MasterCustomer.customer_status != 'ARCHIVED',
+            MasterCustomer.phone.isnot(None)
+        ).all()
+        for ep in existing_phone_dup:
+            if normalize_phone_for_dedup(ep.phone) == norm_phone:
+                return jsonify({'success': False, 'error': f'Phone number already registered to customer {ep.name} (ID: {ep.id}).'}), 409
 
     max_master_id = db.session.query(db.func.max(MasterCustomer.id)).scalar() or 0
     max_cust_id = db.session.query(db.func.max(Customer.id)).scalar() or 0
     new_id = max(max_master_id, max_cust_id, 0) + 1
 
-    geocode_quality = 'EXACT' if (lat is not None and lng is not None) else 'UNKNOWN'
-    coord_source = 'MANUAL' if (lat is not None and lng is not None) else 'UNKNOWN'
-
     new_cust = MasterCustomer(
         id=new_id,
-        name=name,
-        address=address,
-        phone=phone,
-        location_url=location_url,
-        lat=lat,
-        lng=lng,
+        name=name_res,
+        address=addr_res,
+        phone=phone_res,
+        location_url=url_res,
+        google_maps_url=url_res,
+        lat=lat_f,
+        lng=lng_f,
         deliver_bag=deliver_bag,
         customer_status='ACTIVE',
         geocode_quality=geocode_quality,
         coord_source=coord_source,
-        is_manually_corrected=(lat is not None and lng is not None)
+        is_manually_corrected=(lat_f is not None and lng_f is not None)
     )
     db.session.add(new_cust)
     db.session.commit()
@@ -6757,58 +6978,89 @@ def update_master_customer(cust_id):
         return jsonify({'success': False, 'error': 'Customer not found'}), 404
 
     data = request.json or {}
-    name = (data.get('name') or '').strip() if 'name' in data else cust.name
-    address = (data.get('address') or '').strip() if 'address' in data else cust.address
 
-    if not name:
-        return jsonify({'success': False, 'error': 'Customer name cannot be empty'}), 400
-    if not address:
-        return jsonify({'success': False, 'error': 'Customer address cannot be empty'}), 400
+    new_name = cust.name
+    if 'name' in data:
+        is_name_ok, name_res = validate_customer_name(data.get('name'))
+        if not is_name_ok:
+            return jsonify({'success': False, 'error': name_res}), 400
+        new_name = name_res
+
+    new_address = cust.address
+    if 'address' in data:
+        is_addr_ok, addr_res = validate_customer_address(data.get('address'))
+        if not is_addr_ok:
+            return jsonify({'success': False, 'error': addr_res}), 400
+        new_address = addr_res
+
+    new_phone = cust.phone
+    if 'phone' in data:
+        raw_p = data.get('phone')
+        is_phone_ok, phone_res = validate_phone_number(raw_p)
+        if not is_phone_ok:
+            return jsonify({'success': False, 'error': phone_res}), 400
+        new_phone = phone_res
+
+    new_maps_url = cust.google_maps_url or cust.location_url
+    if 'google_maps_url' in data or 'location_url' in data:
+        raw_u = data.get('google_maps_url') or data.get('location_url')
+        is_url_ok, url_res = validate_google_maps_url(raw_u)
+        if not is_url_ok:
+            return jsonify({'success': False, 'error': url_res}), 400
+        new_maps_url = url_res
+
+    # Coordinates update (preserve existing if not provided)
+    if 'lat' in data or 'lng' in data:
+        lat_in = data.get('lat') if 'lat' in data else cust.lat
+        lng_in = data.get('lng') if 'lng' in data else cust.lng
+        is_coords_ok, lat_f, lng_f, coord_err = validate_coordinates(lat_in, lng_in)
+        if not is_coords_ok:
+            return jsonify({'success': False, 'error': coord_err}), 400
+        cust.lat = lat_f
+        cust.lng = lng_f
+        if lat_f is not None and lng_f is not None:
+            cust.is_manually_corrected = True
+            cust.geocode_quality = 'EXACT'
+            cust.coord_source = 'MANUAL'
+    elif new_maps_url and (cust.lat is None or cust.lng is None):
+        c_lat, c_lng = extract_coords_from_gmaps_url_fast(new_maps_url)
+        if c_lat is not None and c_lng is not None:
+            cust.lat = c_lat
+            cust.lng = c_lng
+            cust.geocode_quality = 'EXACT'
+            cust.coord_source = 'MAPS_URL'
 
     existing = MasterCustomer.query.filter(
         MasterCustomer.id != cust_id,
         MasterCustomer.customer_status != 'ARCHIVED',
-        db.func.lower(MasterCustomer.name) == name.lower(),
-        db.func.lower(MasterCustomer.address) == address.lower()
+        db.func.lower(MasterCustomer.name) == new_name.lower(),
+        db.func.lower(MasterCustomer.address) == new_address.lower()
     ).first()
     if existing:
         return jsonify({'success': False, 'error': 'Another customer with this name and address already exists.'}), 409
 
-    if 'name' in data: cust.name = name
-    if 'address' in data: cust.address = address
-    if 'phone' in data: cust.phone = (data.get('phone') or '').strip() or None
-    if 'location_url' in data: cust.location_url = (data.get('location_url') or '').strip() or None
-    if 'deliver_bag' in data: cust.deliver_bag = bool(data.get('deliver_bag'))
+    if new_phone:
+        norm_phone = normalize_phone_for_dedup(new_phone)
+        if norm_phone:
+            existing_phone_dup = MasterCustomer.query.filter(
+                MasterCustomer.id != cust_id,
+                MasterCustomer.customer_status != 'ARCHIVED',
+                MasterCustomer.phone.isnot(None)
+            ).all()
+            for ep in existing_phone_dup:
+                if normalize_phone_for_dedup(ep.phone) == norm_phone:
+                    return jsonify({'success': False, 'error': f'Phone number already registered to another customer: {ep.name} (ID: {ep.id}).'}), 409
+
+    cust.name = new_name
+    cust.address = new_address
+    cust.phone = new_phone
+    cust.google_maps_url = new_maps_url
+    cust.location_url = new_maps_url
+
+    if 'deliver_bag' in data:
+        cust.deliver_bag = bool(data.get('deliver_bag'))
     if 'customer_status' in data and data.get('customer_status') in ['ACTIVE', 'ARCHIVED']:
         cust.customer_status = data.get('customer_status')
-
-    if 'lat' in data:
-        lat = data.get('lat')
-        if lat is not None and lat != '':
-            try:
-                lat = float(lat)
-                if not (-90.0 <= lat <= 90.0):
-                    return jsonify({'success': False, 'error': 'Latitude must be between -90 and 90'}), 400
-                cust.lat = lat
-                cust.is_manually_corrected = True
-            except (ValueError, TypeError):
-                return jsonify({'success': False, 'error': 'Invalid latitude value'}), 400
-        else:
-            cust.lat = None
-
-    if 'lng' in data:
-        lng = data.get('lng')
-        if lng is not None and lng != '':
-            try:
-                lng = float(lng)
-                if not (-180.0 <= lng <= 180.0):
-                    return jsonify({'success': False, 'error': 'Longitude must be between -180 and 180'}), 400
-                cust.lng = lng
-                cust.is_manually_corrected = True
-            except (ValueError, TypeError):
-                return jsonify({'success': False, 'error': 'Invalid longitude value'}), 400
-        else:
-            cust.lng = None
 
     db.session.commit()
     return jsonify({'success': True, 'customer': cust.to_dict()})
@@ -6867,13 +7119,15 @@ def add_customer_to_template(template_id):
         stops_on_truck = [c.get('stop_number') or 0 for c in cust_list if int(c.get('truck_id') or 1) == target_truck]
         next_seq = (max(stops_on_truck) + 1) if stops_on_truck else len(cust_list) + 1
 
+        m_url = master_cust.google_maps_url or master_cust.location_url or ''
         new_stop = {
             'id': master_cust.id,
             'master_customer_id': master_cust.id,
             'name': master_cust.name,
             'phone': master_cust.phone or '',
             'address': master_cust.address or '',
-            'location_url': master_cust.location_url or '',
+            'location_url': m_url,
+            'google_maps_url': m_url,
             'lat': master_cust.lat,
             'lng': master_cust.lng,
             'status': 'PENDING',
@@ -6917,13 +7171,15 @@ def add_customer_to_template(template_id):
         stops_on_truck = [c.get('stop_number') or 0 for c in cust_list if int(c.get('truck_id') or 1) == target_truck]
         next_seq = (max(stops_on_truck) + 1) if stops_on_truck else len(cust_list) + 1
 
+        m_url = master_cust.google_maps_url or master_cust.location_url or ''
         cust_list.append({
             'id': master_cust.id,
             'master_customer_id': master_cust.id,
             'name': master_cust.name,
             'phone': master_cust.phone or '',
             'address': master_cust.address or '',
-            'location_url': master_cust.location_url or '',
+            'location_url': m_url,
+            'google_maps_url': m_url,
             'lat': master_cust.lat,
             'lng': master_cust.lng,
             'status': 'PENDING',
@@ -6957,16 +7213,22 @@ def normalize_header(header_str):
     if not header_str:
         return ''
     h = str(header_str).strip().lower()
-    return re.sub(r'[\s_\-]+', ' ', h)
+    h = re.sub(r'[\*\(\)]', '', h)
+    h = re.sub(r'\b(optional|required|mandatory)\b', '', h)
+    return re.sub(r'[\s_\-]+', ' ', h).strip()
 
 def map_column_headers(headers):
     field_synonyms = {
         'name': ['customer name', 'name', 'client name', 'customer', 'client', 'full name', 'party name'],
         'address': ['customer address', 'address', 'location', 'addr', 'street', 'street address', 'site address'],
-        'phone': ['phone', 'mobile', 'contact', 'cell', 'phone number', 'mobile number', 'telephone', 'tel', 'contact number', 'phone no', 'mobile no'],
+        'phone': ['phone number', 'phone', 'mobile number', 'mobile', 'contact number', 'contact', 'cell', 'telephone', 'tel', 'phone no', 'mobile no'],
+        'location_url': [
+            'google maps location url', 'google maps url', 'maps location url', 'location url',
+            'google maps link', 'google map link', 'maps link', 'map link', 'google maps',
+            'google map', 'maps url', 'map url', 'location link', 'url', 'map'
+        ],
         'lat': ['latitude', 'lat'],
         'lng': ['longitude', 'lng', 'long'],
-        'location_url': ['location url', 'google maps link', 'google maps', 'maps link', 'map link', 'maps', 'location link', 'url', 'map url', 'google map'],
         'deliver_bag': ['deliver bag', 'bag', 'delivery bag', 'deliver bag?', 'bag deliver', 'bag delivery']
     }
     
@@ -6998,12 +7260,45 @@ def map_column_headers(headers):
             if idx in used_indices:
                 continue
             norm = normalize_header(h)
-            if 'address' in norm or 'location' in norm:
+            if 'address' in norm or 'street' in norm:
                 mapping['address'] = idx
                 used_indices.add(idx)
                 break
 
+    if 'phone' not in mapping:
+        for idx, h in enumerate(headers):
+            if idx in used_indices:
+                continue
+            norm = normalize_header(h)
+            if 'phone' in norm or 'mobile' in norm or 'contact' in norm:
+                mapping['phone'] = idx
+                used_indices.add(idx)
+                break
+
+    if 'location_url' not in mapping:
+        for idx, h in enumerate(headers):
+            if idx in used_indices:
+                continue
+            norm = normalize_header(h)
+            if 'map' in norm or 'url' in norm or 'link' in norm:
+                mapping['location_url'] = idx
+                used_indices.add(idx)
+                break
+
     return mapping
+
+def _check_mandatory_columns(col_mapping, raw_headers):
+    mandatory_fields = ['name', 'address', 'phone', 'location_url']
+    missing_cols = [f for f in mandatory_fields if f not in col_mapping]
+    if missing_cols:
+        col_display = {
+            'name': 'Customer Name',
+            'address': 'Address',
+            'phone': 'Phone Number',
+            'location_url': 'Google Maps Location URL'
+        }
+        missing_names = [col_display[c] for c in missing_cols]
+        raise ValueError(f"Uploaded file is missing mandatory column(s): {', '.join(missing_names)}. Detected headers: {raw_headers}. Mandatory columns required: Customer Name, Address, Phone Number, Google Maps Location URL.")
 
 def parse_uploaded_file(file_bytes, filename):
     ext = os.path.splitext(filename)[1].lower()
@@ -7032,9 +7327,7 @@ def parse_uploaded_file(file_bytes, filename):
 
         raw_headers = [str(c or '').strip() for c in rows[0]]
         col_mapping = map_column_headers(raw_headers)
-
-        if 'name' not in col_mapping or 'address' not in col_mapping:
-            raise ValueError(f"Could not identify required 'Customer Name' and 'Address' columns from headers: {raw_headers}. Please include 'Customer Name' and 'Address'.")
+        _check_mandatory_columns(col_mapping, raw_headers)
 
         for row_idx, r in enumerate(rows[1:], start=2):
             if all(c is None or str(c).strip() == '' for c in r):
@@ -7071,9 +7364,7 @@ def parse_uploaded_file(file_bytes, filename):
 
         raw_headers = [str(c or '').strip() for c in rows[0]]
         col_mapping = map_column_headers(raw_headers)
-
-        if 'name' not in col_mapping or 'address' not in col_mapping:
-            raise ValueError(f"Could not identify required 'Customer Name' and 'Address' columns from headers: {raw_headers}. Please include 'Customer Name' and 'Address'.")
+        _check_mandatory_columns(col_mapping, raw_headers)
 
         for row_idx, r in enumerate(rows[1:], start=2):
             if all(c is None or str(c).strip() == '' for c in r):
@@ -7117,7 +7408,9 @@ def parse_uploaded_file(file_bytes, filename):
                     break
 
         if not target_table:
-            raise ValueError("No valid customer table found in Word document. Please ensure the table has a header row with 'Customer Name' and 'Address'.")
+            raise ValueError("No valid customer table found in Word document. Please ensure the table has a header row with Customer Name, Address, Phone Number, and Google Maps Location URL.")
+
+        _check_mandatory_columns(col_mapping, raw_headers)
 
         for row_idx, row in enumerate(target_table.rows[1:], start=2):
             cells = [c.text.strip() for c in row.cells]
@@ -7155,9 +7448,7 @@ def parse_uploaded_file(file_bytes, filename):
 
         raw_headers = [str(c or '').strip() for c in rows[0]]
         col_mapping = map_column_headers(raw_headers)
-
-        if 'name' not in col_mapping or 'address' not in col_mapping:
-            raise ValueError(f"Could not identify required 'Customer Name' and 'Address' columns from headers: {raw_headers}.")
+        _check_mandatory_columns(col_mapping, raw_headers)
 
         for row_idx, r in enumerate(rows[1:], start=2):
             if all(c is None or str(c).strip() == '' for c in r):
@@ -7177,14 +7468,14 @@ def parse_uploaded_file(file_bytes, filename):
 def validate_and_check_duplicates(data_rows):
     existing_customers = MasterCustomer.query.filter(MasterCustomer.customer_status != 'ARCHIVED').all()
     existing_name_addr = {
-        (re.sub(r'\s+', ' ', c.name.strip().lower()), re.sub(r'\s+', ' ', c.address.strip().lower())): c.id
+        (re.sub(r'\s+', ' ', c.name.strip().lower()), normalize_address_for_dedup(c.address)): c.id
         for c in existing_customers
     }
     existing_phones = {}
     for c in existing_customers:
         if c.phone:
-            p = re.sub(r'[\s\-\(\)\+]', '', c.phone.strip())
-            if len(p) >= 7:
+            p = normalize_phone_for_dedup(c.phone)
+            if p:
                 existing_phones[p] = c.id
 
     seen_in_batch = {}
@@ -7199,60 +7490,55 @@ def validate_and_check_duplicates(data_rows):
         row_num = r.get('_row_num', 0)
         raw_name = (r.get('name') or '').strip()
         raw_address = (r.get('address') or '').strip()
-        raw_phone = (r.get('phone') or '').strip() or None
-        location_url = (r.get('location_url') or '').strip() or None
+        raw_phone = (r.get('phone') or '').strip()
+        location_url = (r.get('location_url') or '').strip()
         raw_bag = r.get('deliver_bag')
         deliver_bag = str(raw_bag).strip().lower() in ['true', '1', 'yes', 'y'] if raw_bag is not None else False
 
         lat_val = r.get('lat')
         lng_val = r.get('lng')
-        lat = None
-        lng = None
-        coord_error = None
 
-        if lat_val is not None and str(lat_val).strip() != '':
-            try:
-                lat = float(str(lat_val).strip())
-                if not (-90.0 <= lat <= 90.0):
-                    coord_error = 'Latitude must be between -90 and 90'
-            except (ValueError, TypeError):
-                coord_error = 'Invalid numeric latitude'
+        errors = []
+        is_name_ok, clean_name = validate_customer_name(raw_name)
+        if not is_name_ok:
+            errors.append("Customer name is required")
 
-        if lng_val is not None and str(lng_val).strip() != '':
-            try:
-                lng = float(str(lng_val).strip())
-                if not (-180.0 <= lng <= 180.0):
-                    coord_error = 'Longitude must be between -180 and 180'
-            except (ValueError, TypeError):
-                coord_error = 'Invalid numeric longitude'
+        is_addr_ok, clean_addr = validate_customer_address(raw_address)
+        if not is_addr_ok:
+            errors.append("Customer address is required")
 
-        # Validation checks
+        is_phone_ok, phone_err = validate_phone_number(raw_phone)
+        if not is_phone_ok:
+            errors.append(phone_err)
+
+        is_url_ok, url_err = validate_google_maps_url(location_url)
+        if not is_url_ok:
+            errors.append(url_err)
+
+        is_coords_ok, lat_f, lng_f, coord_err = validate_coordinates(lat_val, lng_val)
+        if not is_coords_ok:
+            errors.append(coord_err)
+        elif (lat_f is None or lng_f is None) and is_url_ok:
+            c_lat, c_lng = extract_coords_from_gmaps_url_fast(location_url)
+            if c_lat is not None and c_lng is not None:
+                lat_f = c_lat
+                lng_f = c_lng
+
         status = 'VALID'
         message = 'Ready to import'
 
-        if not raw_name:
+        if errors:
             status = 'INVALID'
-            message = 'Customer name is missing or empty'
-        elif not raw_address:
-            status = 'INVALID'
-            message = 'Customer address is missing or empty'
-        elif coord_error:
-            status = 'INVALID'
-            message = coord_error
-
-        norm_name = re.sub(r'\s+', ' ', raw_name.lower()) if raw_name else ''
-        norm_address = re.sub(r'\s+', ' ', raw_address.lower()) if raw_address else ''
-        norm_phone = re.sub(r'[\s\-\(\)\+]', '', raw_phone) if raw_phone else ''
-        if len(norm_phone) < 7:
-            norm_phone = ''
-
-        # Duplicate checks
-        if status == 'VALID':
-            key_name_addr = (norm_name, norm_address)
+            message = '; '.join(errors)
+        else:
+            norm_name = re.sub(r'\s+', ' ', clean_name.lower())
+            norm_addr = normalize_address_for_dedup(clean_addr)
+            norm_phone = normalize_phone_for_dedup(raw_phone)
+            key_name_addr = (norm_name, norm_addr)
 
             if key_name_addr in seen_in_batch:
                 status = 'DUPLICATE'
-                message = f"Duplicate in file (matches row {seen_in_batch[key_name_addr]})"
+                message = f"Duplicate name & address in file (matches row {seen_in_batch[key_name_addr]})"
             elif norm_phone and norm_phone in seen_phones_in_batch:
                 status = 'DUPLICATE'
                 message = f"Duplicate phone in file (matches row {seen_phones_in_batch[norm_phone]})"
@@ -7280,8 +7566,9 @@ def validate_and_check_duplicates(data_rows):
             'address': raw_address,
             'phone': raw_phone or '',
             'location_url': location_url or '',
-            'lat': lat,
-            'lng': lng,
+            'google_maps_url': location_url or '',
+            'lat': lat_f,
+            'lng': lng_f,
             'deliver_bag': deliver_bag,
             'status': status,
             'message': message
@@ -7414,45 +7701,32 @@ def master_customers_import_confirm():
 
                 name = (r.get('name') or '').strip()
                 address = (r.get('address') or '').strip()
-                phone = (r.get('phone') or '').strip() or None
-                location_url = (r.get('location_url') or '').strip() or None
+                phone = (r.get('phone') or '').strip()
+                location_url = (r.get('location_url') or r.get('google_maps_url') or '').strip()
                 deliver_bag = bool(r.get('deliver_bag', False))
 
-                if not name or not address:
+                is_name_ok, clean_name = validate_customer_name(name)
+                is_addr_ok, clean_addr = validate_customer_address(address)
+                is_phone_ok, phone_err = validate_phone_number(phone)
+                is_url_ok, url_err = validate_google_maps_url(location_url)
+                if not (is_name_ok and is_addr_ok and is_phone_ok and is_url_ok):
                     skipped_invalid += 1
                     continue
 
                 lat = r.get('lat')
                 lng = r.get('lng')
-                if lat is not None and lat != '':
-                    try:
-                        lat = float(lat)
-                        if not (-90.0 <= lat <= 90.0):
-                            skipped_invalid += 1
-                            continue
-                    except (ValueError, TypeError):
-                        skipped_invalid += 1
-                        continue
-                else:
-                    lat = None
+                is_coords_ok, lat_f, lng_f, _ = validate_coordinates(lat, lng)
+                if not is_coords_ok:
+                    skipped_invalid += 1
+                    continue
+                if (lat_f is None or lng_f is None) and is_url_ok:
+                    c_lat, c_lng = extract_coords_from_gmaps_url_fast(location_url)
+                    if c_lat is not None and c_lng is not None:
+                        lat_f, lng_f = c_lat, c_lng
 
-                if lng is not None and lng != '':
-                    try:
-                        lng = float(lng)
-                        if not (-180.0 <= lng <= 180.0):
-                            skipped_invalid += 1
-                            continue
-                    except (ValueError, TypeError):
-                        skipped_invalid += 1
-                        continue
-                else:
-                    lng = None
-
-                norm_name = re.sub(r'\s+', ' ', name.lower())
-                norm_address = re.sub(r'\s+', ' ', address.lower())
-                norm_phone = re.sub(r'[\s\-\(\)\+]', '', phone) if phone else ''
-                if len(norm_phone) < 7:
-                    norm_phone = ''
+                norm_name = re.sub(r'\s+', ' ', clean_name.lower())
+                norm_address = normalize_address_for_dedup(clean_addr)
+                norm_phone = normalize_phone_for_dedup(phone)
 
                 if (norm_name, norm_address) in existing_name_addr or (norm_phone and norm_phone in existing_phones):
                     skipped_duplicates += 1
@@ -7460,17 +7734,18 @@ def master_customers_import_confirm():
 
                 new_cust = MasterCustomer(
                     id=next_id,
-                    name=name,
-                    address=address,
+                    name=clean_name,
+                    address=clean_addr,
                     phone=phone,
                     location_url=location_url,
-                    lat=lat,
-                    lng=lng,
+                    google_maps_url=location_url,
+                    lat=lat_f,
+                    lng=lng_f,
                     deliver_bag=deliver_bag,
                     customer_status='ACTIVE',
-                    geocode_quality='EXACT' if (lat is not None and lng is not None) else 'UNKNOWN',
-                    coord_source='IMPORT' if (lat is not None and lng is not None) else 'UNKNOWN',
-                    is_manually_corrected=(lat is not None and lng is not None)
+                    geocode_quality='EXACT' if (lat_f is not None and lng_f is not None) else 'UNKNOWN',
+                    coord_source='IMPORT' if (lat_f is not None and lng_f is not None) else 'UNKNOWN',
+                    is_manually_corrected=(lat_f is not None and lng_f is not None)
                 )
                 db.session.add(new_cust)
                 existing_name_addr[(norm_name, norm_address)] = next_id
@@ -7496,6 +7771,43 @@ def master_customers_import_confirm():
     })
 
 
+@app.route('/api/master_customers/import_error_report/<preview_id>', methods=['GET'])
+@admin_required
+def master_customers_import_error_report(preview_id):
+    cached = import_preview_cache.get(preview_id)
+    if not cached:
+        return jsonify({'success': False, 'error': 'Preview expired or not found. Please upload the file again.'}), 404
+
+    rows = cached.get('rows', [])
+    skipped_rows = [r for r in rows if r.get('status') in ['INVALID', 'DUPLICATE']]
+
+    import csv, io
+    output = io.StringIO()
+    writer = csv.writer(output)
+    writer.writerow(['Row #', 'Customer Name', 'Address', 'Phone Number', 'Google Maps Location URL', 'Latitude', 'Longitude', 'Status', 'Error / Reason'])
+
+    for r in skipped_rows:
+        writer.writerow([
+            r.get('row_num', ''),
+            r.get('name', ''),
+            r.get('address', ''),
+            r.get('phone', ''),
+            r.get('location_url', ''),
+            r.get('lat', '') if r.get('lat') is not None else '',
+            r.get('lng', '') if r.get('lng') is not None else '',
+            r.get('status', ''),
+            r.get('message', '')
+        ])
+
+    output.seek(0)
+    return send_file(
+        io.BytesIO(output.getvalue().encode('utf-8-sig')),
+        mimetype='text/csv',
+        as_attachment=True,
+        download_name=f'import_skipped_report_{preview_id[:8]}.csv'
+    )
+
+
 @app.route('/api/master_customers/sample_excel', methods=['GET'])
 @any_permission_required('customers.import_excel', 'customers.view')
 def master_customers_sample_excel():
@@ -7506,13 +7818,18 @@ def master_customers_sample_excel():
     ws = wb.active
     ws.title = "Customers"
 
-    headers = ['Customer Name', 'Address', 'Phone', 'Latitude', 'Longitude', 'Location URL', 'Deliver Bag']
+    headers = [
+        'Customer Name *',
+        'Address *',
+        'Phone Number *',
+        'Google Maps Location URL *',
+        'Latitude (Optional)',
+        'Longitude (Optional)'
+    ]
     ws.append(headers)
 
     sample_rows = [
-        ['Green Leaf Cafe', '123 Main St, Sector 5', '9876543210', 23.0225, 72.5714, 'https://maps.google.com/?q=23.0225,72.5714', 'Yes'],
-        ['Sunrise Organic Store', '45 Park Avenue, Block B', '9876543211', 23.0330, 72.5850, '', 'No'],
-        ['Heritage Grand Hotel', '78 Heritage Marg', '9876543212', 23.0415, 72.5620, '', 'Yes']
+        ['Green Leaf Cafe', '123 Main Street, Ahmedabad', '9876543210', 'https://maps.google.com/?q=23.0225,72.5714', 23.0225, 72.5714]
     ]
     for row in sample_rows:
         ws.append(row)
@@ -7527,7 +7844,7 @@ def master_customers_sample_excel():
     for col in ws.columns:
         max_len = max(len(str(cell.value or '')) for cell in col)
         col_letter = col[0].column_letter
-        ws.column_dimensions[col_letter].width = max(max_len + 4, 14)
+        ws.column_dimensions[col_letter].width = max(max_len + 4, 18)
 
     buf = io.BytesIO()
     wb.save(buf)
@@ -7547,29 +7864,39 @@ def master_customers_sample_word():
 
     doc = docx.Document()
     doc.add_heading("TrashTrekyx — Master Customer Import Template", level=1)
-    p = doc.add_paragraph("Instructions: Enter your customer details in the table below. Do not alter the header row. Each following row represents a customer record.")
+    p = doc.add_paragraph(
+        "Instructions: Customer Name, Address, Phone Number, and Google Maps Location URL are mandatory. "
+        "Latitude and Longitude are optional. Google Maps links must be valid HTTPS URLs (e.g. https://maps.google.com/...). "
+        "Rows with missing or invalid mandatory fields will be rejected. Do not alter the header row."
+    )
     p.runs[0].font.size = docx.shared.Pt(10)
     p.runs[0].font.italic = True
 
-    headers = ['Customer Name', 'Address', 'Phone', 'Latitude', 'Longitude', 'Location URL', 'Deliver Bag']
+    headers = [
+        'Customer Name *',
+        'Address *',
+        'Phone Number *',
+        'Google Maps Location URL *',
+        'Latitude (Optional)',
+        'Longitude (Optional)'
+    ]
     table = doc.add_table(rows=1, cols=len(headers))
     table.style = 'Table Grid'
 
     hdr_cells = table.rows[0].cells
     for idx, h in enumerate(headers):
         hdr_cells[idx].text = h
-        for p in hdr_cells[idx].paragraphs:
-            for run in p.runs:
+        for p_elem in hdr_cells[idx].paragraphs:
+            for run in p_elem.runs:
                 run.font.bold = True
 
     sample_rows = [
-        ['Royal Greens Residency', '88 Riverfront Blvd, Phase 1', '9876543213', '23.0510', '72.5430', '', 'Yes'],
-        ['Blue Horizon Mart', '12 Commercial Complex, Sola', '9876543214', '23.0620', '72.5310', '', 'No']
+        ['Green Leaf Cafe', '123 Main Street, Ahmedabad', '9876543210', 'https://maps.google.com/?q=23.0225,72.5714', '23.0225', '72.5714']
     ]
     for r in sample_rows:
         row_cells = table.add_row().cells
         for idx, val in enumerate(r):
-            row_cells[idx].text = val
+            row_cells[idx].text = str(val)
 
     buf = io.BytesIO()
     doc.save(buf)

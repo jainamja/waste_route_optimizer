@@ -231,7 +231,12 @@ def test_customer_manager_permissions(client):
     login_user(client, mgr)
 
     # Allowed: create customer
-    res = client.post('/api/master_customers', json={'name': 'Green Cafe', 'address': 'MG Road 1'})
+    res = client.post('/api/master_customers', json={
+        'name': 'Green Cafe',
+        'address': 'MG Road 1',
+        'phone': '9876543210',
+        'google_maps_url': 'https://maps.google.com/?q=23.0,72.5'
+    })
     assert res.status_code == 201
     cust_id = res.get_json()['customer']['id']
 
@@ -675,7 +680,8 @@ def test_complete_acceptance_workflow_the_rahul_test(client):
     res = client.post('/api/master_customers', json={
         'name': 'Rahul Fresh Market',
         'address': 'Plot 42, GIDC Estate',
-        'phone': '9876543210'
+        'phone': '9876543210',
+        'google_maps_url': 'https://maps.google.com/?q=23.0,72.5'
     })
     assert res.status_code == 201
     created_cust_id = res.get_json()['customer']['id']

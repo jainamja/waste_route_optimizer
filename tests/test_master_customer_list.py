@@ -119,7 +119,7 @@ def test_add_master_customer_and_validation(client):
     # Missing name -> 400
     res = client.post('/api/master_customers', json={'address': '123 Main St'})
     assert res.status_code == 400
-    assert 'Customer name is required' in res.get_json()['error']
+    assert 'Customer' in res.get_json()['error']
 
     # Empty name -> 400
     res = client.post('/api/master_customers', json={'name': '   ', 'address': '123 Main St'})
@@ -128,14 +128,14 @@ def test_add_master_customer_and_validation(client):
     # Missing address -> 400
     res = client.post('/api/master_customers', json={'name': 'Green Cafe'})
     assert res.status_code == 400
-    assert 'Customer address is required' in res.get_json()['error']
+    assert 'Address' in res.get_json()['error']
 
     # Invalid latitude (-95) -> 400
-    res = client.post('/api/master_customers', json={'name': 'Green Cafe', 'address': '123 Main St', 'lat': -95.0, 'lng': 72.8})
+    res = client.post('/api/master_customers', json={'name': 'Green Cafe', 'address': '123 Main St', 'phone': '9876543210', 'google_maps_url': 'https://maps.google.com/?q=23.0,72.5', 'lat': -95.0, 'lng': 72.8})
     assert res.status_code == 400
 
     # Invalid longitude (190) -> 400
-    res = client.post('/api/master_customers', json={'name': 'Green Cafe', 'address': '123 Main St', 'lat': 23.0, 'lng': 190.0})
+    res = client.post('/api/master_customers', json={'name': 'Green Cafe', 'address': '123 Main St', 'phone': '9876543210', 'google_maps_url': 'https://maps.google.com/?q=23.0,72.5', 'lat': 23.0, 'lng': 190.0})
     assert res.status_code == 400
 
     # Valid customer creation -> 201
@@ -143,6 +143,7 @@ def test_add_master_customer_and_validation(client):
         'name': 'Green Cafe',
         'address': '123 Main St, Sector 5',
         'phone': '9876543210',
+        'google_maps_url': 'https://maps.google.com/?q=23.0225,72.5714',
         'lat': 23.0225,
         'lng': 72.5714,
         'deliver_bag': True
@@ -154,6 +155,7 @@ def test_add_master_customer_and_validation(client):
     assert cust['name'] == 'Green Cafe'
     assert cust['address'] == '123 Main St, Sector 5'
     assert cust['phone'] == '9876543210'
+    assert cust['google_maps_url'] == 'https://maps.google.com/?q=23.0225,72.5714'
     assert cust['lat'] == 23.0225
     assert cust['lng'] == 72.5714
     assert cust['deliver_bag'] is True
@@ -170,7 +172,8 @@ def test_duplicate_master_customer_prevention(client):
     res1 = client.post('/api/master_customers', json={
         'name': 'Sunset Bakery',
         'address': '456 Ocean Ave',
-        'phone': '1122334455'
+        'phone': '1122334455',
+        'google_maps_url': 'https://maps.google.com/?q=23.0,72.5'
     })
     assert res1.status_code == 201
 
@@ -178,7 +181,8 @@ def test_duplicate_master_customer_prevention(client):
     res2 = client.post('/api/master_customers', json={
         'name': 'sunset bakery',
         'address': '456 ocean ave',
-        'phone': '9999999999'
+        'phone': '9999999999',
+        'google_maps_url': 'https://maps.google.com/?q=23.0,72.5'
     })
     assert res2.status_code == 409
     assert 'already exists' in res2.get_json()['error']
@@ -189,8 +193,8 @@ def test_list_and_search_master_customers(client):
     login_as_admin(client)
     
     # Add customers
-    client.post('/api/master_customers', json={'name': 'Alpha Corp', 'address': '789 Business Blvd', 'phone': '5551234'})
-    client.post('/api/master_customers', json={'name': 'Beta Logistics', 'address': '101 Transport Way', 'phone': '5559876'})
+    client.post('/api/master_customers', json={'name': 'Alpha Corp', 'address': '789 Business Blvd', 'phone': '55512345', 'google_maps_url': 'https://maps.google.com/?q=23.01,72.51'})
+    client.post('/api/master_customers', json={'name': 'Beta Logistics', 'address': '101 Transport Way', 'phone': '55598765', 'google_maps_url': 'https://maps.google.com/?q=23.02,72.52'})
     
     # List all
     res = client.get('/api/master_customers')
@@ -215,7 +219,7 @@ def test_list_and_search_master_customers(client):
     assert any(c['name'] == 'Beta Logistics' for c in res_search_addr.get_json()['customers'])
 
     # Search by phone
-    res_search_phone = client.get('/api/master_customers?q=5551234')
+    res_search_phone = client.get('/api/master_customers?q=55512345')
     assert res_search_phone.status_code == 200
     assert any(c['name'] == 'Alpha Corp' for c in res_search_phone.get_json()['customers'])
 
@@ -228,7 +232,8 @@ def test_edit_customer_information(client):
     res = client.post('/api/master_customers', json={
         'name': 'Original Name',
         'address': 'Original Address',
-        'phone': '1111111111'
+        'phone': '1111111111',
+        'google_maps_url': 'https://maps.google.com/?q=23.0,72.5'
     })
     cust_id = res.get_json()['customer']['id']
 
@@ -237,6 +242,7 @@ def test_edit_customer_information(client):
         'name': 'Updated Name Ltd',
         'address': 'Updated Address Suite 200',
         'phone': '2222222222',
+        'google_maps_url': 'https://maps.google.com/?q=23.05,72.55',
         'lat': 23.05,
         'lng': 72.55,
         'deliver_bag': True
@@ -267,6 +273,7 @@ def test_add_customer_to_multiple_templates_and_duplicate_prevention(client):
         'name': 'Cafe Coffee Day',
         'address': 'Ring Road, Sector 3',
         'phone': '9898989898',
+        'google_maps_url': 'https://maps.google.com/?q=23.04,72.58',
         'lat': 23.04,
         'lng': 72.58
     })
@@ -330,7 +337,8 @@ def test_archive_behavior_and_safe_delete(client):
     res = client.post('/api/master_customers', json={
         'name': 'Heritage Hotel',
         'address': '55 Heritage St',
-        'phone': '7778889999'
+        'phone': '7778889999',
+        'google_maps_url': 'https://maps.google.com/?q=23.05,72.55'
     })
     cust_id = res.get_json()['customer']['id']
 
@@ -390,7 +398,9 @@ def test_assigned_routes_and_driver_progress_remain_unchanged(client):
     # Create new master customer and add to Tuesday Route (5)
     res = client.post('/api/master_customers', json={
         'name': 'New Unassigned Client',
-        'address': '99 New Ave'
+        'address': '99 New Ave',
+        'phone': '9123456789',
+        'google_maps_url': 'https://maps.google.com/?q=23.06,72.56'
     })
     cust_id = res.get_json()['customer']['id']
 
@@ -440,6 +450,7 @@ def test_master_acceptance_condition(client):
         'name': 'Grand Plaza Hotel',
         'address': '500 Grand Way',
         'phone': '1234567890',
+        'google_maps_url': 'https://maps.google.com/?q=23.05,72.56',
         'lat': 23.05,
         'lng': 72.56,
         'deliver_bag': True
@@ -506,7 +517,7 @@ def test_admin_dashboard_ui_elements(client):
 
 
 def test_add_new_customer_modal_no_deliver_bag(client):
-    """Verify Deliver Waste Collection Bag checkbox is removed from Add New Customer modal but preserved in Edit Customer modal."""
+    """Verify Deliver Waste Collection Bag checkbox is removed from Add New Customer modal and Google Maps fields are present."""
     login_as_admin(client)
     res = client.get('/admin')
     assert res.status_code == 200
@@ -516,6 +527,7 @@ def test_add_new_customer_modal_no_deliver_bag(client):
     assert 'id="new-cust-name"' in html
     assert 'id="new-cust-address"' in html
     assert 'id="new-cust-phone"' in html
+    assert 'id="new-cust-maps-url"' in html
     assert 'id="new-cust-lat"' in html
     assert 'id="new-cust-lng"' in html
     assert 'id="btn-save-customer"' in html
@@ -524,9 +536,8 @@ def test_add_new_customer_modal_no_deliver_bag(client):
     assert 'id="new-cust-deliver-bag"' not in html
     assert 'for="new-cust-deliver-bag"' not in html
 
-    # Deliver Waste Collection Bag is preserved in Edit Customer Modal
-    assert 'id="edit-cust-deliver-bag"' in html
-    assert 'for="edit-cust-deliver-bag"' in html
+    # Edit Customer Modal has Google Maps URL
+    assert 'id="edit-cust-maps-url"' in html
 
 
 

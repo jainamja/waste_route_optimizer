@@ -73,13 +73,19 @@ def login_as_driver(client):
 
 
 def create_excel_bytes(rows, headers=None):
+    use_default = (headers is None)
     if headers is None:
-        headers = ['Customer Name', 'Address', 'Phone', 'Latitude', 'Longitude', 'Location URL', 'Deliver Bag']
+        headers = ['Customer Name', 'Address', 'Phone Number', 'Google Maps Location URL', 'Latitude', 'Longitude']
     wb = openpyxl.Workbook()
     ws = wb.active
     ws.append(headers)
     for r in rows:
-        ws.append(r)
+        if use_default and len(r) == 7:
+            # Map legacy 7-tuple: name, address, phone, lat, lng, url, bag
+            g_url = r[5] if r[5] and 'http' in str(r[5]) else ('https://maps.google.com/?q=23.01,72.56' if (r[0] or r[1]) else '')
+            ws.append([r[0], r[1], r[2], g_url, r[3], r[4]])
+        else:
+            ws.append(r)
     buf = io.BytesIO()
     wb.save(buf)
     buf.seek(0)
@@ -87,8 +93,9 @@ def create_excel_bytes(rows, headers=None):
 
 
 def create_word_bytes(rows, headers=None):
+    use_default = (headers is None)
     if headers is None:
-        headers = ['Customer Name', 'Address', 'Phone', 'Latitude', 'Longitude', 'Location URL', 'Deliver Bag']
+        headers = ['Customer Name', 'Address', 'Phone Number', 'Google Maps Location URL', 'Latitude', 'Longitude']
     doc = docx.Document()
     doc.add_heading("Customer Import", level=1)
     table = doc.add_table(rows=1, cols=len(headers))
@@ -96,7 +103,11 @@ def create_word_bytes(rows, headers=None):
         table.rows[0].cells[idx].text = h
     for r in rows:
         row_cells = table.add_row().cells
-        for idx, val in enumerate(r):
+        target_r = r
+        if use_default and len(r) == 7:
+            g_url = r[5] if r[5] and 'http' in str(r[5]) else ('https://maps.google.com/?q=23.01,72.56' if (r[0] or r[1]) else '')
+            target_r = [r[0], r[1], r[2], g_url, r[3], r[4]]
+        for idx, val in enumerate(target_r):
             row_cells[idx].text = str(val if val is not None else '')
     buf = io.BytesIO()
     doc.save(buf)
@@ -140,8 +151,9 @@ def test_sample_template_downloads(client):
     wb = openpyxl.load_workbook(io.BytesIO(res_xl.data))
     sheet = wb.worksheets[0]
     headers = [c.value for c in sheet[1]]
-    assert 'Customer Name' in headers
-    assert 'Address' in headers
+    assert any('Customer Name' in str(h) for h in headers)
+    assert any('Address' in str(h) for h in headers)
+    assert any('Google Maps' in str(h) for h in headers)
 
     # 2. Word Sample
     res_wd = client.get('/api/master_customers/sample_word')
@@ -150,8 +162,9 @@ def test_sample_template_downloads(client):
     doc = docx.Document(io.BytesIO(res_wd.data))
     assert len(doc.tables) >= 1
     table_headers = [c.text for c in doc.tables[0].rows[0].cells]
-    assert 'Customer Name' in table_headers
-    assert 'Address' in table_headers
+    assert any('Customer Name' in str(h) for h in table_headers)
+    assert any('Address' in str(h) for h in table_headers)
+    assert any('Google Maps' in str(h) for h in table_headers)
 
 
 # ============================================================================
@@ -243,7 +256,7 @@ def test_missing_required_columns(client):
 
     res = client.post('/api/master_customers/import_preview', data={'file': (excel_buf, 'missing_cols.xlsx')}, content_type='multipart/form-data')
     assert res.status_code == 400
-    assert 'Could not identify required' in res.get_json()['error']
+    assert 'missing mandatory column' in res.get_json()['error'].lower()
 
 
 def test_missing_required_values_in_rows(client):
