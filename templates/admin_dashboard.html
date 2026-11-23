@@ -366,6 +366,79 @@
         .template-dropdown-item:active {
             background: var(--border);
         }
+
+        /* Admin Navigation Bar & Dedicated Tabs */
+        .admin-nav-bar {
+            background: var(--card-bg);
+            border-bottom: 1px solid var(--border);
+            position: sticky;
+            top: 0;
+            z-index: 100;
+            transition: background 0.25s ease, border-color 0.25s ease;
+        }
+        .admin-nav-container {
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 0 40px;
+        }
+        .admin-nav-tabs {
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            overflow-x: auto;
+            scrollbar-width: none;
+            -ms-overflow-style: none;
+            padding: 4px 0 0 0;
+        }
+        .admin-nav-tabs::-webkit-scrollbar {
+            display: none;
+        }
+        .nav-tab-btn {
+            background: transparent;
+            border: none;
+            border-bottom: 3px solid transparent;
+            color: var(--text-muted);
+            font-family: 'Inter', sans-serif;
+            font-size: 14px;
+            font-weight: 600;
+            padding: 14px 18px;
+            cursor: pointer;
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+            white-space: nowrap;
+            transition: color 0.15s ease, border-color 0.15s ease, background 0.15s ease;
+            border-radius: 8px 8px 0 0;
+        }
+        .nav-tab-btn:hover {
+            color: var(--text-main);
+            background: var(--bg-subtle);
+        }
+        .nav-tab-btn.active {
+            color: var(--primary);
+            border-bottom-color: var(--primary);
+            font-weight: 700;
+            background: transparent;
+        }
+        .admin-tab-pane {
+            display: flex;
+            flex-direction: column;
+            gap: 32px;
+            width: 100%;
+        }
+        @media (max-width: 768px) {
+            .admin-nav-container {
+                padding: 0 16px;
+            }
+            .admin-nav-tabs {
+                gap: 4px;
+            }
+            .nav-tab-btn {
+                padding: 12px 14px;
+                font-size: 13px;
+                gap: 6px;
+            }
+        }
 </style>
 <script>
 (function() {
@@ -422,160 +495,211 @@
         </div>
     </div>
     
+    <!-- Admin Navigation Bar with Dedicated Tabs -->
+    <div class="admin-nav-bar">
+        <div class="admin-nav-container">
+            <nav class="admin-nav-tabs" role="tablist" aria-label="Admin Navigation Tabs">
+                <button type="button" class="nav-tab-btn active" id="tab-btn-overview" onclick="switchAdminTab('overview')" role="tab" aria-selected="true" aria-controls="pane-overview">
+                    <i class="fa-solid fa-gauge-high"></i> Overview
+                </button>
+                <button type="button" class="nav-tab-btn" id="tab-btn-customers" onclick="switchAdminTab('customers')" role="tab" aria-selected="false" aria-controls="pane-customers">
+                    <i class="fa-solid fa-users"></i> Master Customer List
+                </button>
+                <button type="button" class="nav-tab-btn" id="tab-btn-templates" onclick="switchAdminTab('templates')" role="tab" aria-selected="false" aria-controls="pane-templates">
+                    <i class="fa-solid fa-layer-group"></i> Saved Templates
+                </button>
+                <button type="button" class="nav-tab-btn" id="tab-btn-drivers" onclick="switchAdminTab('drivers')" role="tab" aria-selected="false" aria-controls="pane-drivers">
+                    <i class="fa-solid fa-id-card"></i> Driver Management
+                </button>
+                <button type="button" class="nav-tab-btn" id="tab-btn-users" onclick="switchAdminTab('users')" role="tab" aria-selected="false" aria-controls="pane-users">
+                    <i class="fa-solid fa-user-shield"></i> User Management
+                </button>
+            </nav>
+        </div>
+    </div>
+    
     <div class="container">
-        <!-- Quick Actions -->
-        <div>
-            <div class="section-header"><h2>Quick Actions</h2></div>
-            <div class="quick-actions">
-                <a href="/generate" id="card-generate-routes" class="action-card">
-                    <div class="action-icon"><i class="fa-solid fa-route"></i></div>
-                    <div class="action-card-text">
-                        <h3 class="action-title">Generate New Routes</h3>
-                        <p class="action-desc">Upload a CSV file and let the AI generate optimized routes for your fleet.</p>
-                    </div>
-                    <i class="fa-solid fa-chevron-right action-card-arrow"></i>
-                </a>
-                <a href="/routes" id="card-route-dashboard" class="action-card">
-                    <div class="action-icon" style="background: #eef2ff; color: #4f46e5;"><i class="fa-solid fa-truck-fast"></i></div>
-                    <div class="action-card-text">
-                        <h3 class="action-title">Route Dashboard</h3>
-                        <p class="action-desc">View generated routes, track stop completions, and assign drivers.</p>
-                    </div>
-                    <i class="fa-solid fa-chevron-right action-card-arrow"></i>
-                </a>
-                
-                <a href="/live" id="card-live-tracking" class="action-card">
-                    <div class="action-icon" style="background: #ecfdf5; color: #10b981;"><i class="fa-solid fa-satellite-dish"></i></div>
-                    <div class="action-card-text">
-                        <h3 class="action-title">Live Tracking</h3>
-                        <p class="action-desc">Monitor your active trucks in real-time on the map and view progress.</p>
-                    </div>
-                    <i class="fa-solid fa-chevron-right action-card-arrow"></i>
-                </a>
-
-                <a href="#master-customer-section" id="card-master-customers" class="action-card" onclick="document.getElementById('master-customer-section').scrollIntoView({behavior: 'smooth'}); return false;">
-                    <div class="action-icon" style="background: #eff6ff; color: #2563eb;"><i class="fa-solid fa-users"></i></div>
-                    <div class="action-card-text">
-                        <h3 class="action-title">Master Customer List</h3>
-                        <p class="action-desc">Manage all registered customers, add new customers, and add them directly to your saved route templates.</p>
-                    </div>
-                    <i class="fa-solid fa-chevron-right action-card-arrow"></i>
-                </a>
-
-                <a href="#user-management-section" id="card-user-management" class="action-card" onclick="document.getElementById('user-management-section').scrollIntoView({behavior: 'smooth'}); return false;">
-                    <div class="action-icon" style="background: #fdf2f8; color: #db2777;"><i class="fa-solid fa-user-shield"></i></div>
-                    <div class="action-card-text">
-                        <h3 class="action-title">User Management</h3>
-                        <p class="action-desc">Create admin users, manage access, and control permissions for every feature.</p>
-                    </div>
-                    <i class="fa-solid fa-chevron-right action-card-arrow"></i>
-                </a>
-            </div>
-        </div>
-
-        <!-- Master Customer List -->
-        <div id="master-customer-section">
-            <div class="section-header">
-                <div>
-                    <h2>Master Customer List</h2>
-                    <p style="margin:4px 0 0 0; color:var(--text-muted); font-size:13px;">Manage all registered customers, add new customers, and add them directly to your saved route templates.</p>
-                </div>
-                <div class="section-header-actions" style="display:flex; gap:10px; align-items:center;">
-                    <div class="template-dropdown-wrapper">
-                        <button id="btn-download-blank-template" type="button" onclick="toggleTemplateDropdown(event)" class="btn btn-outline" style="background:white;" aria-haspopup="true" aria-expanded="false" title="Download blank customer import templates">
-                            <i class="fa-solid fa-file-arrow-down" style="color:var(--primary);"></i> Download Blank Template <i class="fa-solid fa-chevron-down" style="font-size:11px; margin-left:5px; transition:transform 0.2s;" id="template-dropdown-chevron"></i>
-                        </button>
-                        <div id="template-dropdown-menu" class="template-dropdown-menu" role="menu">
-                            <div style="padding:8px 16px; font-size:11px; font-weight:700; text-transform:uppercase; letter-spacing:0.5px; color:var(--text-muted); border-bottom:1px solid #f1f5f9;">
-                                Blank Customer Templates
-                            </div>
-                            <a href="/api/master_customers/template/excel" class="template-dropdown-item" download="TrashTrekyx_Customer_Template.xlsx" onclick="closeTemplateDropdown()" role="menuitem">
-                                <i class="fa-solid fa-file-excel" style="color:#107c41; font-size:18px; width:22px; text-align:center;"></i>
-                                <div>
-                                    <div style="font-weight:600; color:var(--text-main); font-size:13px;">Download Excel Template (.xlsx)</div>
-                                    <div style="font-size:11px; color:var(--text-muted);">Formatted columns & frozen header</div>
-                                </div>
-                            </a>
-                            <a href="/api/master_customers/template/word" class="template-dropdown-item" download="TrashTrekyx_Customer_Template.docx" onclick="closeTemplateDropdown()" role="menuitem">
-                                <i class="fa-solid fa-file-word" style="color:#185abd; font-size:18px; width:22px; text-align:center;"></i>
-                                <div>
-                                    <div style="font-weight:600; color:var(--text-main); font-size:13px;">Download Word Template (.docx)</div>
-                                    <div style="font-size:11px; color:var(--text-muted);">Table format with instructions</div>
-                                </div>
-                            </a>
-                            <a href="/api/master_customers/template/csv" class="template-dropdown-item" download="TrashTrekyx_Customer_Template.csv" onclick="closeTemplateDropdown()" role="menuitem">
-                                <i class="fa-solid fa-file-csv" style="color:#0284c7; font-size:18px; width:22px; text-align:center;"></i>
-                                <div>
-                                    <div style="font-weight:600; color:var(--text-main); font-size:13px;">Download CSV Template (.csv)</div>
-                                    <div style="font-size:11px; color:var(--text-muted);">Standard UTF-8 comma-separated</div>
-                                </div>
-                            </a>
+        <!-- Tab Pane 1: Overview -->
+        <div id="pane-overview" class="admin-tab-pane active" role="tabpanel" aria-labelledby="tab-btn-overview">
+            <!-- Quick Actions -->
+            <div>
+                <div class="section-header"><h2>Quick Actions</h2></div>
+                <div class="quick-actions">
+                    <a href="/generate" id="card-generate-routes" class="action-card">
+                        <div class="action-icon"><i class="fa-solid fa-route"></i></div>
+                        <div class="action-card-text">
+                            <h3 class="action-title">Generate New Routes</h3>
+                            <p class="action-desc">Upload a CSV file and let the AI generate optimized routes for your fleet.</p>
                         </div>
+                        <i class="fa-solid fa-chevron-right action-card-arrow"></i>
+                    </a>
+                    <a href="/routes" id="card-route-dashboard" class="action-card">
+                        <div class="action-icon" style="background: #eef2ff; color: #4f46e5;"><i class="fa-solid fa-truck-fast"></i></div>
+                        <div class="action-card-text">
+                            <h3 class="action-title">Route Dashboard</h3>
+                            <p class="action-desc">View generated routes, track stop completions, and assign drivers.</p>
+                        </div>
+                        <i class="fa-solid fa-chevron-right action-card-arrow"></i>
+                    </a>
+                    
+                    <a href="/live" id="card-live-tracking" class="action-card">
+                        <div class="action-icon" style="background: #ecfdf5; color: #10b981;"><i class="fa-solid fa-satellite-dish"></i></div>
+                        <div class="action-card-text">
+                            <h3 class="action-title">Live Tracking</h3>
+                            <p class="action-desc">Monitor your active trucks in real-time on the map and view progress.</p>
+                        </div>
+                        <i class="fa-solid fa-chevron-right action-card-arrow"></i>
+                    </a>
+
+                    <a href="#customers" id="card-master-customers" class="action-card" onclick="switchAdminTab('customers'); return false;">
+                        <div class="action-icon" style="background: #eff6ff; color: #2563eb;"><i class="fa-solid fa-users"></i></div>
+                        <div class="action-card-text">
+                            <h3 class="action-title">Master Customer List</h3>
+                            <p class="action-desc">Manage all registered customers, add new customers, and add them directly to your saved route templates.</p>
+                        </div>
+                        <i class="fa-solid fa-chevron-right action-card-arrow"></i>
+                    </a>
+
+                    <a href="#templates" id="card-saved-templates" class="action-card" onclick="switchAdminTab('templates'); return false;">
+                        <div class="action-icon" style="background: #f0fdf4; color: #16a34a;"><i class="fa-solid fa-layer-group"></i></div>
+                        <div class="action-card-text">
+                            <h3 class="action-title">Saved Templates</h3>
+                            <p class="action-desc">Deploy, edit, and organize saved route templates for daily fleet operations.</p>
+                        </div>
+                        <i class="fa-solid fa-chevron-right action-card-arrow"></i>
+                    </a>
+
+                    <a href="#users" id="card-user-management" class="action-card" onclick="switchAdminTab('users'); return false;">
+                        <div class="action-icon" style="background: #fdf2f8; color: #db2777;"><i class="fa-solid fa-user-shield"></i></div>
+                        <div class="action-card-text">
+                            <h3 class="action-title">User Management</h3>
+                            <p class="action-desc">Create admin users, manage access, and control permissions for every feature.</p>
+                        </div>
+                        <i class="fa-solid fa-chevron-right action-card-arrow"></i>
+                    </a>
+                </div>
+            </div>
+
+            <!-- Assigned Routes in Overview -->
+            <div>
+                <div class="section-header">
+                    <div>
+                        <h2>Assigned Routes</h2>
+                        <p style="margin:4px 0 0 0; color:var(--text-muted); font-size:13px;">Manage driver route assignments and real-time completion status.</p>
                     </div>
-                    <button id="btn-sync-template-customers" onclick="openSyncTemplateCustomersModal()" class="btn btn-outline" style="background:white;" title="Sync and import all customers from saved route templates into Master Customer List"><i class="fa-solid fa-arrows-rotate" style="color:var(--primary);"></i> Sync From Templates</button>
-                    <button id="btn-import-customers" onclick="openImportModal()" class="btn btn-outline" style="background:white;"><i class="fa-solid fa-file-import"></i> Import Customers</button>
-                    <button id="btn-add-customer" onclick="openAddCustomerModal()" class="btn btn-primary"><i class="fa-solid fa-user-plus"></i> Add Customer</button>
                 </div>
-            </div>
-
-            <!-- Search & Filter Bar -->
-            <div class="search-filter-bar" style="background: white; border-radius: 12px; border: 1px solid var(--border); padding: 10px 16px; margin-bottom: 16px; display: flex; gap: 12px; align-items: center; box-shadow: var(--shadow-soft);">
-                <i class="fa-solid fa-magnifying-glass" style="color: var(--text-muted);"></i>
-                <input type="text" id="master-cust-search" placeholder="Search customers by name, address, or phone..." oninput="onSearchCustomerInput()" style="border: none; outline: none; width: 100%; font-size: 14px; font-family: 'Inter', sans-serif;">
-                <button id="master-cust-clear-search" onclick="clearCustomerSearch()" style="display:none; background:none; border:none; color:var(--text-muted); cursor:pointer; font-size:14px;"><i class="fa-solid fa-xmark"></i></button>
-            </div>
-
-            <div class="driver-list" id="master-customer-list">
-                <div style="padding: 24px; text-align: center; color: var(--text-muted);">Loading customers...</div>
-            </div>
-
-            <div id="master-cust-pagination" style="display:flex; justify-content:space-between; align-items:center; margin-top:12px; font-size:13px; color:var(--text-muted);">
-                <span id="master-cust-page-info">Showing 0 customers</span>
-                <div style="display:flex; gap:8px;">
-                    <button id="btn-cust-prev" onclick="changeCustomerPage(-1)" class="btn btn-outline" style="padding:6px 12px; font-size:12px;" disabled>Previous</button>
-                    <button id="btn-cust-next" onclick="changeCustomerPage(1)" class="btn btn-outline" style="padding:6px 12px; font-size:12px;" disabled>Next</button>
+                <div class="driver-list" id="assigned-routes-list">
+                    <div style="padding: 24px; text-align: center; color: var(--text-muted);">Loading assignments...</div>
                 </div>
             </div>
         </div>
 
-        <!-- Saved Templates -->
-        <div>
-            <div class="section-header">
-                <h2>Saved Templates Library</h2>
-            </div>
-            <div class="driver-list" id="template-list">
-                <div style="padding: 24px; text-align: center; color: var(--text-muted);">Loading templates...</div>
-            </div>
-        </div>
-
-        <!-- Assigned Routes -->
-        <div>
-            <div class="section-header">
-                <h2>Assigned Routes</h2>
-            </div>
-            <div class="driver-list" id="assigned-routes-list">
-                <div style="padding: 24px; text-align: center; color: var(--text-muted);">Loading assignments...</div>
-            </div>
-        </div>
-
-        <!-- Driver Management -->
-        <div id="driver-management-section">
-            <div class="section-header">
-                <div>
-                    <h2>Driver Management</h2>
+        <!-- Tab Pane 2: Master Customer List (Dedicated Separate Tab & Page) -->
+        <div id="pane-customers" class="admin-tab-pane" role="tabpanel" aria-labelledby="tab-btn-customers" style="display:none;">
+            <div id="master-customer-section">
+                <div class="section-header">
+                    <div>
+                        <h2>Master Customer List</h2>
+                        <p style="margin:4px 0 0 0; color:var(--text-muted); font-size:13px;">Manage all registered customers, add new customers, and add them directly to your saved route templates.</p>
+                    </div>
+                    <div class="section-header-actions" style="display:flex; gap:10px; align-items:center;">
+                        <div class="template-dropdown-wrapper">
+                            <button id="btn-download-blank-template" type="button" onclick="toggleTemplateDropdown(event)" class="btn btn-outline" style="background:white;" aria-haspopup="true" aria-expanded="false" title="Download blank customer import templates">
+                                <i class="fa-solid fa-file-arrow-down" style="color:var(--primary);"></i> Download Blank Template <i class="fa-solid fa-chevron-down" style="font-size:11px; margin-left:5px; transition:transform 0.2s;" id="template-dropdown-chevron"></i>
+                            </button>
+                            <div id="template-dropdown-menu" class="template-dropdown-menu" role="menu">
+                                <div style="padding:8px 16px; font-size:11px; font-weight:700; text-transform:uppercase; letter-spacing:0.5px; color:var(--text-muted); border-bottom:1px solid #f1f5f9;">
+                                    Blank Customer Templates
+                                </div>
+                                <a href="/api/master_customers/template/excel" class="template-dropdown-item" download="TrashTrekyx_Customer_Template.xlsx" onclick="closeTemplateDropdown()" role="menuitem">
+                                    <i class="fa-solid fa-file-excel" style="color:#107c41; font-size:18px; width:22px; text-align:center;"></i>
+                                    <div>
+                                        <div style="font-weight:600; color:var(--text-main); font-size:13px;">Download Excel Template (.xlsx)</div>
+                                        <div style="font-size:11px; color:var(--text-muted);">Formatted columns & frozen header</div>
+                                    </div>
+                                </a>
+                                <a href="/api/master_customers/template/word" class="template-dropdown-item" download="TrashTrekyx_Customer_Template.docx" onclick="closeTemplateDropdown()" role="menuitem">
+                                    <i class="fa-solid fa-file-word" style="color:#185abd; font-size:18px; width:22px; text-align:center;"></i>
+                                    <div>
+                                        <div style="font-weight:600; color:var(--text-main); font-size:13px;">Download Word Template (.docx)</div>
+                                        <div style="font-size:11px; color:var(--text-muted);">Table format with instructions</div>
+                                    </div>
+                                </a>
+                                <a href="/api/master_customers/template/csv" class="template-dropdown-item" download="TrashTrekyx_Customer_Template.csv" onclick="closeTemplateDropdown()" role="menuitem">
+                                    <i class="fa-solid fa-file-csv" style="color:#0284c7; font-size:18px; width:22px; text-align:center;"></i>
+                                    <div>
+                                        <div style="font-weight:600; color:var(--text-main); font-size:13px;">Download CSV Template (.csv)</div>
+                                        <div style="font-size:11px; color:var(--text-muted);">Standard UTF-8 comma-separated</div>
+                                    </div>
+                                </a>
+                            </div>
+                        </div>
+                        <button id="btn-sync-template-customers" onclick="openSyncTemplateCustomersModal()" class="btn btn-outline" style="background:white;" title="Sync and import all customers from saved route templates into Master Customer List"><i class="fa-solid fa-arrows-rotate" style="color:var(--primary);"></i> Sync From Templates</button>
+                        <button id="btn-import-customers" onclick="openImportModal()" class="btn btn-outline" style="background:white;"><i class="fa-solid fa-file-import"></i> Import Customers</button>
+                        <button id="btn-add-customer" onclick="openAddCustomerModal()" class="btn btn-primary"><i class="fa-solid fa-user-plus"></i> Add Customer</button>
+                    </div>
                 </div>
-                <div class="section-header-actions">
-                    <button id="btn-add-driver" onclick="document.getElementById('add-driver-modal').style.display='flex'" class="btn btn-primary"><i class="fa-solid fa-user-plus"></i> Add New Driver</button>
+
+                <!-- Search & Filter Bar -->
+                <div class="search-filter-bar" style="background: white; border-radius: 12px; border: 1px solid var(--border); padding: 10px 16px; margin-bottom: 16px; display: flex; gap: 12px; align-items: center; box-shadow: var(--shadow-soft);">
+                    <i class="fa-solid fa-magnifying-glass" style="color: var(--text-muted);"></i>
+                    <input type="text" id="master-cust-search" placeholder="Search customers by name, address, or phone..." oninput="onSearchCustomerInput()" style="border: none; outline: none; width: 100%; font-size: 14px; font-family: 'Inter', sans-serif;">
+                    <button id="master-cust-clear-search" onclick="clearCustomerSearch()" style="display:none; background:none; border:none; color:var(--text-muted); cursor:pointer; font-size:14px;"><i class="fa-solid fa-xmark"></i></button>
                 </div>
-            </div>
-            
-            <div class="driver-list" id="driver-list">
-                <div style="padding: 24px; text-align: center; color: var(--text-muted);">Loading drivers...</div>
+
+                <div class="driver-list" id="master-customer-list">
+                    <div style="padding: 24px; text-align: center; color: var(--text-muted);">Loading customers...</div>
+                </div>
+
+                <div id="master-cust-pagination" style="display:flex; justify-content:space-between; align-items:center; margin-top:12px; font-size:13px; color:var(--text-muted);">
+                    <span id="master-cust-page-info">Showing 0 customers</span>
+                    <div style="display:flex; gap:8px;">
+                        <button id="btn-cust-prev" onclick="changeCustomerPage(-1)" class="btn btn-outline" style="padding:6px 12px; font-size:12px;" disabled>Previous</button>
+                        <button id="btn-cust-next" onclick="changeCustomerPage(1)" class="btn btn-outline" style="padding:6px 12px; font-size:12px;" disabled>Next</button>
+                    </div>
+                </div>
             </div>
         </div>
 
-        <!-- User Management -->
-        <div id="user-management-section" style="margin-top: 32px;">
+        <!-- Tab Pane 3: Saved Templates (Dedicated Separate Tab & Page) -->
+        <div id="pane-templates" class="admin-tab-pane" role="tabpanel" aria-labelledby="tab-btn-templates" style="display:none;">
+            <div id="saved-templates-section">
+                <div class="section-header">
+                    <div>
+                        <h2>Saved Templates Library</h2>
+                        <p style="margin:4px 0 0 0; color:var(--text-muted); font-size:13px;">Manage, deploy, and organize saved route templates. Each template retains its assigned stops and routes.</p>
+                    </div>
+                    <div class="section-header-actions">
+                        <a href="/generate" class="btn btn-primary" style="font-size:13px;"><i class="fa-solid fa-plus"></i> Generate New Template</a>
+                    </div>
+                </div>
+                <div class="driver-list" id="template-list">
+                    <div style="padding: 24px; text-align: center; color: var(--text-muted);">Loading templates...</div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Tab Pane 4: Driver Management -->
+        <div id="pane-drivers" class="admin-tab-pane" role="tabpanel" aria-labelledby="tab-btn-drivers" style="display:none;">
+            <div id="driver-management-section">
+                <div class="section-header">
+                    <div>
+                        <h2>Driver Management</h2>
+                    </div>
+                    <div class="section-header-actions">
+                        <button id="btn-add-driver" onclick="document.getElementById('add-driver-modal').style.display='flex'" class="btn btn-primary"><i class="fa-solid fa-user-plus"></i> Add New Driver</button>
+                    </div>
+                </div>
+                
+                <div class="driver-list" id="driver-list">
+                    <div style="padding: 24px; text-align: center; color: var(--text-muted);">Loading drivers...</div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Tab Pane 5: User Management -->
+        <div id="pane-users" class="admin-tab-pane" role="tabpanel" aria-labelledby="tab-btn-users" style="display:none;">
+            <div id="user-management-section">
             <div class="section-header">
                 <div>
                     <h2>User Management</h2>
@@ -619,7 +743,8 @@
                 <div style="padding:24px; text-align:center; color:var(--text-muted); background:white; border-radius:14px; border:1px solid var(--border);">Loading admin users...</div>
             </div>
         </div>
-    </div>
+    </div> <!-- Close #pane-users -->
+    </div> <!-- Close .container -->
 
     <!-- Modal -->
     <div id="add-driver-modal">
@@ -1127,6 +1252,64 @@
     </div>
 
     <script>
+        // ============================================================================
+        // ADMIN TAB NAVIGATION SYSTEM (MASTER CUSTOMERS & SAVED TEMPLATES SEPARATION)
+        // ============================================================================
+        const SERVER_INITIAL_TAB = '{{ initial_tab|default("overview") }}';
+        let currentActiveTab = 'overview';
+
+        function switchAdminTab(tabName) {
+            if (!tabName) tabName = 'overview';
+            if (tabName === 'master-customers' || tabName === 'customer-list' || tabName === 'customers') tabName = 'customers';
+            if (tabName === 'saved-templates' || tabName === 'template-library' || tabName === 'templates') tabName = 'templates';
+
+            const validTabs = ['overview', 'customers', 'templates', 'drivers', 'users'];
+            if (!validTabs.includes(tabName)) tabName = 'overview';
+
+            currentActiveTab = tabName;
+
+            validTabs.forEach(t => {
+                const btn = document.getElementById('tab-btn-' + t);
+                const pane = document.getElementById('pane-' + t);
+                if (btn) {
+                    if (t === tabName) {
+                        btn.classList.add('active');
+                        btn.setAttribute('aria-selected', 'true');
+                    } else {
+                        btn.classList.remove('active');
+                        btn.setAttribute('aria-selected', 'false');
+                    }
+                }
+                if (pane) {
+                    pane.style.display = (t === tabName) ? 'flex' : 'none';
+                }
+            });
+
+            try {
+                const url = new URL(window.location);
+                url.searchParams.set('tab', tabName);
+                window.history.replaceState({ tab: tabName }, '', url);
+            } catch (e) {
+                window.location.hash = tabName;
+            }
+
+            if (tabName === 'customers') {
+                loadMasterCustomers();
+                loadTemplates();
+            } else if (tabName === 'templates') {
+                loadTemplates();
+            } else if (tabName === 'drivers') {
+                loadDrivers();
+            } else if (tabName === 'users') {
+                loadAdminUsers();
+            } else if (tabName === 'overview') {
+                loadAssignedRoutes();
+                loadTemplates();
+            }
+
+            window.scrollTo({ top: 0, behavior: 'smooth' });
+        }
+
         let currentTemplates = [];
         let currentDrivers = [];
         
@@ -1518,8 +1701,8 @@ Do you want to proceed and apply these changes permanently?`;
                             <button onclick="openEditCustomerModal(${c.id})" class="btn btn-outline" style="padding:7px 10px; font-size:13px; background:white;" title="Edit customer details">
                                 <i class="fa-solid fa-pen"></i> Edit
                             </button>
-                            <button onclick="archiveCustomer(${c.id}, '${escapeJs(c.name)}')" style="background:none; border:none; color:var(--text-muted); cursor:pointer; font-size:15px; padding:6px;" title="Archive Customer">
-                                <i class="fa-solid fa-trash-can"></i>
+                            <button onclick="archiveCustomer(${c.id}, '${escapeJs(c.name)}')" class="btn btn-outline" style="padding:7px 10px; font-size:13px; color:var(--red, #ef4444); border-color:#fca5a5; background:white;" title="Delete Customer">
+                                <i class="fa-solid fa-trash-can"></i> Delete
                             </button>
                         </div>
                     </div>
@@ -1791,7 +1974,7 @@ Do you want to proceed and apply these changes permanently?`;
             }
         }
 
-        function openAddToTemplateModal(id, name, address) {
+        async function openAddToTemplateModal(id, name, address) {
             document.getElementById('target-cust-id').value = id;
             document.getElementById('target-cust-name').innerText = name;
             document.getElementById('target-cust-address').innerText = address;
@@ -1800,6 +1983,16 @@ Do you want to proceed and apply these changes permanently?`;
 
             const select = document.getElementById('destination-template-select');
             select.innerHTML = '<option value="">-- Choose a Saved Template --</option>';
+
+            if (!currentTemplates || currentTemplates.length === 0) {
+                try {
+                    const res = await fetch('/api/templates');
+                    const data = await res.json();
+                    currentTemplates = data.templates || [];
+                } catch (e) {
+                    console.error('Error fetching templates:', e);
+                }
+            }
 
             if (currentTemplates && currentTemplates.length > 0) {
                 currentTemplates.forEach(t => {
@@ -2253,8 +2446,24 @@ Do you want to proceed and apply these changes permanently?`;
             const cardCust = document.getElementById('card-master-customers');
             if (cardCust && !hasPerm('customers.view')) cardCust.style.display = 'none';
 
+            const cardTemplates = document.getElementById('card-saved-templates');
+            if (cardTemplates && !hasPerm('templates.view')) cardTemplates.style.display = 'none';
+
             const cardUsers = document.getElementById('card-user-management');
             if (cardUsers && !hasPerm('users.view')) cardUsers.style.display = 'none';
+
+            // Navigation tabs
+            const tabCust = document.getElementById('tab-btn-customers');
+            if (tabCust && !hasPerm('customers.view')) tabCust.style.display = 'none';
+
+            const tabTemplates = document.getElementById('tab-btn-templates');
+            if (tabTemplates && !hasPerm('templates.view')) tabTemplates.style.display = 'none';
+
+            const tabDrivers = document.getElementById('tab-btn-drivers');
+            if (tabDrivers && !hasPerm('drivers.view')) tabDrivers.style.display = 'none';
+
+            const tabUsers = document.getElementById('tab-btn-users');
+            if (tabUsers && !hasPerm('users.view')) tabUsers.style.display = 'none';
 
             // Master customer action buttons
             const btnAddCust = document.getElementById('btn-add-customer');
@@ -2923,10 +3132,21 @@ Do you want to proceed and apply these changes permanently?`;
             loadAssignedRoutes();
             loadMasterCustomers();
 
+            // Determine active tab from URL query param, hash, or server initial tab
+            const urlParams = new URLSearchParams(window.location.search);
+            const queryTab = urlParams.get('tab');
+            const hashTab = window.location.hash ? window.location.hash.replace('#', '') : null;
+            const startTab = queryTab || hashTab || (typeof SERVER_INITIAL_TAB !== 'undefined' ? SERVER_INITIAL_TAB : 'overview');
+            switchAdminTab(startTab);
+
             // Auto-refresh assigned routes & driver status every 10s so completed routes vanish live
             setInterval(() => {
-                loadAssignedRoutes();
-                loadDrivers();
+                if (currentActiveTab === 'overview') {
+                    loadAssignedRoutes();
+                    loadDrivers();
+                } else if (currentActiveTab === 'drivers') {
+                    loadDrivers();
+                }
             }, 10000);
         };
     </script>

@@ -3136,7 +3136,29 @@ def index():
 @app.route('/admin')
 @admin_required
 def dashboard():
-    return render_template('admin_dashboard.html')
+    initial_tab = request.args.get('tab', 'overview')
+    if initial_tab in ['customers', 'master-customers']:
+        try:
+            migrate_saved_template_customers_to_master()
+        except Exception:
+            pass
+    return render_template('admin_dashboard.html', initial_tab=initial_tab)
+
+@app.route('/master-customers')
+@app.route('/admin/customers')
+@admin_required
+def admin_customers_page():
+    try:
+        migrate_saved_template_customers_to_master()
+    except Exception:
+        pass
+    return render_template('admin_dashboard.html', initial_tab='customers')
+
+@app.route('/saved-templates')
+@app.route('/admin/templates')
+@admin_required
+def admin_templates_page():
+    return render_template('admin_dashboard.html', initial_tab='templates')
 
 @app.route('/routes')
 @permission_required('routes.view')
