@@ -28,9 +28,32 @@ def get_firebase_token():
     if _firebase_token_cache["token"] and time.time() < _firebase_token_cache["expires"]:
         return _firebase_token_cache["token"]
         
-    # Attempt 1: Authenticate with verified ADMIN role via Firebase Admin SDK
+    # Attempt 1: Authenticate via Firebase Admin SDK
     admin_app = get_firebase_admin_app()
     if admin_app:
+        # Step 1a: Attempt to fetch native Google OAuth2 access token for the service account.
+        # This token has full administrative root access to all RTDB nodes (bypasses security rules).
+        try:
+            cred = admin_app.credential
+            if hasattr(cred, 'get_access_token'):
+                token_info = cred.get_access_token()
+                if token_info and token_info.access_token:
+                    _firebase_token_cache["token"] = token_info.access_token
+                    exp = getattr(token_info, 'expiry', None)
+                    if isinstance(exp, (int, float)):
+                        _firebase_token_cache["expires"] = exp
+                    elif hasattr(exp, 'timestamp'):
+                        _firebase_token_cache["expires"] = exp.timestamp()
+                    else:
+                        _firebase_token_cache["expires"] = time.time() + 3000
+                    return _firebase_token_cache["token"]
+        except Exception as e:
+            try:
+                app.logger.warning(f"Firebase Admin OAuth2 access token fetch failed: {e}")
+            except Exception:
+                pass
+
+        # Step 1b: Fallback to custom token exchange via Identity Toolkit
         try:
             from firebase_admin import auth as fb_auth
             token_bytes = fb_auth.create_custom_token(
@@ -48,9 +71,15 @@ def get_firebase_token():
                 _firebase_token_cache["expires"] = time.time() + 3000 # 50 minutes
                 return _firebase_token_cache["token"]
             else:
-                app.logger.warning(f"Failed to exchange admin custom token: {auth_res.status_code} {auth_res.text}")
+                try:
+                    app.logger.warning(f"Failed to exchange admin custom token: {auth_res.status_code} {auth_res.text}")
+                except Exception:
+                    pass
         except Exception as e:
-            app.logger.warning(f"Firebase Admin token minting failed in get_firebase_token: {e}")
+            try:
+                app.logger.warning(f"Firebase Admin token minting failed in get_firebase_token: {e}")
+            except Exception:
+                pass
 
     # Attempt 2: Fallback to anonymous auth only if Admin SDK credentials are not yet configured
     API_KEY = os.environ.get('FIREBASE_API_KEY', 'AIzaSyAhLnjh0gRa2pf29G90zr-6AMcjLjbQpPg')
@@ -64,6 +93,22 @@ def get_firebase_token():
     except Exception:
         pass
     return None
+
+def get_firebase_auth_param(token=None):
+    tok = token or get_firebase_token()
+    if not tok:
+        return ""
+    if tok.startswith("ya29.") or not tok.startswith("eyJ"):
+        return f"access_token={tok}"
+    return f"auth={tok}"
+
+def append_firebase_auth(url, token=None):
+    tok = token or get_firebase_token()
+    if not tok:
+        return url
+    param = f"access_token={tok}" if (tok.startswith("ya29.") or not tok.startswith("eyJ")) else f"auth={tok}"
+    sep = "&" if "?" in url else "?"
+    return f"{url}{sep}{param}"
 
 app = Flask(__name__)
 
@@ -2035,7 +2080,7 @@ def set_driver_rtdb_assignment_conditional(driver_id, truck_id=None, generation_
 
         try:
             # Fetch current node state and ETag
-            get_resp = requests.get(f"{node_url}?auth={id_token}", timeout=timeout)
+            get_resp = requests.get(f"{node_url}?{get_firebase_auth_param(id_token)}", timeout=timeout)
             etag = None
             if get_resp.status_code == 200:
                 current_val = get_resp.json()
@@ -2065,9 +2110,9 @@ def set_driver_rtdb_assignment_conditional(driver_id, truck_id=None, generation_
             headers = {'if-match': str(etag).strip()}
 
             if target_val is not None:
-                res = requests.put(f"{node_url}?auth={id_token}", json=target_val, headers=headers, timeout=timeout)
+                res = requests.put(f"{node_url}?{get_firebase_auth_param(id_token)}", json=target_val, headers=headers, timeout=timeout)
             else:
-                res = requests.delete(f"{node_url}?auth={id_token}", headers=headers, timeout=timeout)
+                res = requests.delete(f"{node_url}?{get_firebase_auth_param(id_token)}", headers=headers, timeout=timeout)
 
             if res.status_code in (200, 204):
                 if generation_id and revision is not None:
@@ -2124,6 +2169,16 @@ def set_driver_rtdb_assignment(driver_id, truck_id=None, retries=2, timeout=4, g
         retries=retries,
         timeout=timeout
     )
+
+def _get_pending_rtdb_sync_dict(meta):
+    if not meta or not meta.value:
+        return {}
+    try:
+        import json
+        data = json.loads(meta.value)
+        return data if isinstance(data, dict) else {}
+    except Exception:
+        return {}
 
 def stage_assignment_intent(op_id, mutation_type, affected_drivers_map, commit=False):
     """
@@ -2195,7 +2250,7 @@ def stage_assignment_intent(op_id, mutation_type, affected_drivers_map, commit=F
                 outbox.last_error = None
         
         meta = Metadata.query.filter_by(key='pending_rtdb_sync').first()
-        pending = json.loads(meta.value) if (meta and meta.value) else {}
+        pending = _get_pending_rtdb_sync_dict(meta)
         for did_raw, details in affected_drivers_map.items():
             pending[str(did_raw)] = details.get('target_truck')
         if not meta:
@@ -2269,7 +2324,7 @@ def complete_assignment_intent(op_id, driver_id=None, version=None, generation_i
             return False, f"No matching records for op_id {op_id}"
         
         meta = Metadata.query.filter_by(key='pending_rtdb_sync').first()
-        pending = json.loads(meta.value) if (meta and meta.value) else {}
+        pending = _get_pending_rtdb_sync_dict(meta)
 
         for rec in records:
             did_str = str(rec.driver_id)
@@ -2355,7 +2410,7 @@ def record_pending_rtdb_assignment(driver_id, truck_id, last_error=None, commit=
                 outbox.last_error = str(last_error)
 
         meta = Metadata.query.filter_by(key='pending_rtdb_sync').first()
-        pending = json.loads(meta.value) if (meta and meta.value) else {}
+        pending = _get_pending_rtdb_sync_dict(meta)
         pending[str(did)] = target
         if not meta:
             meta = Metadata(key='pending_rtdb_sync', value=json.dumps(pending))
@@ -2397,7 +2452,7 @@ def clear_pending_rtdb_assignment(driver_id, commit=True, op_id=None, version=No
 
         meta = Metadata.query.filter_by(key='pending_rtdb_sync').first()
         if meta and meta.value:
-            pending = json.loads(meta.value)
+            pending = _get_pending_rtdb_sync_dict(meta)
             if str(did) in pending:
                 del pending[str(did)]
                 meta.value = json.dumps(pending)
@@ -2484,7 +2539,7 @@ def reconcile_pending_rtdb_assignments():
 
                     meta = Metadata.query.filter_by(key='pending_rtdb_sync').first()
                     if meta and meta.value:
-                        current_pending = json.loads(meta.value)
+                        current_pending = _get_pending_rtdb_sync_dict(meta)
                         for did in resolved_ids:
                             current_pending.pop(str(did), None)
                         meta.value = json.dumps(current_pending)
@@ -3259,7 +3314,7 @@ def ensure_driver_truck_assignments():
                 id_token = get_firebase_token()
                 if id_token:
                     for d in colliding_drivers:
-                        requests.patch(f"{firebase_url}/trucks/{d.truck_id}.json?auth={id_token}", json={
+                        requests.patch(f"{firebase_url}/trucks/{d.truck_id}.json?{get_firebase_auth_param(id_token)}", json={
                             "driverName": d.name or d.username,
                             "driverId": d.id
                         }, timeout=4)
@@ -3327,11 +3382,15 @@ def upload():
     if not start_coords_json or not end_coords_json: return "Missing coordinates", 400
     
     import json
-    starts_str = json.loads(start_coords_json)
-    ends_str = json.loads(end_coords_json)
-    
-    start_coords = [ (float(x.split(',')[0]), float(x.split(',')[1])) for x in starts_str ]
-    end_coords = [ (float(x.split(',')[0]), float(x.split(',')[1])) for x in ends_str ]
+    try:
+        starts_str = json.loads(start_coords_json)
+        ends_str = json.loads(end_coords_json)
+        if not isinstance(starts_str, list) or not isinstance(ends_str, list):
+            return jsonify({'error': 'Coordinates must be JSON lists of "lat,lng" strings'}), 400
+        start_coords = [ (float(x.split(',')[0].strip()), float(x.split(',')[1].strip())) for x in starts_str ]
+        end_coords = [ (float(x.split(',')[0].strip()), float(x.split(',')[1].strip())) for x in ends_str ]
+    except (ValueError, TypeError, IndexError, json.JSONDecodeError, AttributeError) as coord_err:
+        return jsonify({'error': f'Malformed start or end coordinates: {coord_err}'}), 400
     
     import uuid
     safe_filename = f"upload_{uuid.uuid4().hex}{ext}"
@@ -3424,7 +3483,9 @@ def upload():
         Customer.query.filter((Customer.truck_id == None) | (~Customer.truck_id.in_(list(protected_trucks)))).delete(synchronize_session=False)
     else:
         Customer.query.delete()
-    Metadata.query.delete()
+    # Preserve system and operational metadata keys
+    PROTECTED_METADATA_KEYS = {'pending_rtdb_sync', 'initial_templates_seeded', 'migration_in_progress'}
+    Metadata.query.filter(Metadata.key.notin_(PROTECTED_METADATA_KEYS)).delete(synchronize_session=False)
     
     # Insert new data
     import json
@@ -3480,7 +3541,7 @@ def upload():
         if id_token:
             
             # Clear only non-protected old data in Firebase
-            trucks_res = requests.get(f"{firebase_url}/trucks.json?auth={id_token}")
+            trucks_res = requests.get(f"{firebase_url}/trucks.json?{get_firebase_auth_param(id_token)}")
             if trucks_res.status_code == 200 and trucks_res.json():
                 trucks_data = trucks_res.json()
                 trucks_items = trucks_data.items() if isinstance(trucks_data, dict) else enumerate(trucks_data) if isinstance(trucks_data, list) else []
@@ -3491,9 +3552,9 @@ def upload():
                                 continue
                         except:
                             pass
-                        requests.delete(f"{firebase_url}/trucks/{tid}.json?auth={id_token}")
+                        requests.delete(f"{firebase_url}/trucks/{tid}.json?{get_firebase_auth_param(id_token)}")
                     
-            routes_res = requests.get(f"{firebase_url}/routes.json?auth={id_token}")
+            routes_res = requests.get(f"{firebase_url}/routes.json?{get_firebase_auth_param(id_token)}")
             if routes_res.status_code == 200 and routes_res.json():
                 routes_data = routes_res.json()
                 routes_items = routes_data.items() if isinstance(routes_data, dict) else enumerate(routes_data) if isinstance(routes_data, list) else []
@@ -3505,7 +3566,7 @@ def upload():
                                 continue
                         except:
                             pass
-                        requests.delete(f"{firebase_url}/routes/{rid}.json?auth={id_token}")
+                        requests.delete(f"{firebase_url}/routes/{rid}.json?{get_firebase_auth_param(id_token)}")
             
             # Group updates by route
             routes_payload = {}
@@ -3529,13 +3590,13 @@ def upload():
                     }
                     
             for route_key, stops in routes_payload.items():
-                res = requests.put(f"{firebase_url}/routes/{route_key}.json?auth={id_token}", json={"stops": stops})
+                res = requests.put(f"{firebase_url}/routes/{route_key}.json?{get_firebase_auth_param(id_token)}", json={"stops": stops})
                 if res.status_code != 200:
                     print(f"Failed to write {route_key}: {res.text}")
                     
                 # also init the truck so it exists for tracking
                 tid = route_key.split('_')[1]
-                requests.put(f"{firebase_url}/trucks/{tid}.json?auth={id_token}", json={"status": "offline"})
+                requests.put(f"{firebase_url}/trucks/{tid}.json?{get_firebase_auth_param(id_token)}", json={"status": "offline"})
         else:
             print("Backend Firebase Auth failed:", auth_res.text)
             
@@ -3548,7 +3609,7 @@ def upload():
 @app.route('/api/driver_login', methods=['POST'])
 @app.route('/api/app_login', methods=['POST'])
 def driver_login():
-    data = request.json or {}
+    data = request.get_json(silent=True) or {}
     raw_username = (data.get('username') or '').strip()
     raw_password = data.get('password') or ''
     
@@ -3625,7 +3686,7 @@ def admin_check():
 
 @app.route('/api/admin_reset_password', methods=['POST'])
 def admin_reset_password():
-    data = request.json or {}
+    data = request.get_json(silent=True) or {}
     secret_key = data.get('secret')
     new_password = data.get('new_password')
     username = (data.get('username') or 'admin').strip()
@@ -3746,7 +3807,7 @@ def api_admin_get_users():
 @permission_required('users.create')
 def api_admin_create_user():
     acting_user = get_current_user()
-    data = request.json or {}
+    data = request.get_json(silent=True) or {}
     name = (data.get('name') or '').strip()
     username = (data.get('username') or '').strip()
     email = (data.get('email') or '').strip()
@@ -3868,7 +3929,7 @@ def api_admin_edit_user(user_id):
     if getattr(u, 'is_superadmin', False) and not is_acting_super:
         return jsonify({'error': 'Only super administrators can edit super administrator accounts'}), 403
 
-    data = request.json or {}
+    data = request.get_json(silent=True) or {}
     name = (data.get('name') or '').strip()
     email = (data.get('email') or '').strip()
     new_password = data.get('password')
@@ -3929,7 +3990,7 @@ def api_admin_update_user_permissions(user_id):
     if getattr(u, 'is_superadmin', False) and not is_acting_super:
         return jsonify({'error': 'Only super administrators can modify permissions of super administrator accounts'}), 403
 
-    data = request.json or {}
+    data = request.get_json(silent=True) or {}
     requested_perms = data.get('permissions') or []
 
     # Safeguard 3: Ordinary admin cannot grant permissions they do not possess
@@ -3970,7 +4031,7 @@ def api_admin_update_user_status(user_id):
     if not u or u.role != 'ADMIN':
         return jsonify({'error': 'Admin user not found'}), 404
 
-    data = request.json or {}
+    data = request.get_json(silent=True) or {}
     if 'is_active' not in data:
         return jsonify({'error': 'Missing is_active boolean field'}), 400
     is_active = bool(data.get('is_active'))
@@ -4043,7 +4104,7 @@ def api_admin_get_audit_logs():
 @permission_required('drivers.create')
 def admin_create_driver():
     with assignment_coordination_guard():
-        data = request.json or {}
+        data = request.get_json(silent=True) or {}
         username = data.get('username')
         password = data.get('password')
         name = data.get('name')
@@ -4133,7 +4194,7 @@ def admin_create_driver():
 @permission_required('drivers.assign_truck')
 def admin_set_driver_truck():
     with assignment_coordination_guard():
-        data = request.json or {}
+        data = request.get_json(silent=True) or {}
         driver_id = data.get('driver_id')
         raw_truck_id = data.get('truck_id')
         
@@ -4309,10 +4370,10 @@ def admin_set_driver_truck():
             id_token = get_firebase_token()
             if id_token:
                 if old_truck and old_truck != driver.truck_id:
-                    requests.patch(f"{firebase_url}/trucks/{old_truck}.json?auth={id_token}", json={"driverName": None, "driverId": None}, timeout=4)
-                    requests.delete(f"{firebase_url}/routes/route_{old_truck}.json?auth={id_token}", timeout=4)
+                    requests.patch(f"{firebase_url}/trucks/{old_truck}.json?{get_firebase_auth_param(id_token)}", json={"driverName": None, "driverId": None}, timeout=4)
+                    requests.delete(f"{firebase_url}/routes/route_{old_truck}.json?{get_firebase_auth_param(id_token)}", timeout=4)
                 if driver.truck_id:
-                    requests.patch(f"{firebase_url}/trucks/{driver.truck_id}.json?auth={id_token}", json={
+                    requests.patch(f"{firebase_url}/trucks/{driver.truck_id}.json?{get_firebase_auth_param(id_token)}", json={
                         "driverName": driver.name or driver.username,
                         "driverId": driver.id
                     }, timeout=4)
@@ -4333,7 +4394,7 @@ def admin_set_driver_truck():
                                 "deliver_bag": bool(getattr(c, 'deliver_bag', False)),
                                 "customer_status": getattr(c, 'customer_status', 'ACTIVE')
                             }
-                        requests.put(f"{firebase_url}/routes/{route_key}.json?auth={id_token}", json={"stops": stops_payload}, timeout=4)
+                        requests.put(f"{firebase_url}/routes/{route_key}.json?{get_firebase_auth_param(id_token)}", json={"stops": stops_payload}, timeout=4)
         except Exception as e:
             app.logger.warning(f"Legacy route sync warning: {e}")
 
@@ -4407,7 +4468,7 @@ def admin_delete_driver(driver_id):
             if id_token:
                 firebase_url = "https://wasteroutelive-default-rtdb.firebaseio.com"
                 import requests
-                requests.delete(f"{firebase_url}/driver_locations/{driver.id}.json?auth={id_token}", timeout=4)
+                requests.delete(f"{firebase_url}/driver_locations/{driver.id}.json?{get_firebase_auth_param(id_token)}", timeout=4)
         except:
             pass
             
@@ -4465,7 +4526,7 @@ def admin_sync_driver_assignments():
 @permission_required('routes.assign_driver')
 def assign_driver():
     import json
-    data = request.json or {}
+    data = request.get_json(silent=True) or {}
     driver_id = data.get('driver_id')
     truck_id = data.get('truck_id')
     confirmations = data.get('confirmations') # optional dict
@@ -4737,17 +4798,17 @@ def assign_driver():
 
             if driver and full_stops_payload:
                 # Full PUT guarantees the driver app always receives complete stop objects (name, lat, lng, status, confirmation, deliver_bag)
-                res = requests.put(f"{firebase_url}/routes/route_{truck_id}.json?auth={id_token}", json={"stops": full_stops_payload})
+                res = requests.put(f"{firebase_url}/routes/route_{truck_id}.json?{get_firebase_auth_param(id_token)}", json={"stops": full_stops_payload})
                 if res.status_code != 200:
                     firebase_synced = False
-                requests.patch(f"{firebase_url}/trucks/{truck_id}.json?auth={id_token}", json={
+                requests.patch(f"{firebase_url}/trucks/{truck_id}.json?{get_firebase_auth_param(id_token)}", json={
                     "driverName": driver.name or driver.username,
                     "driverId": driver.id,
                     "routeCompleted": False
                 })
             elif firebase_patch_data:
                 # Verify existing Firebase stops have full stop objects; if empty/missing, write full stops instead of broken partial patches
-                existing_fb = requests.get(f"{firebase_url}/routes/route_{truck_id}/stops.json?auth={id_token}", timeout=6)
+                existing_fb = requests.get(f"{firebase_url}/routes/route_{truck_id}/stops.json?{get_firebase_auth_param(id_token)}", timeout=6)
                 existing_val = existing_fb.json() if existing_fb.status_code == 200 else None
                 has_valid_stops = False
                 if isinstance(existing_val, dict):
@@ -4756,9 +4817,9 @@ def assign_driver():
                     has_valid_stops = any(isinstance(v, dict) and v.get('name') for v in existing_val)
 
                 if has_valid_stops:
-                    res = requests.patch(f"{firebase_url}/routes/route_{truck_id}/stops.json?auth={id_token}", json=firebase_patch_data)
+                    res = requests.patch(f"{firebase_url}/routes/route_{truck_id}/stops.json?{get_firebase_auth_param(id_token)}", json=firebase_patch_data)
                 elif full_stops_payload:
-                    res = requests.put(f"{firebase_url}/routes/route_{truck_id}.json?auth={id_token}", json={"stops": full_stops_payload})
+                    res = requests.put(f"{firebase_url}/routes/route_{truck_id}.json?{get_firebase_auth_param(id_token)}", json={"stops": full_stops_payload})
                 else:
                     res = None
                 if res is not None and res.status_code != 200:
@@ -4816,7 +4877,7 @@ def sync_firebase_to_sql(template_id=None):
                         pass
             truck_ids_to_sync = list(active_trucks)
         
-        res = requests.get(f"{firebase_url}/routes.json?auth={id_token}", timeout=8)
+        res = requests.get(f"{firebase_url}/routes.json?{get_firebase_auth_param(id_token)}", timeout=8)
         if res.status_code == 200:
             routes_data = res.json()
             if routes_data:
@@ -5065,7 +5126,7 @@ def mark_completed(customer_id):
             
             id_token = get_firebase_token()
             if id_token:
-                requests.patch(f"{firebase_url}/routes/route_{customer.truck_id}/stops/{customer.id}.json?auth={id_token}", json={"status": "COMPLETED"})
+                requests.patch(f"{firebase_url}/routes/route_{customer.truck_id}/stops/{customer.id}.json?{get_firebase_auth_param(id_token)}", json={"status": "COMPLETED"})
         except Exception as e:
             print("Firebase sync error in mark_completed:", e)
             
@@ -5125,7 +5186,7 @@ def resolve_token():
                     id_token = get_firebase_token()
                     if id_token:
                         firebase_url = "https://wasteroutelive-default-rtdb.firebaseio.com"
-                        requests.delete(f"{firebase_url}/routes/route_{driver.truck_id}.json?auth={id_token}", timeout=3)
+                        requests.delete(f"{firebase_url}/routes/route_{driver.truck_id}.json?{get_firebase_auth_param(id_token)}", timeout=3)
                 except:
                     pass
 
@@ -5183,7 +5244,7 @@ def download_excel():
 @app.route('/api/remove_stop', methods=['POST'])
 @permission_required('routes.edit')
 def remove_stop():
-    data = request.json or {}
+    data = request.get_json(silent=True) or {}
     cust_id = data.get('customer_id')
     raw_truck_id = data.get('truck_id')
     
@@ -5225,19 +5286,19 @@ def remove_stop():
         if id_token:
             route_key = f"route_{truck_id}"
             
-            stops_res = requests.get(f"{firebase_url}/routes/{route_key}/stops.json?auth={id_token}")
-            stops = stops_res.json() or {}
+            stops_res = requests.get(f"{firebase_url}/routes/{route_key}/stops.json?{get_firebase_auth_param(id_token)}")
+            stops = stops_res.json() if stops_res.status_code == 200 and isinstance(stops_res.json(), dict) and 'error' not in stops_res.json() else {}
             
             # Remove target stop and shift others
             if str(cust_id) in stops:
                 del stops[str(cust_id)]
                 
                 for s_id, s_info in stops.items():
-                    if s_info and target_seq is not None and s_info.get('sequence', 0) > target_seq:
+                    if isinstance(s_info, dict) and target_seq is not None and s_info.get('sequence', 0) > target_seq:
                         s_info['sequence'] -= 1
                         
                 # Update Firebase
-                requests.put(f"{firebase_url}/routes/{route_key}/stops.json?auth={id_token}", json=stops)
+                requests.put(f"{firebase_url}/routes/{route_key}/stops.json?{get_firebase_auth_param(id_token)}", json=stops)
                 
         recompute_route_metrics()
         return jsonify({'success': True})
@@ -5253,7 +5314,7 @@ def remove_stop():
 @app.route('/api/add_stop', methods=['POST'])
 @permission_required('routes.edit')
 def add_stop():
-    data = request.json
+    data = request.get_json(silent=True) or {}
     if not data: return jsonify({'error': 'No data provided'}), 400
     
     name = data.get('name', 'New Stop')
@@ -5341,12 +5402,12 @@ def add_stop():
             if id_token:
                 route_key = f"route_{target_truck_id}"
                 
-                stops_res = requests.get(f"{firebase_url}/routes/{route_key}/stops.json?auth={id_token}")
-                stops = stops_res.json() or {}
+                stops_res = requests.get(f"{firebase_url}/routes/{route_key}/stops.json?{get_firebase_auth_param(id_token)}")
+                stops = stops_res.json() if stops_res.status_code == 200 and isinstance(stops_res.json(), dict) and 'error' not in stops_res.json() else {}
                 
                 # Shift sequence in firebase
                 for s_id, s_info in stops.items():
-                    if s_info and s_info.get('sequence', 0) > target_sequence:
+                    if isinstance(s_info, dict) and s_info.get('sequence', 0) > target_sequence:
                         s_info['sequence'] += 1
                 
                 # Add new stop
@@ -5363,7 +5424,7 @@ def add_stop():
                     "customer_status": "ACTIVE"
                 }
                 
-                requests.put(f"{firebase_url}/routes/{route_key}/stops.json?auth={id_token}", json=stops)
+                requests.put(f"{firebase_url}/routes/{route_key}/stops.json?{get_firebase_auth_param(id_token)}", json=stops)
                 
             recompute_route_metrics()
             return jsonify({'success': True, 'customer_id': new_id})
@@ -5395,7 +5456,7 @@ def add_stop():
 @login_required
 def repair_database():
     try:
-        data = request.json or {}
+        data = request.get_json(silent=True) or {}
         dry_run = data.get('dry_run', True)
         
         # 1. Clean up Ghost Assignments (Drivers with assigned_template_id but no truck)
@@ -5464,9 +5525,9 @@ def ai_rebalance():
     firebase_url = "https://wasteroutelive-default-rtdb.firebaseio.com"
     id_token = get_firebase_token()
     if not id_token:
-        return jsonify({'error': 'Firebase auth failed'}), 500
+        return jsonify({'error': 'Firebase auth service temporarily unavailable'}), 503
         
-    trucks_res = requests.get(f"{firebase_url}/trucks.json?auth={id_token}")
+    trucks_res = requests.get(f"{firebase_url}/trucks.json?{get_firebase_auth_param(id_token)}")
     trucks_data = trucks_res.json() if trucks_res.status_code == 200 and trucks_res.json() else {}
     
     # 2. Get original metadata for fallback start/end coords
@@ -5666,9 +5727,9 @@ def ai_rebalance():
             }
 
     # 7. Push to Firebase
-    requests.delete(f"{firebase_url}/routes.json?auth={id_token}")
+    requests.delete(f"{firebase_url}/routes.json?{get_firebase_auth_param(id_token)}")
     for route_key, stops in routes_payload.items():
-        requests.put(f"{firebase_url}/routes/{route_key}.json?auth={id_token}", json={"stops": stops})
+        requests.put(f"{firebase_url}/routes/{route_key}.json?{get_firebase_auth_param(id_token)}", json={"stops": stops})
         
     recompute_route_metrics()
     return jsonify({'success': True})
@@ -5677,7 +5738,7 @@ def ai_rebalance():
 @permission_required('routes.edit')
 def update_route_manual():
     try:
-        data = (request.json or {}).get('routes', {})
+        data = (request.get_json(silent=True) or {}).get('routes', {})
         
         customers = Customer.query.all()
         cust_map = {c.id: c for c in customers}
@@ -5735,7 +5796,7 @@ def update_route_manual():
             id_token = get_firebase_token()
             if id_token:
                 for route_key, stops in routes_payload.items():
-                    requests.put(f"{firebase_url}/routes/{route_key}.json?auth={id_token}", json={"stops": stops})
+                    requests.put(f"{firebase_url}/routes/{route_key}.json?{get_firebase_auth_param(id_token)}", json={"stops": stops})
         except Exception as e:
             print("Firebase sync error on manual reorder:", e)
             
@@ -5754,7 +5815,7 @@ def update_route_manual():
 @app.route('/api/update_customer_status', methods=['POST'])
 @login_required
 def update_customer_status():
-    data = request.json
+    data = request.get_json(silent=True) or {}
     cust_id = data.get('id')
     status = data.get('customer_status')
     
@@ -5787,7 +5848,7 @@ def update_customer_status():
             id_token = get_firebase_token()
             if id_token:
                 payload = { "customer_status": status }
-                requests.patch(f"{firebase_url}/routes/route_{c.truck_id}/stops/{c.id}.json?auth={id_token}", json=payload)
+                requests.patch(f"{firebase_url}/routes/route_{c.truck_id}/stops/{c.id}.json?{get_firebase_auth_param(id_token)}", json=payload)
         except Exception as e:
             print("Firebase sync error in update_customer_status:", e)
             
@@ -5797,7 +5858,7 @@ def update_customer_status():
 @app.route('/api/update_customer_details', methods=['POST'])
 @permission_required('routes.edit')
 def update_customer_details():
-    data = request.json or {}
+    data = request.get_json(silent=True) or {}
     cust_id = data.get('id')
     if not cust_id:
         return jsonify({'error': 'Customer ID is required'}), 400
@@ -5933,7 +5994,7 @@ def update_customer_details():
                 if c.lat is not None and c.lng is not None:
                     payload["lat"] = c.lat
                     payload["lng"] = c.lng
-                requests.patch(f"{firebase_url}/routes/route_{c.truck_id}/stops/{c.id}.json?auth={id_token}", json=payload)
+                requests.patch(f"{firebase_url}/routes/route_{c.truck_id}/stops/{c.id}.json?{get_firebase_auth_param(id_token)}", json=payload)
         except Exception as e:
             print("Firebase sync error in update_customer_details:", e)
             
@@ -5961,7 +6022,7 @@ def update_customer_details():
 @app.route('/api/assign_route', methods=['POST'])
 @permission_required('routes.assign_driver')
 def assign_route():
-    data = request.json or {}
+    data = request.get_json(silent=True) or {}
     driver_id = data.get('driver_id')
     template_id = data.get('template_id')
     requested_truck_id = data.get('truck_id')
@@ -6116,7 +6177,7 @@ def assign_route():
         Customer.query.filter_by(truck_id=driver.truck_id).delete()
         db.session.commit()
         if id_token:
-            requests.delete(f"{firebase_url}/routes/route_{driver.truck_id}.json?auth={id_token}")
+            requests.delete(f"{firebase_url}/routes/route_{driver.truck_id}.json?{get_firebase_auth_param(id_token)}")
         recompute_route_metrics()
         return jsonify({'success': True})
         
@@ -6205,8 +6266,8 @@ def assign_route():
                         "deliver_bag": bool(getattr(c, 'deliver_bag', False)),
                         "customer_status": getattr(c, 'customer_status', 'ACTIVE')
                     }
-                requests.put(f"{firebase_url}/routes/{route_key}.json?auth={id_token}", json={"stops": stops_payload})
-                requests.patch(f"{firebase_url}/trucks/{driver.truck_id}.json?auth={id_token}", json={
+                requests.put(f"{firebase_url}/routes/{route_key}.json?{get_firebase_auth_param(id_token)}", json={"stops": stops_payload})
+                requests.patch(f"{firebase_url}/trucks/{driver.truck_id}.json?{get_firebase_auth_param(id_token)}", json={
                     "status": "offline",
                     "driverName": driver.name or driver.username,
                     "driverId": driver.id
@@ -6220,7 +6281,7 @@ def assign_route():
 @app.route('/api/save_template', methods=['POST'])
 @any_permission_required('templates.create', 'templates.edit', 'routes.generate_save_template')
 def save_template():
-    data = request.json or {}
+    data = request.get_json(silent=True) or {}
     name = data.get('name')
     t_id = data.get('id')
     is_edit_assigned = data.get('is_edit_assigned', False)
@@ -6375,7 +6436,7 @@ def save_template():
                                     "deliver_bag": bool(getattr(c, 'deliver_bag', False)),
                                     "customer_status": getattr(c, 'customer_status', 'ACTIVE')
                                 }
-                            requests.put(f"{firebase_url}/routes/{route_key}.json?auth={id_token}", json={"stops": stops_payload})
+                            requests.put(f"{firebase_url}/routes/{route_key}.json?{get_firebase_auth_param(id_token)}", json={"stops": stops_payload})
                     except Exception as e:
                         print("Firebase sync error on template save:", e)
             recompute_route_metrics()
@@ -6508,7 +6569,7 @@ def get_assigned_routes():
 @app.route('/api/unassign_route', methods=['POST'])
 @permission_required('routes.delete')
 def unassign_route():
-    data = request.json or {}
+    data = request.get_json(silent=True) or {}
     template_id = data.get('template_id')
     truck_id = data.get('truck_id')
     
@@ -6551,8 +6612,8 @@ def unassign_route():
                 if d.truck_id:
                     trucks_to_clear.add(d.truck_id)
             for tid in trucks_to_clear:
-                requests.delete(f"{firebase_url}/routes/route_{tid}.json?auth={id_token}")
-                requests.patch(f"{firebase_url}/trucks/{tid}.json?auth={id_token}", json={
+                requests.delete(f"{firebase_url}/routes/route_{tid}.json?{get_firebase_auth_param(id_token)}")
+                requests.patch(f"{firebase_url}/trucks/{tid}.json?{get_firebase_auth_param(id_token)}", json={
                     "driverName": None,
                     "driverId": None,
                     "status": "offline",
@@ -6571,7 +6632,7 @@ def mark_stop_status():
     Updates the SQL database and immediately pushes to Firebase Realtime Database
     over REST, ensuring zero-delay updates even if the driver's WebSocket was idle.
     """
-    data = request.json or {}
+    data = request.get_json(silent=True) or {}
     truck_id = data.get('truck_id')
     driver_id = data.get('driver_id')
     stop_id = data.get('stop_id')
@@ -6634,7 +6695,7 @@ def mark_stop_status():
                 fb_patch[f"{sid}/status"] = status
             if fb_patch:
                 requests.patch(
-                    f"{firebase_url}/routes/route_{truck_id}/stops.json?auth={id_token}",
+                    f"{firebase_url}/routes/route_{truck_id}/stops.json?{get_firebase_auth_param(id_token)}",
                     json=fb_patch,
                     timeout=5
                 )
@@ -6642,9 +6703,9 @@ def mark_stop_status():
                 "lastUpdated": now_ms,
                 "lastStopAction": now_ms
             }
-            requests.patch(f"{firebase_url}/trucks/{truck_id}.json?auth={id_token}", json=touch, timeout=4)
+            requests.patch(f"{firebase_url}/trucks/{truck_id}.json?{get_firebase_auth_param(id_token)}", json=touch, timeout=4)
             if driver_id:
-                requests.patch(f"{firebase_url}/driver_locations/{driver_id}.json?auth={id_token}", json=touch, timeout=4)
+                requests.patch(f"{firebase_url}/driver_locations/{driver_id}.json?{get_firebase_auth_param(id_token)}", json=touch, timeout=4)
     except Exception as e:
         print("mark_stop_status Firebase sync error:", e)
         
@@ -6851,7 +6912,7 @@ def driver_telemetry_sync():
     if id_token and truck_latest_fixes:
         for tid, latest_fix in truck_latest_fixes.items():
             try:
-                t_resp = requests.get(f"{firebase_url}/trucks/{tid}.json?auth={id_token}", timeout=3)
+                t_resp = requests.get(f"{firebase_url}/trucks/{tid}.json?{get_firebase_auth_param(id_token)}", timeout=3)
                 existing_ts = 0
                 if t_resp.status_code == 200 and t_resp.json():
                     t_data = t_resp.json()
@@ -6872,10 +6933,10 @@ def driver_telemetry_sync():
                         "lastUpdated": datetime.datetime.fromtimestamp(latest_fix['capture_time'] / 1000.0, tz=datetime.timezone.utc).strftime('%Y-%m-%d %H:%M:%S UTC'),
                         "status": status_str
                     }
-                    requests.patch(f"{firebase_url}/trucks/{tid}.json?auth={id_token}", json=patch_payload, timeout=3)
+                    requests.patch(f"{firebase_url}/trucks/{tid}.json?{get_firebase_auth_param(id_token)}", json=patch_payload, timeout=3)
                     
                     if latest_fix.get('driver_id'):
-                        requests.patch(f"{firebase_url}/driver_locations/{latest_fix['driver_id']}.json?auth={id_token}", json=patch_payload, timeout=3)
+                        requests.patch(f"{firebase_url}/driver_locations/{latest_fix['driver_id']}.json?{get_firebase_auth_param(id_token)}", json=patch_payload, timeout=3)
                 else:
                     app.logger.info(f"[TELEMETRY SYNC] Truck {tid}: batch capture_time ({latest_fix['capture_time']}) is older than existing live timestamp ({existing_ts}). Live marker NOT overwritten.")
             except Exception as fb_err:
@@ -6914,7 +6975,10 @@ def get_truck_telemetry(truck_id):
     if caller.role != 'ADMIN' and caller.truck_id and int(caller.truck_id) != int(truck_id):
         return jsonify({'error': 'Forbidden: Access limited to assigned truck'}), 403
 
-    limit = min(int(request.args.get('limit', 200)), 1000)
+    try:
+        limit = max(1, min(int(request.args.get('limit', 200)), 1000))
+    except (ValueError, TypeError):
+        limit = 200
     since_ts = request.args.get('since', type=int)
 
     query = TruckTelemetryHistory.query.filter_by(truck_id=truck_id)
@@ -6934,7 +6998,7 @@ def get_truck_telemetry(truck_id):
 
 @app.route('/api/driver_finish_route', methods=['POST'])
 def driver_finish_route():
-    data = request.json or {}
+    data = request.get_json(silent=True) or {}
     truck_id = data.get('truck_id')
     driver_id = data.get('driver_id')
     
@@ -7005,8 +7069,8 @@ def driver_finish_route():
                 id_token = get_firebase_token()
                 if id_token:
                     firebase_url = "https://wasteroutelive-default-rtdb.firebaseio.com"
-                    requests.delete(f"{firebase_url}/routes/route_{eff_truck_id}.json?auth={id_token}")
-                    requests.patch(f"{firebase_url}/trucks/{eff_truck_id}.json?auth={id_token}", json={
+                    requests.delete(f"{firebase_url}/routes/route_{eff_truck_id}.json?{get_firebase_auth_param(id_token)}")
+                    requests.patch(f"{firebase_url}/trucks/{eff_truck_id}.json?{get_firebase_auth_param(id_token)}", json={
                         "status": "offline",
                         "routeCompleted": True
                     })
@@ -7043,7 +7107,9 @@ def deploy_template(t_id):
         Customer.query.filter((Customer.truck_id.is_(None)) | (~Customer.truck_id.in_(list(protected_trucks)))).delete(synchronize_session=False)
     else:
         Customer.query.delete()
-    Metadata.query.delete()
+    # Preserve system and operational metadata keys
+    PROTECTED_METADATA_KEYS = {'pending_rtdb_sync', 'initial_templates_seeded', 'migration_in_progress'}
+    Metadata.query.filter(Metadata.key.notin_(PROTECTED_METADATA_KEYS)).delete(synchronize_session=False)
     db.session.flush()
     
     # Remap template truck IDs so they never collide with protected active trucks
@@ -7067,14 +7133,25 @@ def deploy_template(t_id):
     Customer.query.filter(Customer.truck_id.in_(workspace_trucks)).delete(synchronize_session=False)
     
     for k, v in meta_dict.items():
-        if k not in ['is_from_template', 'current_template_id', 'current_template_name', 'workspace_truck_ids']:
-            db.session.add(Metadata(key=k, value=v))
+        if k not in ['is_from_template', 'current_template_id', 'current_template_name', 'workspace_truck_ids'] and k not in PROTECTED_METADATA_KEYS:
+            row = Metadata.query.filter_by(key=k).first()
+            if row:
+                row.value = v
+            else:
+                db.session.add(Metadata(key=k, value=v))
             
     is_template_val = 'true' if mode == 'deploy' else 'false'
-    db.session.add(Metadata(key='is_from_template', value=is_template_val))
-    db.session.add(Metadata(key='current_template_id', value=str(t.id)))
-    db.session.add(Metadata(key='current_template_name', value=str(t.name)))
-    db.session.add(Metadata(key='workspace_truck_ids', value=json.dumps(workspace_trucks)))
+    for k_exp, v_exp in [
+        ('is_from_template', is_template_val),
+        ('current_template_id', str(t.id)),
+        ('current_template_name', str(t.name)),
+        ('workspace_truck_ids', json.dumps(workspace_trucks))
+    ]:
+        row = Metadata.query.filter_by(key=k_exp).first()
+        if row:
+            row.value = v_exp
+        else:
+            db.session.add(Metadata(key=k_exp, value=v_exp))
         
     existing_ids = set(r[0] for r in db.session.query(Customer.id).all())
     max_id = db.session.query(db.func.max(Customer.id)).scalar() or 0
@@ -7134,7 +7211,7 @@ def deploy_template(t_id):
             if id_token:
                 
                 # Only remove non-protected routes in Firebase
-                routes_res = requests.get(f"{firebase_url}/routes.json?auth={id_token}")
+                routes_res = requests.get(f"{firebase_url}/routes.json?{get_firebase_auth_param(id_token)}")
                 if routes_res.status_code == 200 and routes_res.json():
                     routes_data = routes_res.json()
                     routes_items = routes_data.items() if isinstance(routes_data, dict) else enumerate(routes_data) if isinstance(routes_data, list) else []
@@ -7146,7 +7223,7 @@ def deploy_template(t_id):
                                     continue
                             except:
                                 pass
-                            requests.delete(f"{firebase_url}/routes/{rid}.json?auth={id_token}")
+                            requests.delete(f"{firebase_url}/routes/{rid}.json?{get_firebase_auth_param(id_token)}")
                 
                 routes_payload = {}
                 for c in deployed_customers:
@@ -7169,9 +7246,9 @@ def deploy_template(t_id):
                         }
                         
                 for route_key, stops in routes_payload.items():
-                    requests.put(f"{firebase_url}/routes/{route_key}.json?auth={id_token}", json={"stops": stops})
+                    requests.put(f"{firebase_url}/routes/{route_key}.json?{get_firebase_auth_param(id_token)}", json={"stops": stops})
                     tid = route_key.split('_')[1]
-                    requests.put(f"{firebase_url}/trucks/{tid}.json?auth={id_token}", json={"status": "offline"})
+                    requests.put(f"{firebase_url}/trucks/{tid}.json?{get_firebase_auth_param(id_token)}", json={"status": "offline"})
         except Exception as e:
             print("Deploy Firebase error:", e)
         
@@ -7244,7 +7321,7 @@ def get_master_customers():
 @app.route('/api/master_customers', methods=['POST'])
 @permission_required('customers.create')
 def add_master_customer():
-    data = request.json or {}
+    data = request.get_json(silent=True) or {}
     name = data.get('name')
     address = data.get('address')
     phone = data.get('phone')
@@ -7341,7 +7418,7 @@ def update_master_customer(cust_id):
     if not cust:
         return jsonify({'success': False, 'error': 'Customer not found'}), 404
 
-    data = request.json or {}
+    data = request.get_json(silent=True) or {}
 
     new_name = cust.name
     if 'name' in data:
@@ -7449,7 +7526,7 @@ def add_customer_to_template(template_id):
     if not template or getattr(template, 'is_assigned_instance', False):
         return jsonify({'success': False, 'error': 'Template not found or is an assigned active route'}), 404
 
-    data = request.json or {}
+    data = request.get_json(silent=True) or {}
     customer_id = data.get('customer_id')
     customer_ids = data.get('customer_ids')
 
@@ -7460,7 +7537,11 @@ def add_customer_to_template(template_id):
     cust_list = json.loads(template.customers_json or '[]')
 
     if customer_id:
-        master_cust = db.session.get(MasterCustomer, int(customer_id))
+        try:
+            cid_int = int(customer_id)
+        except (ValueError, TypeError):
+            return jsonify({'success': False, 'error': 'Invalid customer_id'}), 400
+        master_cust = db.session.get(MasterCustomer, cid_int)
         if not master_cust:
             return jsonify({'success': False, 'error': 'Customer not found'}), 404
 
@@ -7515,8 +7596,12 @@ def add_customer_to_template(template_id):
 
     added_count = 0
     skipped_count = 0
-    for cid in customer_ids:
-        master_cust = db.session.get(MasterCustomer, int(cid))
+    for cid in (customer_ids or []):
+        try:
+            cid_int = int(cid)
+        except (ValueError, TypeError):
+            continue
+        master_cust = db.session.get(MasterCustomer, cid_int)
         if not master_cust:
             continue
         is_dup = False
@@ -8381,7 +8466,7 @@ def master_customers_import_preview():
 @app.route('/api/master_customers/import_confirm', methods=['POST'])
 @admin_required
 def master_customers_import_confirm():
-    data = request.json or {}
+    data = request.get_json(silent=True) or {}
     preview_id = data.get('preview_id')
     rows_to_import = data.get('rows')
 
@@ -8854,14 +8939,14 @@ def dynamic_recalculate():
         # Authenticate anonymously as backend
         id_token = get_firebase_token()
         if not id_token:
-            return jsonify({'error': 'Backend auth failed'}), 500
+            return jsonify({'error': 'Backend auth service temporarily unavailable'}), 503
         
         # 1. Fetch current GPS for all trucks
-        trucks_res = requests.get(f"{firebase_url}/trucks.json?auth={id_token}")
+        trucks_res = requests.get(f"{firebase_url}/trucks.json?{get_firebase_auth_param(id_token)}")
         trucks_data = trucks_res.json() or {}
         
         # 2. Fetch all current routes
-        routes_res = requests.get(f"{firebase_url}/routes.json?auth={id_token}")
+        routes_res = requests.get(f"{firebase_url}/routes.json?{get_firebase_auth_param(id_token)}")
         routes_data = routes_res.json() or {}
         
         pending_customers = []
@@ -8950,7 +9035,7 @@ def dynamic_recalculate():
         # Safety check: if solver failed or dropped all pending stops, abort to prevent wiping Firebase!
         total_assigned = sum(len(r) for r in new_routes) if new_routes else 0
         if len(real_pending_customers) > 0 and total_assigned == 0:
-            return jsonify({'error': 'Optimizer failed to calculate a feasible route. Live routes preserved.'}), 500
+            return jsonify({'error': 'Optimizer failed to calculate a feasible route. Live routes preserved.'}), 422
         
         # 4. Write back to Firebase
         updates_by_route = {}
@@ -9024,7 +9109,7 @@ def dynamic_recalculate():
                         
         # Now PUT the new assignments individually to clear out old orphaned pending stops on these active routes
         for route_key, stops in updates_by_route.items():
-            requests.put(f"{firebase_url}/routes/{route_key}/stops.json?auth={id_token}", json=stops)
+            requests.put(f"{firebase_url}/routes/{route_key}/stops.json?{get_firebase_auth_param(id_token)}", json=stops)
         
         # Update SQL Database so Excel reports stay perfectly synced with live routes
         try:
