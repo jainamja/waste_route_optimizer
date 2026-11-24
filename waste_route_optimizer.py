@@ -2098,8 +2098,9 @@ def set_driver_rtdb_assignment_conditional(driver_id, truck_id=None, generation_
                 app.logger.warning(f"Notice during retry authority revalidation for driver {did}: {_reval_err}")
 
         try:
-            # Fetch current node state and ETag
-            get_resp = requests.get(f"{node_url}?{get_firebase_auth_param(id_token)}", timeout=timeout)
+            # Fetch current node state and ETag (X-Firebase-ETag: true is required by Firebase RTDB to return ETag)
+            get_headers = {'X-Firebase-ETag': 'true'}
+            get_resp = requests.get(f"{node_url}?{get_firebase_auth_param(id_token)}", headers=get_headers, timeout=timeout)
             etag = None
             if get_resp.status_code == 200:
                 current_val = get_resp.json()
@@ -4473,7 +4474,7 @@ def admin_set_driver_truck():
 
         return jsonify({'success': True, 'truck_id': driver.truck_id})
 
-@app.route('/api/admin_delete_driver/<int:driver_id>', methods=['DELETE'])
+@app.route('/api/admin_delete_driver/<int:driver_id>', methods=['DELETE', 'POST'])
 @permission_required('drivers.delete')
 def admin_delete_driver(driver_id):
     with assignment_coordination_guard():
