@@ -534,13 +534,20 @@
             return TRUCK_COLORS[(n - 1) % TRUCK_COLORS.length];
         }
 
-        let usingFallback = false;
-        let driverMap = {};
-        let truckToDriver = {};
-        let driverAssignedRoutes = {}; // truck_id -> assigned_template_id (or null)
-        let driverAssignedTemplateNames = {}; // truck_id -> assigned_template_name
-        let driversLoaded = false;
-        let routesData = {};
+        window.usingFallback = false;
+        var usingFallback = false;
+        window.driverMap = window.driverMap || {};
+        var driverMap = window.driverMap;
+        window.truckToDriver = window.truckToDriver || {};
+        var truckToDriver = window.truckToDriver;
+        window.driverAssignedRoutes = window.driverAssignedRoutes || {};
+        var driverAssignedRoutes = window.driverAssignedRoutes;
+        window.driverAssignedTemplateNames = window.driverAssignedTemplateNames || {};
+        var driverAssignedTemplateNames = window.driverAssignedTemplateNames;
+        window.driversLoaded = false;
+        var driversLoaded = false;
+        window.routesData = window.routesData || {};
+        var routesData = window.routesData;
 
         fetch('/api/firebase_custom_token')
             .then(r => r.json())
@@ -642,12 +649,19 @@
                         ensureTruckRouteListener(d.truck_id);
                     }
                 });
+                window.driverMap = driverMap;
+                window.truckToDriver = truckToDriver;
+                window.driverAssignedRoutes = driverAssignedRoutes;
+                window.driverAssignedTemplateNames = driverAssignedTemplateNames;
                 driversLoaded = true;
+                window.driversLoaded = true;
                 if (usingFallback) fallbackToIndividualListeners();
                 scheduleRender();
+                if (typeof updateAdminBadges === 'function') updateAdminBadges();
             }).catch(e => {
                 console.error("fetchDrivers failed:", e);
                 driversLoaded = true;
+                window.driversLoaded = true;
                 scheduleRender();
             });
         }
@@ -1003,14 +1017,6 @@
             }
             
             return { label: 'Live', cls: 'online', dotColor: '#10b981', state: 'online' };
-        }
-            
-            let acc = tData.accuracy !== undefined && tData.accuracy !== null ? parseFloat(tData.accuracy) : null;
-            if (acc !== null && !isNaN(acc) && acc > 30) {
-                return { label: `Weak GPS (±${Math.round(acc)}m)`, cls: 'weak', dotColor: '#f59e0b' };
-            }
-            
-            return { label: 'Live', cls: 'online', dotColor: '#10b981' };
         }
 
         function toggleTruckTrail(tId) {
@@ -3084,20 +3090,34 @@
             return String(str).replace(/\\/g, '\\\\').replace(/'/g, "\\'").replace(/"/g, '&quot;');
         }
 
+        function getGlobalDriverMap() {
+            if (typeof driverMap !== 'undefined' && driverMap) return driverMap;
+            if (typeof window !== 'undefined' && window.driverMap) return window.driverMap;
+            return {};
+        }
+
+        function getGlobalRoutesData() {
+            if (typeof routesData !== 'undefined' && routesData) return routesData;
+            if (typeof window !== 'undefined' && window.routesData) return window.routesData;
+            return {};
+        }
+
         function getAllTruckIdsForChat() {
             let ids = new Set();
             if (typeof getAllTrackableTruckIds === 'function') {
-                getAllTrackableTruckIds().forEach(id => ids.add(String(id)));
+                try {
+                    getAllTrackableTruckIds().forEach(id => ids.add(String(id)));
+                } catch(e) {}
             }
-            if (driverMap) {
-                Object.keys(driverMap).forEach(id => ids.add(String(id)));
-            }
-            if (routesData) {
-                Object.keys(routesData).forEach(k => {
-                    if (k.startsWith('route_')) ids.add(k.replace('route_', ''));
-                });
-            }
-            if (window.liveTrucks) {
+            const dMap = getGlobalDriverMap();
+            Object.keys(dMap).forEach(id => ids.add(String(id)));
+
+            const rData = getGlobalRoutesData();
+            Object.keys(rData).forEach(k => {
+                if (k.startsWith('route_')) ids.add(k.replace('route_', ''));
+            });
+
+            if (typeof window !== 'undefined' && window.liveTrucks) {
                 for (let k in window.liveTrucks) {
                     let t = window.liveTrucks[k];
                     if (t && (t.truckId || t.truck_id)) ids.add(String(t.truckId || t.truck_id));
@@ -3136,7 +3156,7 @@
                 
                 if (adminInitialLoadDone[tId] && msg.sender === 'driver' && !msg.read) {
                     playAdminNotificationSound();
-                    let dName = (driverMap && driverMap[tId]) || ('Driver (Truck ' + tId + ')');
+                    let dName = (getGlobalDriverMap()[tId]) || ('Driver (Truck ' + tId + ')');
                     if (!adminChatWidgetOpen || String(adminActiveTruckId) !== String(tId)) {
                         showAdminMessageToast(tId, dName, msg.text || '');
                     }
@@ -3203,7 +3223,7 @@
             if (!titleEl) return;
             
             if (!tId) tId = adminActiveTruckId;
-            if (!dName) dName = (driverMap && driverMap[tId]) || (window.liveTrucks && window.liveTrucks[tId] && window.liveTrucks[tId].driverName) || 'Driver';
+            if (!dName) dName = (getGlobalDriverMap()[tId]) || (window.liveTrucks && window.liveTrucks[tId] && window.liveTrucks[tId].driverName) || 'Driver';
             
             titleEl.innerHTML = `Truck ${tId} &bull; ${escapeAdminHtml(dName)}`;
             
@@ -3337,7 +3357,7 @@
             }
             
             let html = '';
-            const dName = (driverMap && driverMap[adminActiveTruckId]) || 'Driver';
+            const dName = (getGlobalDriverMap()[adminActiveTruckId]) || 'Driver';
             
             keys.forEach(k => {
                 const m = msgs[k];
