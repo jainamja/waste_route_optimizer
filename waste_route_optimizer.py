@@ -151,12 +151,32 @@ if database_url:
         database_url = database_url.replace('postgresql://', 'postgresql+psycopg2://', 1)
 app.config['SQLALCHEMY_DATABASE_URI'] = database_url or 'sqlite:///routes.db'
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
-app.config['SQLALCHEMY_ENGINE_OPTIONS'] = {
+engine_options = {
     "pool_pre_ping": True,   # check a pooled connection is alive before using it; replace it if dead
     "pool_recycle": 280,     # recycle connections before Render's idle timeout closes them
 }
+if 'sqlite' in (database_url or 'sqlite:///routes.db'):
+    engine_options["connect_args"] = {"timeout": 30}
+app.config['SQLALCHEMY_ENGINE_OPTIONS'] = engine_options
 
 db = SQLAlchemy(app)
+
+from sqlalchemy import event
+from sqlalchemy.engine import Engine
+
+@event.listens_for(Engine, "connect")
+def set_sqlite_pragma(dbapi_connection, connection_record):
+    try:
+        import sqlite3
+        if isinstance(dbapi_connection, sqlite3.Connection):
+            cursor = dbapi_connection.cursor()
+            cursor.execute("PRAGMA journal_mode=WAL")
+            cursor.execute("PRAGMA busy_timeout=30000")
+            cursor.execute("PRAGMA synchronous=NORMAL")
+            cursor.execute("PRAGMA foreign_keys=ON")
+            cursor.close()
+    except Exception:
+        pass
 
 
 app.secret_key = os.environ.get('SECRET_KEY', '7b4e2f91a5c84d3e0f6b2d1c9e8a7f4b3e2d1c0a9b8e7f6d5c4b3a2e1f0d9c8b')
@@ -1947,6 +1967,8 @@ def assignment_coordination_guard():
 def allocate_next_assignment_revision():
     """
     Atomically allocates the next monotonically increasing assignment sequence revision.
+    Guarantees strict global monotonicity across assignment_global_sequence, users,
+    driver_lifecycle_ledger, and assignment_outbox.
     Reuses active db.session if it has pending uncommitted mutations to prevent SQLite self-deadlock,
     otherwise uses short-lived committed direct connection to avoid leaving uncommitted transactions.
     FAILS CLOSED if database allocation fails — NEVER returns a fabricated timestamp revision.
@@ -1961,45 +1983,42 @@ def allocate_next_assignment_revision():
         except Exception:
             pass
 
+        def _get_max_existing_rev(session_or_conn):
+            try:
+                sql = text("""
+                    SELECT MAX(m) FROM (
+                        SELECT COALESCE(MAX(current_revision), 0) AS m FROM assignment_global_sequence
+                        UNION ALL
+                        SELECT COALESCE(MAX(assignment_revision), 0) AS m FROM users
+                        UNION ALL
+                        SELECT COALESCE(MAX(last_revision), 0) AS m FROM driver_lifecycle_ledger
+                        UNION ALL
+                        SELECT COALESCE(MAX(revision), 0) AS m FROM assignment_outbox
+                    )
+                """)
+                res = session_or_conn.execute(sql).scalar()
+                return int(res) if res is not None else 0
+            except Exception:
+                return 0
+
         # 1. If db.session has pending mutations, use it to avoid SQLite write lock self-deadlock
         if has_pending_tx:
             try:
-                res = db.session.execute(text("UPDATE assignment_global_sequence SET current_revision = current_revision + 1 WHERE id = 1 RETURNING current_revision"))
-                row = res.fetchone()
-                if row and row[0] is not None:
-                    return int(row[0])
-            except Exception:
-                pass
-
-            try:
-                db.session.execute(text("UPDATE assignment_global_sequence SET current_revision = current_revision + 1 WHERE id = 1"))
-                res = db.session.execute(text("SELECT current_revision FROM assignment_global_sequence WHERE id = 1"))
-                row = res.fetchone()
-                if row and row[0] is not None:
-                    return int(row[0])
+                max_observed = _get_max_existing_rev(db.session)
+                next_rev = max_observed + 1
+                db.session.execute(text(f"UPDATE assignment_global_sequence SET current_revision = {next_rev} WHERE id = 1"))
+                return next_rev
             except Exception as e:
                 last_alloc_err = e
 
-        # 2. Standard path: independent short-lived committed connection (prevents leaving open transactions in db.session)
+        # 2. Standard path: independent short-lived committed connection
         try:
             with db.engine.connect() as conn:
-                res = conn.execute(text("UPDATE assignment_global_sequence SET current_revision = current_revision + 1 WHERE id = 1 RETURNING current_revision"))
-                row = res.fetchone()
-                if row and row[0] is not None:
-                    conn.commit()
-                    return int(row[0])
-        except Exception as e:
-            last_alloc_err = e
-
-        try:
-            with db.engine.connect() as conn:
-                res = conn.execute(text("SELECT current_revision FROM assignment_global_sequence WHERE id = 1"))
-                row = res.fetchone()
-                curr = row[0] if (row and row[0] is not None) else 1
-                new_rev = int(curr) + 1
-                conn.execute(text(f"UPDATE assignment_global_sequence SET current_revision = {new_rev} WHERE id = 1"))
+                max_observed = _get_max_existing_rev(conn)
+                next_rev = max_observed + 1
+                conn.execute(text(f"UPDATE assignment_global_sequence SET current_revision = {next_rev} WHERE id = 1"))
                 conn.commit()
-                return new_rev
+                return next_rev
         except Exception as e:
             last_alloc_err = e
 
@@ -2120,7 +2139,10 @@ def set_driver_rtdb_assignment_conditional(driver_id, truck_id=None, generation_
                         led = DriverLifecycleLedger.query.filter_by(generation_id=generation_id).first()
                         if led:
                             led.last_revision = max(led.last_revision or 0, revision)
-                            db.session.commit()
+                        d_obj = db.session.get(User, did)
+                        if d_obj and d_obj.generation_id == generation_id:
+                            d_obj.assignment_revision = max(d_obj.assignment_revision or 0, revision)
+                        db.session.commit()
                     except Exception:
                         pass
                 return True, "OK"
@@ -2148,21 +2170,28 @@ def set_driver_rtdb_assignment(driver_id, truck_id=None, retries=2, timeout=4, g
     Routes to set_driver_rtdb_assignment_conditional with monotonic sequence revision
     and immutable generation verification.
     """
-    if generation_id is None or revision is None:
-        try:
-            driver = db.session.get(User, int(driver_id))
-            if driver:
-                generation_id = generation_id or driver.generation_id
-                revision = revision if revision is not None else driver.assignment_revision
-            else:
-                led = DriverLifecycleLedger.query.filter_by(driver_id=int(driver_id)).order_by(DriverLifecycleLedger.created_at.desc()).first()
-                if led:
-                    generation_id = generation_id or led.generation_id
-                    revision = revision if revision is not None else led.last_revision
-        except Exception:
-            pass
+    did = int(driver_id)
+    try:
+        driver = db.session.get(User, did)
+        led = None
+        if driver and driver.generation_id:
+            led = DriverLifecycleLedger.query.filter_by(generation_id=driver.generation_id).first()
+        if not led:
+            led = DriverLifecycleLedger.query.filter_by(driver_id=did).order_by(DriverLifecycleLedger.created_at.desc()).first()
+
+        generation_id = generation_id or (driver.generation_id if driver else (led.generation_id if led else None))
+
+        effective_rev = max(
+            driver.assignment_revision or 0 if driver else 0,
+            led.last_revision or 0 if led else 0,
+            revision or 0
+        )
+        if revision is None or revision < effective_rev:
+            revision = effective_rev
+    except Exception:
+        pass
     return set_driver_rtdb_assignment_conditional(
-        driver_id=driver_id,
+        driver_id=did,
         truck_id=truck_id,
         generation_id=generation_id,
         revision=revision,
@@ -2511,24 +2540,44 @@ def reconcile_pending_rtdb_assignments():
                     target_truck = None
                     led = DriverLifecycleLedger.query.filter_by(driver_id=did).order_by(DriverLifecycleLedger.created_at.desc()).first()
                     gen_id = led.generation_id if led else (rec.generation_id if rec else None)
-                    rev = led.last_revision if led else (rec.revision if rec else 0)
+                    current_rev = led.last_revision if led else (rec.revision if rec else 0)
                 else:
                     target_truck = driver.truck_id
+                    led = DriverLifecycleLedger.query.filter_by(generation_id=driver.generation_id).first() if driver.generation_id else None
                     gen_id = driver.generation_id
-                    rev = driver.assignment_revision
+                    current_rev = max(driver.assignment_revision or 0, led.last_revision or 0 if led else 0)
+                    if driver.assignment_revision != current_rev or (led and led.last_revision != current_rev):
+                        driver.assignment_revision = current_rev
+                        if led:
+                            led.last_revision = current_rev
+                        try:
+                            db.session.commit()
+                        except Exception:
+                            db.session.rollback()
+
+                # If this outbox entry was recorded for a revision strictly less than the current authoritative revision,
+                # it has already been superseded by a newer operation and should be pruned immediately
+                if rec and rec.revision and current_rev and rec.revision < current_rev:
+                    app.logger.info(f"Outbox record for driver {did} (rev {rec.revision}) is superseded by current revision {current_rev}. Pruning.")
+                    resolved_ids.append(did)
+                    continue
 
                 ok, err = set_driver_rtdb_assignment(did, target_truck, retries=1)
                 if ok:
                     resolved_ids.append(did)
                 else:
                     app.logger.warning(f"Reconciliation failed to sync driver {did} to {target_truck}: {err}")
-                    try:
-                        if rec:
-                            rec.last_error = str(err)
-                            rec.status = 'FAILED'
-                            db.session.commit()
-                    except Exception:
-                        db.session.rollback()
+                    if "REJECTED_STALE_REVISION" in str(err) or "CONFLICT_412" in str(err) or "REJECTED_LIFECYCLE_INACTIVE" in str(err):
+                        app.logger.info(f"Outbox entry for driver {did} was superseded ({err}). Marking resolved.")
+                        resolved_ids.append(did)
+                    else:
+                        try:
+                            if rec:
+                                rec.last_error = str(err)
+                                rec.status = 'FAILED'
+                                db.session.commit()
+                        except Exception:
+                            db.session.rollback()
 
             if resolved_ids:
                 try:
@@ -2591,11 +2640,21 @@ def sync_all_driver_assignments_to_firebase(authorized_reconciliation=False):
                 target_truck = d.truck_id if d.truck_id is not None else None
                 if target_truck is None and not authorized_reconciliation:
                     continue
+                led = DriverLifecycleLedger.query.filter_by(generation_id=d.generation_id).first() if d.generation_id else None
+                effective_rev = max(d.assignment_revision or 0, led.last_revision or 0 if led else 0)
+                if d.assignment_revision != effective_rev:
+                    d.assignment_revision = effective_rev
+                    if led:
+                        led.last_revision = effective_rev
+                    try:
+                        db.session.commit()
+                    except Exception:
+                        db.session.rollback()
                 s_ok, s_err = set_driver_rtdb_assignment(
                     driver_id=d.id,
                     truck_id=target_truck,
                     generation_id=d.generation_id,
-                    revision=d.assignment_revision,
+                    revision=effective_rev,
                     retries=1
                 )
                 if s_ok:
@@ -4274,9 +4333,21 @@ def admin_set_driver_truck():
             for ev in evicted_drivers:
                 ev.truck_id = None
                 ev.assignment_revision = ev_revs[ev.id]
+                ev_led = DriverLifecycleLedger.query.filter_by(generation_id=ev.generation_id).first()
+                if not ev_led:
+                    ev_led = DriverLifecycleLedger(generation_id=ev.generation_id, driver_id=ev.id, is_active=True, last_revision=ev_revs[ev.id])
+                    db.session.add(ev_led)
+                else:
+                    ev_led.last_revision = max(ev_led.last_revision or 0, ev_revs[ev.id])
 
             driver.truck_id = tid
             driver.assignment_revision = d_rev
+            d_led = DriverLifecycleLedger.query.filter_by(generation_id=driver.generation_id).first()
+            if not d_led:
+                d_led = DriverLifecycleLedger(generation_id=driver.generation_id, driver_id=driver.id, is_active=True, last_revision=d_rev)
+                db.session.add(d_led)
+            else:
+                d_led.last_revision = max(d_led.last_revision or 0, d_rev)
 
             # Handle customer stop routing updates
             if tid:
@@ -4413,6 +4484,7 @@ def admin_delete_driver(driver_id):
         rev = allocate_next_assignment_revision()
         if not driver.generation_id:
             driver.generation_id = uuid.uuid4().hex
+        driver.assignment_revision = rev
 
         led = DriverLifecycleLedger.query.filter_by(generation_id=driver.generation_id).first()
         if not led:
@@ -4420,7 +4492,7 @@ def admin_delete_driver(driver_id):
                 generation_id=driver.generation_id,
                 driver_id=driver.id,
                 is_active=True,
-                last_revision=driver.assignment_revision or 0
+                last_revision=rev
             )
             db.session.add(led)
         led.is_active = False
@@ -4650,9 +4722,22 @@ def assign_driver():
                 ev.truck_id = None
                 ev.assigned_template_id = None
                 ev.assignment_revision = ev_revs[ev.id]
+                ev_led = DriverLifecycleLedger.query.filter_by(generation_id=ev.generation_id).first()
+                if not ev_led:
+                    ev_led = DriverLifecycleLedger(generation_id=ev.generation_id, driver_id=ev.id, is_active=True, last_revision=ev_revs[ev.id])
+                    db.session.add(ev_led)
+                else:
+                    ev_led.last_revision = max(ev_led.last_revision or 0, ev_revs[ev.id])
 
             driver.truck_id = truck_id
             driver.assignment_revision = d_rev
+            d_led = DriverLifecycleLedger.query.filter_by(generation_id=driver.generation_id).first()
+            if not d_led:
+                d_led = DriverLifecycleLedger(generation_id=driver.generation_id, driver_id=driver.id, is_active=True, last_revision=d_rev)
+                db.session.add(d_led)
+            else:
+                d_led.last_revision = max(d_led.last_revision or 0, d_rev)
+                d_led.is_active = True
             
             # Dedicated assigned instance for this driver
             ws_meta = Metadata.query.filter_by(key='workspace_truck_ids').first()
@@ -5492,21 +5577,58 @@ def repair_database():
         if not dry_run:
             for o in orphans:
                 db.session.delete(o)
+
+        # 4. Synchronize driver revisions, generations, and prune obsolete outbox entries
+        drivers = User.query.filter_by(role='DRIVER').all()
+        synced_drivers = []
+        for d in drivers:
+            if not d.generation_id:
+                d.generation_id = uuid.uuid4().hex
+            led = DriverLifecycleLedger.query.filter_by(generation_id=d.generation_id).first()
+            if not led:
+                led = DriverLifecycleLedger(
+                    generation_id=d.generation_id,
+                    driver_id=d.id,
+                    is_active=True,
+                    last_revision=d.assignment_revision or 1
+                )
+                if not dry_run:
+                    db.session.add(led)
+            max_rev = max(d.assignment_revision or 0, led.last_revision or 0 if led else 0, 1)
+            if (d.assignment_revision != max_rev) or (led and led.last_revision != max_rev):
+                synced_drivers.append({"driver_id": d.id, "old_user_rev": d.assignment_revision, "old_ledger_rev": led.last_revision if led else None, "new_rev": max_rev})
+                if not dry_run:
+                    d.assignment_revision = max_rev
+                    if led:
+                        led.last_revision = max_rev
+                        led.is_active = True
+
+        pruned_outbox = []
+        outbox_recs = AssignmentOutbox.query.filter(AssignmentOutbox.status != 'RESOLVED').all()
+        for ob in outbox_recs:
+            led = DriverLifecycleLedger.query.filter_by(generation_id=ob.generation_id).first() if ob.generation_id else None
+            if led and led.last_revision and ob.revision and ob.revision < led.last_revision:
+                pruned_outbox.append({"driver_id": ob.driver_id, "ob_rev": ob.revision, "ledger_rev": led.last_revision})
+                if not dry_run:
+                    db.session.delete(ob)
+
+        synced_count = len(synced_drivers)
+        pruned_count = len(pruned_outbox)
                 
         if not dry_run:
             db.session.commit()
             return jsonify({
                 'success': True,
-                'message': f"Database repaired: Cleared {ghost_count} ghost route assignments, fixed {fixed_sequences} stop sequences, and purged {orphan_count} orphaned customers.",
-                'details': { 'ghosts': ghost_details, 'sequences': fixed_details, 'orphans': orphan_details }
+                'message': f"Database repaired: Cleared {ghost_count} ghost route assignments, fixed {fixed_sequences} stop sequences, purged {orphan_count} orphaned customers, synchronized {synced_count} driver revisions, and pruned {pruned_count} obsolete outbox records.",
+                'details': { 'ghosts': ghost_details, 'sequences': fixed_details, 'orphans': orphan_details, 'synced_drivers': synced_drivers, 'pruned_outbox': pruned_outbox }
             })
         else:
             db.session.rollback() # Ensure nothing was saved
             return jsonify({
                 'success': True,
                 'dry_run': True,
-                'message': f"Dry run complete. Would clear {ghost_count} ghost route assignments, fix {fixed_sequences} stop sequences, and purge {orphan_count} orphaned customers.",
-                'details': { 'ghosts': ghost_details, 'sequences': fixed_details, 'orphans': orphan_details }
+                'message': f"Dry run complete. Would clear {ghost_count} ghost route assignments, fix {fixed_sequences} stop sequences, purge {orphan_count} orphaned customers, synchronize {synced_count} driver revisions, and prune {pruned_count} obsolete outbox records.",
+                'details': { 'ghosts': ghost_details, 'sequences': fixed_details, 'orphans': orphan_details, 'synced_drivers': synced_drivers, 'pruned_outbox': pruned_outbox }
             })
     except Exception as e:
         db.session.rollback()
@@ -6110,9 +6232,22 @@ def assign_route():
                     c.truck_id = None
                     c.assigned_template_id = None
                     c.assignment_revision = c_revs[c.id]
+                    c_led = DriverLifecycleLedger.query.filter_by(generation_id=c.generation_id).first()
+                    if not c_led:
+                        c_led = DriverLifecycleLedger(generation_id=c.generation_id, driver_id=c.id, is_active=True, last_revision=c_revs[c.id])
+                        db.session.add(c_led)
+                    else:
+                        c_led.last_revision = max(c_led.last_revision or 0, c_revs[c.id])
 
                 driver.truck_id = truck_id_int
                 driver.assignment_revision = d_rev
+                d_led = DriverLifecycleLedger.query.filter_by(generation_id=driver.generation_id).first()
+                if not d_led:
+                    d_led = DriverLifecycleLedger(generation_id=driver.generation_id, driver_id=driver.id, is_active=True, last_revision=d_rev)
+                    db.session.add(d_led)
+                else:
+                    d_led.last_revision = max(d_led.last_revision or 0, d_rev)
+                    d_led.is_active = True
 
                 update_assignment_intent_status(op_id, 'COMMITTED', commit=False)
                 try:

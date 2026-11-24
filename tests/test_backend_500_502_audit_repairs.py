@@ -184,5 +184,185 @@ class TestBackend500AuditRepairs(unittest.TestCase):
                     # Should return 404 (customer not found) or clean response, NOT 500 AttributeError
                     self.assertIn(res.status_code, [200, 404])
 
+    # 6. Test Monotonic Revision Allocation Across All Stores
+    def test_monotonic_revision_allocation_across_all_stores(self):
+        """allocate_next_assignment_revision must strictly exceed any revision in ledger, users, and outbox"""
+        with self.app.app_context():
+            from waste_route_optimizer import DriverLifecycleLedger, AssignmentOutbox, allocate_next_assignment_revision
+            # Insert a high revision in DriverLifecycleLedger
+            high_gid = uuid.uuid4().hex
+            led = DriverLifecycleLedger(generation_id=high_gid, driver_id=9999, is_active=False, last_revision=500)
+            db.session.add(led)
+            db.session.commit()
+
+            new_rev = allocate_next_assignment_revision()
+            self.assertGreaterEqual(new_rev, 501, f"Allocated revision {new_rev} was not strictly greater than 500")
+
+            # Clean up
+            db.session.delete(led)
+            db.session.commit()
+
+    # 7. Test Stale Outbox Pruning and Superceded Resolution
+    def test_stale_outbox_pruning_in_reconciliation(self):
+        """reconcile_pending_rtdb_assignments must prune obsolete outbox entries rejected as stale"""
+        with self.app.app_context():
+            from waste_route_optimizer import AssignmentOutbox, DriverLifecycleLedger, reconcile_pending_rtdb_assignments
+            test_gid = uuid.uuid4().hex
+            # Set ledger revision high
+            led = DriverLifecycleLedger(generation_id=test_gid, driver_id=8888, is_active=False, last_revision=100)
+            db.session.add(led)
+            # Create an outbox entry with stale revision 50
+            ob = AssignmentOutbox(
+                op_id=uuid.uuid4().hex,
+                driver_id=8888,
+                target_truck=None,
+                generation_id=test_gid,
+                revision=50,
+                status='FAILED',
+                last_error="REJECTED_STALE_REVISION: Ledger revision 100 > incoming 50"
+            )
+            db.session.add(ob)
+            db.session.commit()
+
+            resolved, remaining = reconcile_pending_rtdb_assignments()
+            # Stale record must be pruned / resolved
+            leftover = AssignmentOutbox.query.filter_by(driver_id=8888).first()
+            self.assertIsNone(leftover, "Obsolete stale outbox record was not pruned!")
+
+            # Clean up
+            db.session.delete(led)
+            db.session.commit()
+
+    # 8. Test Database Repair Driver Revision Healing
+    def test_repair_database_synchronizes_revisions(self):
+        """POST /api/admin/repair_database heals desynchronized driver revisions and ledgers"""
+        with self.app.app_context():
+            from waste_route_optimizer import DriverLifecycleLedger
+            from werkzeug.security import generate_password_hash
+            d_user = User(username='desync_driver', role='DRIVER', is_active=True, truck_id=99, password_hash=generate_password_hash('pass123'))
+            d_user.generation_id = uuid.uuid4().hex
+            d_user.assignment_revision = 15
+            db.session.add(d_user)
+            db.session.flush()
+
+            led = DriverLifecycleLedger(
+                generation_id=d_user.generation_id,
+                driver_id=d_user.id,
+                is_active=True,
+                last_revision=45
+            )
+            db.session.add(led)
+            db.session.commit()
+
+            d_id = d_user.id
+            d_gid = d_user.generation_id
+
+        headers = {'Authorization': f'Bearer {self.admin_token}', 'Content-Type': 'application/json'}
+        res = self.client.post('/api/admin/repair_database', headers=headers, json={'dry_run': False})
+        self.assertEqual(res.status_code, 200)
+        data = res.get_json()
+        self.assertTrue(data.get('success'))
+
+        with self.app.app_context():
+            repaired_driver = db.session.get(User, d_id)
+            repaired_led = DriverLifecycleLedger.query.filter_by(generation_id=d_gid).first()
+            self.assertEqual(repaired_driver.assignment_revision, 45)
+            self.assertEqual(repaired_led.last_revision, 45)
+
+            # Clean up
+            db.session.delete(repaired_driver)
+            db.session.delete(repaired_led)
+            db.session.commit()
+
+    # 9. Test SQLite Engine Options
+    def test_sqlite_engine_configuration(self):
+        """SQLite engine should have connect_args timeout and busy_timeout set"""
+        with self.app.app_context():
+            from sqlalchemy import text
+            res = db.session.execute(text("PRAGMA busy_timeout")).scalar()
+            self.assertEqual(int(res), 30000)
+
+    # 10. Test admin_delete_driver revision and ledger alignment (reproduces production scenario)
+    def test_admin_delete_driver_revision_and_ledger_alignment(self):
+        """admin_delete_driver must not trigger REJECTED_STALE_REVISION between driver and ledger"""
+        with self.app.app_context():
+            from werkzeug.security import generate_password_hash
+            from waste_route_optimizer import DriverLifecycleLedger
+            d_user = User(username='del_test_driver', role='DRIVER', is_active=True, truck_id=98, password_hash=generate_password_hash('pass123'))
+            d_user.generation_id = uuid.uuid4().hex
+            d_user.assignment_revision = 28
+            db.session.add(d_user)
+            db.session.flush()
+
+            led = DriverLifecycleLedger(
+                generation_id=d_user.generation_id,
+                driver_id=d_user.id,
+                is_active=True,
+                last_revision=28
+            )
+            db.session.add(led)
+            db.session.commit()
+            d_id = d_user.id
+            d_gid = d_user.generation_id
+
+        headers = {'Authorization': f'Bearer {self.admin_token}'}
+        with patch('waste_route_optimizer.set_driver_rtdb_assignment_conditional', return_value=(True, "OK")):
+            res = self.client.delete(f'/api/admin_delete_driver/{d_id}', headers=headers)
+            self.assertEqual(res.status_code, 200)
+
+        with self.app.app_context():
+            # Driver must be deleted
+            self.assertIsNone(db.session.get(User, d_id))
+            # Ledger must record deletion and advanced revision
+            led = DriverLifecycleLedger.query.filter_by(generation_id=d_gid).first()
+            self.assertIsNotNone(led)
+            self.assertFalse(led.is_active)
+            self.assertGreaterEqual(led.last_revision, 29)
+
+            # Clean up
+            db.session.delete(led)
+            db.session.commit()
+
+    # 11. Test assign_driver revision and ledger alignment
+    def test_assign_driver_synchronizes_driver_and_ledger_revision(self):
+        """assign_driver updates both User.assignment_revision and DriverLifecycleLedger in lockstep"""
+        with self.app.app_context():
+            from werkzeug.security import generate_password_hash
+            from waste_route_optimizer import DriverLifecycleLedger
+            d_user = User(username='assign_test_driver', role='DRIVER', is_active=True, truck_id=None, password_hash=generate_password_hash('pass123'))
+            d_user.generation_id = uuid.uuid4().hex
+            d_user.assignment_revision = 10
+            db.session.add(d_user)
+            db.session.flush()
+
+            led = DriverLifecycleLedger(
+                generation_id=d_user.generation_id,
+                driver_id=d_user.id,
+                is_active=True,
+                last_revision=10
+            )
+            db.session.add(led)
+            db.session.commit()
+            d_id = d_user.id
+            d_gid = d_user.generation_id
+
+        headers = {'Authorization': f'Bearer {self.admin_token}', 'Content-Type': 'application/json'}
+        with patch('waste_route_optimizer.set_driver_rtdb_assignment_conditional', return_value=(True, "OK")):
+            res = self.client.post('/api/assign_driver', headers=headers, json={'driver_id': d_id, 'truck_id': 77})
+            self.assertEqual(res.status_code, 200)
+
+        with self.app.app_context():
+            driver = db.session.get(User, d_id)
+            led = DriverLifecycleLedger.query.filter_by(generation_id=d_gid).first()
+            self.assertIsNotNone(driver)
+            self.assertEqual(driver.truck_id, 77)
+            self.assertGreaterEqual(driver.assignment_revision, 11)
+            self.assertEqual(driver.assignment_revision, led.last_revision)
+
+            # Clean up
+            db.session.delete(driver)
+            db.session.delete(led)
+            db.session.commit()
+
 if __name__ == '__main__':
     unittest.main()
