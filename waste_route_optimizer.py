@@ -1902,16 +1902,45 @@ def assignment_coordination_guard():
 def allocate_next_assignment_revision():
     """
     Atomically allocates the next monotonically increasing assignment sequence revision.
-    Uses direct database connection from engine to avoid interfering with transaction session state.
+    Reuses active db.session if it has pending uncommitted mutations to prevent SQLite self-deadlock,
+    otherwise uses short-lived committed direct connection to avoid leaving uncommitted transactions.
     FAILS CLOSED if database allocation fails — NEVER returns a fabricated timestamp revision.
     """
     with assignment_sync_lock:
         last_alloc_err = None
+
+        has_pending_tx = False
+        try:
+            if db.session and (bool(db.session.dirty) or bool(db.session.new) or bool(db.session.deleted)):
+                has_pending_tx = True
+        except Exception:
+            pass
+
+        # 1. If db.session has pending mutations, use it to avoid SQLite write lock self-deadlock
+        if has_pending_tx:
+            try:
+                res = db.session.execute(text("UPDATE assignment_global_sequence SET current_revision = current_revision + 1 WHERE id = 1 RETURNING current_revision"))
+                row = res.fetchone()
+                if row and row[0] is not None:
+                    return int(row[0])
+            except Exception:
+                pass
+
+            try:
+                db.session.execute(text("UPDATE assignment_global_sequence SET current_revision = current_revision + 1 WHERE id = 1"))
+                res = db.session.execute(text("SELECT current_revision FROM assignment_global_sequence WHERE id = 1"))
+                row = res.fetchone()
+                if row and row[0] is not None:
+                    return int(row[0])
+            except Exception as e:
+                last_alloc_err = e
+
+        # 2. Standard path: independent short-lived committed connection (prevents leaving open transactions in db.session)
         try:
             with db.engine.connect() as conn:
                 res = conn.execute(text("UPDATE assignment_global_sequence SET current_revision = current_revision + 1 WHERE id = 1 RETURNING current_revision"))
                 row = res.fetchone()
-                if row:
+                if row and row[0] is not None:
                     conn.commit()
                     return int(row[0])
         except Exception as e:
@@ -1921,7 +1950,7 @@ def allocate_next_assignment_revision():
             with db.engine.connect() as conn:
                 res = conn.execute(text("SELECT current_revision FROM assignment_global_sequence WHERE id = 1"))
                 row = res.fetchone()
-                curr = row[0] if row else 1
+                curr = row[0] if (row and row[0] is not None) else 1
                 new_rev = int(curr) + 1
                 conn.execute(text(f"UPDATE assignment_global_sequence SET current_revision = {new_rev} WHERE id = 1"))
                 conn.commit()
@@ -4451,30 +4480,29 @@ def assign_driver():
         
     refused_cancel = []
     firebase_patch_data = {}
-    
-    # Process confirmations and deliver_bags BEFORE snapshotting assigned instance
-    if confirmations is not None or deliver_bags is not None:
-        customers_on_truck = Customer.query.filter_by(truck_id=truck_id).all()
-        
-        for c in customers_on_truck:
-            if c.id < 0: continue # Ignore depot rows
-            if getattr(c, 'customer_status', 'ACTIVE') == 'INACTIVE': continue
-            
-            if confirmations is not None:
-                c_val = confirmations.get(str(c.id))
-                if c_val not in ['CONFIRMED', 'NOT_CONFIRMED', 'CANCELLED']:
-                    c_val = 'NOT_CONFIRMED'
-                    
-                if c_val == 'CANCELLED' and c.status == 'COMPLETED':
-                    refused_cancel.append(c.id)
-                else:
-                    c.confirmation = c_val
-                    firebase_patch_data[f"{c.id}/confirmation"] = c_val
-                    
-            if deliver_bags is not None:
-                bag_val = bool(deliver_bags.get(str(c.id), False))
-                c.deliver_bag = bag_val
-                firebase_patch_data[f"{c.id}/deliver_bag"] = bag_val
+
+    def _apply_confirmations_and_bags():
+        if confirmations is not None or deliver_bags is not None:
+            customers_on_truck = Customer.query.filter_by(truck_id=truck_id).all()
+            for c in customers_on_truck:
+                if c.id < 0: continue # Ignore depot rows
+                if getattr(c, 'customer_status', 'ACTIVE') == 'INACTIVE': continue
+
+                if confirmations is not None:
+                    c_val = confirmations.get(str(c.id))
+                    if c_val not in ['CONFIRMED', 'NOT_CONFIRMED', 'CANCELLED']:
+                        c_val = 'NOT_CONFIRMED'
+
+                    if c_val == 'CANCELLED' and c.status == 'COMPLETED':
+                        refused_cancel.append(c.id)
+                    else:
+                        c.confirmation = c_val
+                        firebase_patch_data[f"{c.id}/confirmation"] = c_val
+
+                if deliver_bags is not None:
+                    bag_val = bool(deliver_bags.get(str(c.id), False))
+                    c.deliver_bag = bag_val
+                    firebase_patch_data[f"{c.id}/deliver_bag"] = bag_val
 
     driver = None
     if driver_id:
@@ -4520,6 +4548,14 @@ def assign_driver():
             elif not old_truck_id:
                 affected_drivers[str(driver.id)] = {
                     'old_truck': None,
+                    'target_truck': truck_id,
+                    'action': 'GRANT',
+                    'generation_id': driver.generation_id,
+                    'revision': d_rev
+                }
+            elif old_truck_id == truck_id:
+                affected_drivers[str(driver.id)] = {
+                    'old_truck': truck_id,
                     'target_truck': truck_id,
                     'action': 'GRANT',
                     'generation_id': driver.generation_id,
@@ -4581,6 +4617,8 @@ def assign_driver():
                     template_name = curr_name_meta.value
             if not template_name:
                 template_name = f"Route - {driver.name or driver.username} (Truck {truck_id})"
+
+            _apply_confirmations_and_bags()
 
             cust_rows = Customer.query.filter_by(truck_id=truck_id).order_by(Customer.stop_number.asc()).all()
             cust_list = [{
@@ -4668,6 +4706,7 @@ def assign_driver():
             else:
                 complete_assignment_intent(op_id, commit=True)
     else:
+        _apply_confirmations_and_bags()
         try:
             db.session.commit()
         except Exception as e:
@@ -4730,7 +4769,12 @@ def assign_driver():
         print("assign_driver Firebase sync error:", fb_err)
         firebase_synced = False
             
-    db.session.commit()
+    try:
+        db.session.commit()
+    except Exception as e:
+        db.session.rollback()
+        app.logger.error(f"Final commit failed in assign_driver: {e}")
+        return jsonify({'success': False, 'error': f"Failed to persist route assignment: {str(e)}"}), 500
     
     return jsonify({'success': True, 'firebase_synced': firebase_synced, 'refused_cancel': refused_cancel})
 
