@@ -2636,6 +2636,7 @@ def sync_all_driver_assignments_to_firebase(authorized_reconciliation=False):
 
             success_count = 0
             failed_count = 0
+            failed_details = []
             for d in drivers:
                 target_truck = d.truck_id if d.truck_id is not None else None
                 if target_truck is None and not authorized_reconciliation:
@@ -2661,6 +2662,7 @@ def sync_all_driver_assignments_to_firebase(authorized_reconciliation=False):
                     success_count += 1
                 else:
                     failed_count += 1
+                    failed_details.append(f"Driver {d.id} (truck {target_truck}, rev {effective_rev}): {s_err}")
                     app.logger.warning(f"Bulk conditional sync for driver {d.id} failed: {s_err}")
 
             if failed_count == 0:
@@ -2668,7 +2670,7 @@ def sync_all_driver_assignments_to_firebase(authorized_reconciliation=False):
                 app.logger.info(msg)
                 return True, msg
             else:
-                msg = f"Bulk conditional sync partial: {success_count} succeeded, {failed_count} failed"
+                msg = f"Bulk conditional sync partial: {success_count} succeeded, {failed_count} failed ({', '.join(failed_details)})"
                 app.logger.warning(msg)
                 return False, msg
         except Exception as e:
@@ -4585,13 +4587,15 @@ def admin_delete_driver(driver_id):
 @permission_required('drivers.assign_truck')
 def admin_sync_driver_assignments():
     with assignment_coordination_guard():
+        outbox_info = [{"id": o.id, "driver_id": o.driver_id, "target_truck": o.target_truck, "revision": o.revision, "status": o.status, "last_error": o.last_error} for o in AssignmentOutbox.query.all()]
         reconciled_count, pending_count = reconcile_pending_rtdb_assignments()
         success, msg = sync_all_driver_assignments_to_firebase(authorized_reconciliation=True)
         return jsonify({
             'success': success,
             'message': msg,
             'reconciled_pending': reconciled_count,
-            'remaining_pending': pending_count
+            'remaining_pending': pending_count,
+            'outbox': outbox_info
         })
 
 @app.route('/api/assign_driver', methods=['POST'])
