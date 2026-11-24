@@ -6854,7 +6854,7 @@ def mark_stop_status():
 
 @app.route('/api/live_route_sync')
 def live_route_sync():
-    custs = Customer.query.filter(Customer.truck_id != None, Customer.id > -1000).all()
+    custs = Customer.query.filter(Customer.truck_id != None).all()
     routes = {}
     for c in custs:
         rk = f"route_{c.truck_id}"
@@ -6869,9 +6869,214 @@ def live_route_sync():
             "name": c.name,
             "customer_status": c.customer_status or "ACTIVE",
             "lat": c.lat,
-            "lng": c.lng
+            "lng": c.lng,
+            "address": c.address or "",
+            "phone": c.phone or ""
         }
-    return jsonify({'success': True, 'routes': routes})
+
+    depot_start_lat = Metadata.query.filter_by(key='depot_lat').first()
+    depot_start_lng = Metadata.query.filter_by(key='depot_lng').first()
+    depot_start = None
+    if depot_start_lat and depot_start_lng and depot_start_lat.value and depot_start_lng.value:
+        try:
+            depot_start = {"lat": float(depot_start_lat.value), "lng": float(depot_start_lng.value)}
+        except (ValueError, TypeError):
+            pass
+
+    return jsonify({
+        'success': True,
+        'routes': routes,
+        'depot_start': depot_start
+    })
+
+
+def haversine_distance_m(lat1, lon1, lat2, lon2):
+    import math
+    R = 6371000.0
+    phi1, phi2 = math.radians(lat1), math.radians(lat2)
+    dphi = math.radians(lat2 - lat1)
+    dlam = math.radians(lon2 - lon1)
+    a = math.sin(dphi / 2.0) ** 2 + math.cos(phi1) * math.cos(phi2) * math.sin(dlam / 2.0) ** 2
+    return 2.0 * R * math.atan2(math.sqrt(a), math.sqrt(1.0 - a))
+
+
+def get_or_compute_route_geometry(truck_id, mode='active', force_refresh=False):
+    """
+    Computes or retrieves cached road-following GeoJSON geometry for a truck's assigned route.
+    Guarantees:
+    1. Preserves exact assigned stop sequence from stop_number.
+    2. Filters invalid/missing coordinates safely.
+    3. Deduplicates consecutive coordinates within 15 meters to eliminate circular U-turn loops at co-located stops.
+    4. Chunks into slices of <= 25 waypoints for reliable OSRM routing.
+    5. Caches the stitched GeoJSON in Metadata table keyed by coordinate sequence hash.
+    6. Falls back safely and visibly to stop sequence lines if external routing APIs are unreachable.
+    """
+    import hashlib
+    import json
+    import requests
+
+    query = Customer.query.filter_by(truck_id=truck_id)
+    if mode == 'active':
+        query = query.filter((Customer.confirmation != 'CANCELLED') | (Customer.id <= -1000))
+    custs = query.order_by(Customer.stop_number.asc()).all()
+
+    if not custs:
+        return {
+            'success': False,
+            'error': f'No assigned stops found for Truck {truck_id}',
+            'geometry': None,
+            'is_road_geometry': False
+        }
+
+    raw_waypoints = []
+    ordered_stops = []
+    for c in custs:
+        if c.lat is not None and c.lng is not None:
+            try:
+                lat = float(c.lat)
+                lng = float(c.lng)
+                if -90.0 <= lat <= 90.0 and -180.0 <= lng <= 180.0 and (lat != 0.0 or lng != 0.0):
+                    raw_waypoints.append((lat, lng))
+                    ordered_stops.append({
+                        'id': c.id,
+                        'name': c.name,
+                        'sequence': c.stop_number,
+                        'lat': lat,
+                        'lng': lng,
+                        'confirmation': c.confirmation or 'NOT_CONFIRMED',
+                        'status': c.status or 'PENDING'
+                    })
+            except (ValueError, TypeError):
+                continue
+
+    if len(raw_waypoints) < 2:
+        return {
+            'success': True,
+            'geometry': {
+                'type': 'LineString',
+                'coordinates': [[pt[1], pt[0]] for pt in raw_waypoints]
+            },
+            'is_road_geometry': False,
+            'waypoint_count': len(raw_waypoints),
+            'stops': ordered_stops
+        }
+
+    # Deduplicate consecutive identical/near-identical coordinates (< 15 meters)
+    routing_waypoints = []
+    for pt in raw_waypoints:
+        if not routing_waypoints:
+            routing_waypoints.append(pt)
+        else:
+            prev = routing_waypoints[-1]
+            if haversine_distance_m(prev[0], prev[1], pt[0], pt[1]) > 15.0:
+                routing_waypoints.append(pt)
+
+    # Check Cache
+    sig_str = f"t{truck_id}_m{mode}:" + "|".join([f"{pt[0]:.5f},{pt[1]:.5f}" for pt in routing_waypoints])
+    sig_hash = hashlib.md5(sig_str.encode('utf-8')).hexdigest()
+    cache_key = f"route_geo_{truck_id}_{sig_hash}"
+
+    if not force_refresh:
+        cached_meta = Metadata.query.filter_by(key=cache_key).first()
+        if cached_meta and cached_meta.value:
+            try:
+                cached_geo = json.loads(cached_meta.value)
+                return {
+                    'success': True,
+                    'geometry': cached_geo,
+                    'is_road_geometry': True,
+                    'waypoint_count': len(routing_waypoints),
+                    'total_stops': len(raw_waypoints),
+                    'cached': True,
+                    'stops': ordered_stops
+                }
+            except Exception:
+                pass
+
+    # Route via OSRM in chunks of <= 25 waypoints
+    chunk_size = 25
+    chunks = []
+    for i in range(0, len(routing_waypoints) - 1, chunk_size - 1):
+        chunk = routing_waypoints[i: i + chunk_size]
+        if len(chunk) >= 2:
+            chunks.append(chunk)
+
+    merged_coords = []
+    all_chunks_ok = True
+
+    for idx, ch in enumerate(chunks):
+        coords_str = ";".join([f"{pt[1]:.6f},{pt[0]:.6f}" for pt in ch])
+        osrm_url = f"https://router.project-osrm.org/route/v1/driving/{coords_str}?overview=full&geometries=geojson"
+        try:
+            resp = requests.get(osrm_url, headers={'User-Agent': 'TrashTrekyx-Optimizer/2.0'}, timeout=8)
+            if resp.status_code == 200:
+                data = resp.json()
+                if data.get('code') == 'Ok' and data.get('routes') and data['routes'][0].get('geometry'):
+                    chunk_geo = data['routes'][0]['geometry']['coordinates']
+                    if idx == 0 or len(merged_coords) == 0:
+                        merged_coords.extend(chunk_geo)
+                    else:
+                        merged_coords.extend(chunk_geo[1:])
+                else:
+                    all_chunks_ok = False
+                    break
+            else:
+                all_chunks_ok = False
+                break
+        except Exception as e:
+            app.logger.warning(f"OSRM chunk routing error for Truck {truck_id}: {e}")
+            all_chunks_ok = False
+            break
+
+    if all_chunks_ok and merged_coords:
+        final_geojson = {
+            'type': 'LineString',
+            'coordinates': merged_coords
+        }
+        try:
+            existing_meta = Metadata.query.filter_by(key=cache_key).first()
+            if existing_meta:
+                existing_meta.value = json.dumps(final_geojson)
+            else:
+                db.session.add(Metadata(key=cache_key, value=json.dumps(final_geojson)))
+            db.session.commit()
+        except Exception as commit_err:
+            db.session.rollback()
+            app.logger.warning(f"Failed to cache route geometry: {commit_err}")
+
+        return {
+            'success': True,
+            'geometry': final_geojson,
+            'is_road_geometry': True,
+            'waypoint_count': len(routing_waypoints),
+            'total_stops': len(raw_waypoints),
+            'cached': False,
+            'stops': ordered_stops
+        }
+
+    # Fallback: Straight-line stop sequence
+    fallback_geojson = {
+        'type': 'LineString',
+        'coordinates': [[pt[1], pt[0]] for pt in routing_waypoints]
+    }
+    return {
+        'success': True,
+        'geometry': fallback_geojson,
+        'is_road_geometry': False,
+        'warning': 'Road routing service temporarily unavailable. Displaying stop sequence fallback.',
+        'waypoint_count': len(routing_waypoints),
+        'total_stops': len(raw_waypoints),
+        'cached': False,
+        'stops': ordered_stops
+    }
+
+
+@app.route('/api/route_geometry/<int:truck_id>', methods=['GET'])
+def api_route_geometry(truck_id):
+    mode = request.args.get('mode', 'active')
+    force = request.args.get('force', 'false').lower() in ('true', '1', 'yes')
+    res = get_or_compute_route_geometry(truck_id, mode=mode, force_refresh=force)
+    return jsonify(res)
 
 
 @app.route('/api/driver/telemetry_sync', methods=['POST'])

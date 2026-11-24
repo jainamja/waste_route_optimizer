@@ -424,8 +424,9 @@
                 <h1>Live Fleet Tracking</h1>
                 <span style="font-size: 11px; color: var(--text-muted); font-weight: 600; letter-spacing: 0.5px; margin-top: 4px;">REAL-TIME GPS</span>
             </div>
-            <div style="margin-left:16px; display:flex; align-items:center; font-weight:600; font-size:14px; color:#ef4444;">
-                <span class="pulse"></span> LIVE
+            <div id="global-live-indicator" style="margin-left:16px; display:flex; align-items:center; gap:8px; font-weight:700; font-size:12px; color:var(--text-color); background:var(--bg-card); padding:5px 12px; border-radius:20px; border:1px solid var(--border-color); box-shadow:0 1px 4px rgba(0,0,0,0.06);">
+                <span id="global-pulse-dot" style="width:8px; height:8px; border-radius:50%; background:#94a3b8; display:inline-block;"></span>
+                <span id="global-status-text">CONNECTING...</span>
             </div>
         </div>
         <div style="display:flex; gap:12px; align-items:center;">
@@ -445,6 +446,38 @@
     
     <div class="main-content">
         <div id="map"></div>
+        <!-- Floating On-Map Map Legend -->
+        <div class="map-legend-card" id="map-legend" style="position: absolute; bottom: 24px; left: 24px; z-index: 999; background: var(--bg-card, rgba(255,255,255,0.96)); backdrop-filter: blur(8px); padding: 10px 14px; border-radius: 10px; border: 1px solid var(--border-color, #cbd5e1); box-shadow: 0 4px 16px rgba(0,0,0,0.12); font-family: inherit; font-size: 11px; pointer-events: auto; max-width: 260px;">
+            <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:6px;">
+                <span style="font-weight: 800; text-transform: uppercase; color: var(--text-muted, #64748b); letter-spacing: 0.5px; font-size: 10px;">Map Legend</span>
+            </div>
+            <div class="legend-items" style="display: flex; flex-direction: column; gap: 5px;">
+                <div style="display: flex; align-items: center; gap: 8px;">
+                    <span style="width: 18px; height: 4px; background: #2563eb; border-radius: 2px; display: inline-block;"></span>
+                    <span style="font-weight: 600; color: var(--text-color, #1e293b);">Planned Road Route</span>
+                </div>
+                <div style="display: flex; align-items: center; gap: 8px;">
+                    <span style="width: 18px; height: 0px; border-top: 2px dashed #10b981; display: inline-block;"></span>
+                    <span style="font-weight: 600; color: var(--text-color, #1e293b);">GPS Trail (Breadcrumbs)</span>
+                </div>
+                <div style="display: flex; align-items: center; gap: 8px;">
+                    <span style="width: 10px; height: 10px; border-radius: 50%; background: #2563eb; border: 2px solid #10b981; display: inline-block;"></span>
+                    <span style="font-weight: 600; color: var(--text-color, #1e293b);">Live Truck (Online)</span>
+                </div>
+                <div style="display: flex; align-items: center; gap: 8px;">
+                    <span style="width: 10px; height: 10px; border-radius: 50%; background: #64748b; border: 2px solid #cbd5e1; display: inline-block;"></span>
+                    <span style="font-weight: 600; color: var(--text-color, #1e293b);">Last Known Fix (Offline/Stale)</span>
+                </div>
+                <div style="display: flex; align-items: center; gap: 8px;">
+                    <span style="width: 14px; height: 14px; border-radius: 50%; background: #2563eb; color: white; font-size: 8px; font-weight: 800; display: inline-flex; align-items: center; justify-content: center;">#1</span>
+                    <span style="font-weight: 600; color: var(--text-color, #1e293b);">Customer Stop Pin</span>
+                </div>
+                <div style="display: flex; align-items: center; gap: 8px;">
+                    <span style="width: 14px; height: 14px; border-radius: 4px; background: #0f172a; color: white; font-size: 8px; display: inline-flex; align-items: center; justify-content: center;"><i class="fa-solid fa-warehouse"></i></span>
+                    <span style="font-weight: 600; color: var(--text-color, #1e293b);">Depot (Return Location)</span>
+                </div>
+            </div>
+        </div>
         <div id="progress-panel" class="progress-panel collapsed">
             <div class="panel-header" onclick="this.parentElement.classList.toggle('collapsed')">
                 <div class="drag-handle"></div>
@@ -533,14 +566,23 @@
 
             function mergeTruckData(key, data) {
                 if (!data || !key) return;
-                let existing = window.liveTrucks[key];
-                let newTs = Math.max(parseTimestamp(data.timestamp), parseTimestamp(data.lastUpdated));
-                let oldTs = Math.max(parseTimestamp(existing?.timestamp), parseTimestamp(existing?.lastUpdated));
-                
-                // Strictly enforce monotonic ordering: never overwrite fresher live position with an older snapshot
-                if (!existing || newTs >= oldTs) {
-                    window.liveTrucks[key] = Object.assign(existing || {}, data);
+                let existing = window.liveTrucks[key] || {};
+                let merged = Object.assign({}, existing);
+                for (let prop in data) {
+                    if (data[prop] !== undefined && data[prop] !== null) {
+                        merged[prop] = data[prop];
+                    }
                 }
+                // Never lose existing valid coordinates if incoming status patch lacks them
+                if (data.currentLat === undefined && data.lat === undefined && data.latitude === undefined) {
+                    if (existing.currentLat !== undefined) merged.currentLat = existing.currentLat;
+                    if (existing.currentLng !== undefined) merged.currentLng = existing.currentLng;
+                    if (existing.lat !== undefined) merged.lat = existing.lat;
+                    if (existing.lng !== undefined) merged.lng = existing.lng;
+                    if (existing.latitude !== undefined) merged.latitude = existing.latitude;
+                    if (existing.longitude !== undefined) merged.longitude = existing.longitude;
+                }
+                window.liveTrucks[key] = merged;
             }
 
             // 1. Listen to driver_locations node
@@ -716,10 +758,54 @@
         setInterval(syncRoutesHttp, 6000);
         setTimeout(syncRoutesHttp, 1500);
 
+        let isFirebaseConnected = false;
+        function updateGlobalLiveIndicator() {
+            const dot = document.getElementById('global-pulse-dot');
+            const txt = document.getElementById('global-status-text');
+            if (!dot || !txt) return;
+
+            if (!isFirebaseConnected) {
+                dot.style.background = '#f59e0b';
+                dot.className = '';
+                txt.textContent = 'RECONNECTING...';
+                txt.style.color = '#f59e0b';
+                return;
+            }
+
+            let activeOnlineCount = 0;
+            let totalAssignedTrucks = 0;
+            if (typeof getAllTrackableTruckIds === 'function') {
+                let allIds = getAllTrackableTruckIds();
+                allIds.forEach(tId => {
+                    let tData = getTruckData(tId);
+                    let hasAssigned = Boolean(driverAssignedRoutes[tId] || driverAssignedRoutes[String(tId)]);
+                    if (hasAssigned) {
+                        totalAssignedTrucks++;
+                        if (isTruckOnline(tData)) {
+                            activeOnlineCount++;
+                        }
+                    }
+                });
+            }
+
+            if (activeOnlineCount > 0) {
+                dot.style.background = '#10b981';
+                dot.className = 'pulse';
+                txt.textContent = `LIVE (${activeOnlineCount} ACTIVE)`;
+                txt.style.color = '#10b981';
+            } else {
+                dot.style.background = '#94a3b8';
+                dot.className = '';
+                txt.textContent = totalAssignedTrucks > 0 ? 'FLEET OFFLINE' : 'STANDBY';
+                txt.style.color = 'var(--text-muted, #64748b)';
+            }
+        }
+
         function attachRoutesListener() {
             // Watchdog for connection status to auto-reconnect if socket was suspended/idle
             db.ref('.info/connected').on('value', snap => {
-                if (snap.val() === true) {
+                isFirebaseConnected = (snap.val() === true);
+                if (isFirebaseConnected) {
                     console.log("[FIREBASE] Connected to Realtime Database");
                 } else {
                     console.warn("[FIREBASE] Disconnected from Realtime Database - scheduling reconnect");
@@ -727,6 +813,7 @@
                         try { firebase.database().goOnline(); } catch(e){}
                     }, 2000);
                 }
+                updateGlobalLiveIndicator();
             });
 
             db.ref('routes').on('value', snap => {
@@ -809,34 +896,51 @@
             let dId = truckToDriver[tId] || truckToDriver[strTId];
             let strDId = dId ? String(dId) : null;
             
-            let candidates = [];
-            
-            // Collect candidate nodes matching this truck ID or assigned driver ID
-            [trucks[tId], trucks[strTId], dId ? trucks[dId] : null, strDId ? trucks[strDId] : null].forEach(node => {
-                if (node && (node.currentLat !== undefined || node.lat !== undefined || node.latitude !== undefined)) {
-                    candidates.push(node);
-                }
+            let nodes = [];
+            [trucks[tId], trucks[strTId], dId ? trucks[dId] : null, strDId ? trucks[strDId] : null].forEach(n => {
+                if (n && !nodes.includes(n)) nodes.push(n);
             });
             
             for (let k in trucks) {
                 let node = trucks[k];
                 if (!node) continue;
                 if (String(node.truckId) === strTId || String(node.truck_id) === strTId || (strDId && String(node.driverId) === strDId)) {
-                    if (node.currentLat !== undefined || node.lat !== undefined || node.latitude !== undefined) {
-                        candidates.push(node);
+                    if (!nodes.includes(node)) nodes.push(node);
+                }
+            }
+            
+            if (nodes.length === 0) return null;
+            
+            // Sort ascending by timestamp so latest updates take precedence
+            nodes.sort((a, b) => {
+                let tsA = Number(a.lastUpdated || a.timestamp || 0);
+                let tsB = Number(b.lastUpdated || b.timestamp || 0);
+                return tsA - tsB;
+            });
+
+            let unified = {};
+            nodes.forEach(n => {
+                for (let k in n) {
+                    if (n[k] !== undefined && n[k] !== null) {
+                        unified[k] = n[k];
+                    }
+                }
+            });
+
+            // Ensure coordinates are preserved from the freshest node that has them
+            let coords = getTruckCoords(unified);
+            if (!coords) {
+                for (let i = nodes.length - 1; i >= 0; i--) {
+                    let c = getTruckCoords(nodes[i]);
+                    if (c) {
+                        unified.currentLat = c[0];
+                        unified.currentLng = c[1];
+                        break;
                     }
                 }
             }
             
-            if (candidates.length === 0) return null;
-            
-            // Prioritize the node with the freshest timestamp
-            candidates.sort((a, b) => {
-                let tsA = Number(a.lastUpdated || a.timestamp || 0);
-                let tsB = Number(b.lastUpdated || b.timestamp || 0);
-                return tsB - tsA;
-            });
-            return candidates[0];
+            return unified;
         }
 
         function getTruckCoords(truckData) {
@@ -867,24 +971,39 @@
 
         function getGpsStatusInfo(tData, isFinished) {
             if (isFinished) {
-                return { label: 'Finished', cls: 'finished', dotColor: '#10b981' };
+                return { label: 'Completed', cls: 'finished', dotColor: '#10b981', state: 'finished' };
             }
             if (!tData) {
-                return { label: 'Offline', cls: 'offline', dotColor: '#94a3b8' };
+                return { label: 'Offline', cls: 'offline', dotColor: '#64748b', state: 'offline' };
             }
             if (tData.status === 'gps_disabled') {
-                return { label: 'GPS Disabled', cls: 'gps-disabled', dotColor: '#ef4444' };
+                return { label: 'GPS Disabled', cls: 'gps-disabled', dotColor: '#ef4444', state: 'gps_disabled' };
             }
             if (tData.status === 'syncing') {
-                return { label: 'Syncing', cls: 'syncing', dotColor: '#3b82f6' };
+                return { label: 'Syncing', cls: 'syncing', dotColor: '#3b82f6', state: 'syncing' };
             }
-            let ts = parseTimestamp(tData.timestamp || tData.lastUpdated);
-            let diff = Date.now() - ts;
-            let isFresh = ts > 0 && diff < 120000;
             
-            if (tData.status === 'offline' || !isFresh) {
-                return { label: 'Offline', cls: 'offline', dotColor: '#94a3b8' };
+            let ts = parseTimestamp(tData.timestamp || tData.lastUpdated);
+            let diff = ts > 0 ? (Date.now() - ts) : Infinity;
+            
+            if (tData.status === 'offline' || diff > 3600000 || ts === 0) {
+                let mins = ts > 0 ? Math.floor(diff / 60000) : null;
+                let timeLabel = mins ? `Offline (${mins > 120 ? Math.floor(mins / 60) + 'h' : mins + 'm'} ago)` : 'Offline';
+                return { label: timeLabel, cls: 'offline', dotColor: '#64748b', state: 'offline' };
             }
+            
+            if (diff > 120000) {
+                let mins = Math.floor(diff / 60000);
+                return { label: `Stale (${mins}m ago)`, cls: 'stale', dotColor: '#f59e0b', state: 'stale' };
+            }
+            
+            let acc = tData.accuracy !== undefined && tData.accuracy !== null ? parseFloat(tData.accuracy) : null;
+            if (acc !== null && !isNaN(acc) && acc > 30) {
+                return { label: `Weak GPS (±${Math.round(acc)}m)`, cls: 'weak', dotColor: '#f59e0b', state: 'weak' };
+            }
+            
+            return { label: 'Live', cls: 'online', dotColor: '#10b981', state: 'online' };
+        }
             
             let acc = tData.accuracy !== undefined && tData.accuracy !== null ? parseFloat(tData.accuracy) : null;
             if (acc !== null && !isNaN(acc) && acc > 30) {
@@ -1162,36 +1281,45 @@
             marker._animFrameId = requestAnimationFrame(step);
         }
 
-        function createMarkerIcon(tId, isOnline, heading, dName) {
+        function createMarkerIcon(tId, gpsInfoOrOnline, heading, dName) {
             let tColor = getTruckColor(tId);
-            let iconColor = isOnline ? tColor : '#64748b';
-            let rot = heading || 0;
+            let state = (gpsInfoOrOnline && typeof gpsInfoOrOnline === 'object') ? gpsInfoOrOnline.state : (gpsInfoOrOnline ? 'online' : 'offline');
+            let isOnline = (state === 'online' || state === 'weak' || state === 'syncing');
+            let isStale = (state === 'stale');
+            let isGpsDisabled = (state === 'gps_disabled');
+            let isOffline = (!isOnline && !isStale && !isGpsDisabled);
             
+            let iconBgColor = isOnline ? tColor : (isStale ? '#d97706' : (isGpsDisabled ? '#dc2626' : '#64748b'));
+            let badgeColor = isOnline ? '#10b981' : (isStale ? '#f59e0b' : (isGpsDisabled ? '#ef4444' : '#94a3b8'));
+            let rot = heading || 0;
+            let opacity = isOffline ? '0.85' : '1.0';
+            let statusLabel = (gpsInfoOrOnline && typeof gpsInfoOrOnline === 'object') ? gpsInfoOrOnline.label : (isOnline ? 'Online' : 'Offline');
+
             return L.divIcon({
                 className: 'live-truck-marker-wrap live-truck-marker-' + tId,
                 html: `
-                    <div class="uber-marker-container" style="position:relative; width:44px; height:44px; cursor:pointer;" title="Truck ${tId} (${dName})">
+                    <div class="uber-marker-container" style="position:relative; width:44px; height:44px; cursor:pointer; opacity:${opacity};" title="Truck ${tId} (${dName}) - ${statusLabel}">
                         <!-- Floating Truck ID Pill -->
-                        <div style="position:absolute; top:-12px; left:50%; transform:translateX(-50%); background:#0f172a; color:#ffffff; font-size:10px; font-weight:800; padding:1px 6px; border-radius:10px; white-space:nowrap; box-shadow:0 2px 6px rgba(0,0,0,0.35); border:1.5px solid white; z-index:5; pointer-events:none; letter-spacing:0.5px;">
+                        <div style="position:absolute; top:-12px; left:50%; transform:translateX(-50%); background:${isOffline ? '#475569' : '#0f172a'}; color:#ffffff; font-size:10px; font-weight:800; padding:1px 6px; border-radius:10px; white-space:nowrap; box-shadow:0 2px 6px rgba(0,0,0,0.35); border:1.5px solid white; z-index:5; pointer-events:none; letter-spacing:0.5px;">
                             T${tId}
                         </div>
                         
                         <!-- Live Radar Pulse Ring -->
-                        ${isOnline ? `<div class="live-pulse-ring" style="position:absolute; top:0; left:0; width:44px; height:44px; border-radius:50%; background:${iconColor}33; pointer-events:none;"></div>` : ''}
+                        ${isOnline ? `<div class="live-pulse-ring" style="position:absolute; top:0; left:0; width:44px; height:44px; border-radius:50%; background:${iconBgColor}33; pointer-events:none;"></div>` : ''}
                         
                         <!-- Smooth Directional Rotator that turns with heading -->
                         <div class="truck-rotator" style="position:absolute; top:0; left:0; width:44px; height:44px; display:flex; align-items:center; justify-content:center; transform:rotate(${Math.round(rot)}deg); transform-origin:50% 50%; transition:transform 0.25s cubic-bezier(0.4, 0, 0.2, 1); z-index:3;">
                             <!-- Forward Direction Pointer Arrowhead -->
-                            <div style="position:absolute; top:-5px; left:50%; transform:translateX(-50%); width:0; height:0; border-left:6px solid transparent; border-right:6px solid transparent; border-bottom:8px solid ${iconColor}; filter:drop-shadow(0 -1px 2px rgba(0,0,0,0.35));"></div>
+                            <div style="position:absolute; top:-5px; left:50%; transform:translateX(-50%); width:0; height:0; border-left:6px solid transparent; border-right:6px solid transparent; border-bottom:8px solid ${iconBgColor}; filter:drop-shadow(0 -1px 2px rgba(0,0,0,0.35));"></div>
                             
                             <!-- Vehicle Icon Circle -->
-                            <div style="background-color:${iconColor}; width:34px; height:34px; border-radius:50%; border:2.5px solid #ffffff; box-shadow:0 3px 10px rgba(0,0,0,0.35); display:flex; align-items:center; justify-content:center; color:#ffffff; font-size:14px;">
+                            <div style="background-color:${iconBgColor}; width:34px; height:34px; border-radius:50%; border:2.5px solid #ffffff; box-shadow:0 3px 10px rgba(0,0,0,0.35); display:flex; align-items:center; justify-content:center; color:#ffffff; font-size:14px;">
                                 <i class="fa-solid fa-truck" style="transform:rotate(-90deg); font-size:13px;"></i>
                             </div>
                         </div>
                         
-                        <!-- Online Status Green Badge -->
-                        ${isOnline ? '<span style="position:absolute; bottom:2px; right:2px; width:10px; height:10px; background:#10b981; border:2px solid white; border-radius:50%; z-index:6; box-shadow:0 1px 4px rgba(0,0,0,0.25);"></span>' : ''}
+                        <!-- Status Badge (Green = Live, Amber = Stale, Red = GPS Disabled, Grey = Offline) -->
+                        <span style="position:absolute; bottom:2px; right:2px; width:11px; height:11px; background:${badgeColor}; border:2px solid white; border-radius:50%; z-index:6; box-shadow:0 1px 4px rgba(0,0,0,0.25);" title="${statusLabel}"></span>
                     </div>
                 `,
                 iconSize: [44, 44],
@@ -1498,9 +1626,11 @@
                 let hasAssigned = Boolean(driverAssignedRoutes[tId] || driverAssignedRoutes[strId]);
                 let st = truckStats[tId];
                 let isFinished = (hasAssigned && st && st.total > 0 && st.left === 0);
+                let gpsInfo = getGpsStatusInfo(tData, isFinished);
 
-                // If truck is offline, has no GPS, has no assigned route, or is finished & offline: remove marker from map
-                if (!coords || !isOnline || !hasAssigned || (isFinished && !isOnline)) {
+                // Preserve marker at last known fix even if truck is offline!
+                // Only remove marker if: no coordinates ever received, no assigned route, or route finished & offline
+                if (!coords || !hasAssigned || (isFinished && !isOnline)) {
                     if (liveTruckMarkers[tId]) {
                         if (liveTruckMarkers[tId]._animFrameId) {
                             cancelAnimationFrame(liveTruckMarkers[tId]._animFrameId);
@@ -1536,16 +1666,16 @@
                 if (heading === null) heading = 0;
                 
                 if (liveTruckMarkers[tId]) {
-                    // Only re-create icon if online/offline status actually changed
-                    if (liveTruckMarkers[tId]._lastOnlineState !== isOnline) {
-                        liveTruckMarkers[tId].setIcon(createMarkerIcon(tId, isOnline, heading, dName));
-                        liveTruckMarkers[tId]._lastOnlineState = isOnline;
+                    // Only re-create icon if GPS status state actually changed
+                    if (liveTruckMarkers[tId]._lastGpsState !== gpsInfo.state) {
+                        liveTruckMarkers[tId].setIcon(createMarkerIcon(tId, gpsInfo, heading, dName));
+                        liveTruckMarkers[tId]._lastGpsState = gpsInfo.state;
                     }
                     // 60 FPS Uber-style smooth glide animation
                     animateTruckMarker(liveTruckMarkers[tId], finalLat, finalLng, heading, 1500);
                 } else {
-                    liveTruckMarkers[tId] = L.marker([finalLat, finalLng], { icon: createMarkerIcon(tId, isOnline, heading, dName) }).addTo(map);
-                    liveTruckMarkers[tId]._lastOnlineState = isOnline;
+                    liveTruckMarkers[tId] = L.marker([finalLat, finalLng], { icon: createMarkerIcon(tId, gpsInfo, heading, dName) }).addTo(map);
+                    liveTruckMarkers[tId]._lastGpsState = gpsInfo.state;
                     liveTruckMarkers[tId]._currentBearing = heading;
                     liveTruckMarkers[tId].bindPopup(`<b>Truck ${tId}</b>`);
                     liveTruckMarkers[tId].on('click', () => {
@@ -1561,14 +1691,25 @@
                 }
                 
                 let countsStr = (st && hasAssigned) ? `<br><span style="font-size:12px; color:#64748b;">${st.comp} done &middot; ${st.left} left</span>` : `<br><span style="font-size:12px; color:#64748b;">Standby / No Route Assigned</span>`;
-                let timeStr = '<span style="color:#64748b; font-weight:600;">Offline</span>';
+                let timeStr = '<span style="color:#64748b; font-weight:600;">⚪ Offline (Last Known Fix)</span>';
                 let latestTime = tData.lastUpdated || tData.timestamp;
                 if (latestTime) {
                     let diffSeconds = Math.max(0, Math.floor((Date.now() - latestTime) / 1000));
-                    if (diffSeconds < 20) timeStr = `<span style="color:#10b981; font-weight:700;">🟢 LIVE</span>`;
-                    else if (diffSeconds < 60) timeStr = `<span style="color:#10b981; font-weight:700;">🟢 LIVE (${diffSeconds}s ago)</span>`;
-                    else if (diffSeconds < 180) timeStr = `<span style="color:#f59e0b; font-weight:700;">🟡 RECENT (${Math.floor(diffSeconds/60)}m ago)</span>`;
-                    else timeStr = `<span style="color:#ef4444; font-weight:700;">🔴 STALE (${Math.floor(diffSeconds/60)}m ago)</span>`;
+                    if (tData.status === 'gps_disabled') {
+                        timeStr = `<span style="color:#ef4444; font-weight:700;">🔴 GPS PERMISSION DISABLED</span>`;
+                    } else if (diffSeconds < 20) {
+                        timeStr = `<span style="color:#10b981; font-weight:700;">🟢 LIVE</span>`;
+                    } else if (diffSeconds < 60) {
+                        timeStr = `<span style="color:#10b981; font-weight:700;">🟢 LIVE (${diffSeconds}s ago)</span>`;
+                    } else if (diffSeconds < 180) {
+                        timeStr = `<span style="color:#f59e0b; font-weight:700;">🟡 RECENT (${Math.floor(diffSeconds/60)}m ago)</span>`;
+                    } else if (diffSeconds < 3600) {
+                        timeStr = `<span style="color:#f59e0b; font-weight:700;">🟡 STALE (${Math.floor(diffSeconds/60)}m ago)</span>`;
+                    } else {
+                        let hrs = Math.floor(diffSeconds / 3600);
+                        let mins = Math.floor((diffSeconds % 3600) / 60);
+                        timeStr = `<span style="color:#64748b; font-weight:700;">⚪ OFFLINE (${hrs > 0 ? hrs + 'h ' : ''}${mins}m ago)</span>`;
+                    }
                 } else if (isOnline) {
                     timeStr = '<span style="color:#10b981; font-weight:700;">🟢 LIVE</span>';
                 }
@@ -1636,6 +1777,7 @@
             }
 
             renderRoutesOnMap();
+            updateGlobalLiveIndicator();
         }
         
         // Refresh popup time counters every second so the display never stays frozen
@@ -1785,7 +1927,7 @@
         const everHadRoadGeoByTruck = {};
         const STOPS_CACHE_PREFIX = 'osrm_stops_geo_v1_';
         const APPROACH_CACHE_PREFIX = 'osrm_approach_geo_v1_';
-        const OSRM_MAX_POINTS_PER_CHUNK = 40;
+        const OSRM_MAX_POINTS_PER_CHUNK = 25;
         const MAX_CONCURRENT_OSRM = 2;
         const OSRM_TIMEOUT_MS = 8000;
         const BACKOFF_DELAYS_MS = [2000, 4000, 8000, 16000, 30000];
@@ -1894,11 +2036,24 @@
             }
         }
 
+        function deduplicateWaypoints(waypoints, thresholdMeters = 15) {
+            if (!waypoints || waypoints.length < 2) return waypoints || [];
+            const deduped = [waypoints[0]];
+            for (let i = 1; i < waypoints.length; i++) {
+                const prev = deduped[deduped.length - 1];
+                const curr = waypoints[i];
+                if (haversineMeters(prev, curr) > thresholdMeters) {
+                    deduped.push(curr);
+                }
+            }
+            return deduped;
+        }
+
         function chunkWaypoints(waypoints) {
             if (!waypoints || waypoints.length < 2) return [];
             if (waypoints.length <= OSRM_MAX_POINTS_PER_CHUNK) return [waypoints];
             const chunks = [];
-            const step = OSRM_MAX_POINTS_PER_CHUNK - 1; // 39 -> overlap by 1 point
+            const step = OSRM_MAX_POINTS_PER_CHUNK - 1; // 24 -> overlap by 1 point
             for (let i = 0; i < waypoints.length - 1; i += step) {
                 const slice = waypoints.slice(i, i + OSRM_MAX_POINTS_PER_CHUNK);
                 if (slice.length >= 2) {
@@ -1910,7 +2065,14 @@
         }
 
         async function fetchChunkedOsrmGeometry(waypoints) {
-            const chunks = chunkWaypoints(waypoints);
+            const deduped = deduplicateWaypoints(waypoints, 15);
+            if (deduped.length < 2) {
+                if (deduped.length === 1) {
+                    return { type: 'LineString', coordinates: [[deduped[0][1], deduped[0][0]], [deduped[0][1], deduped[0][0]]] };
+                }
+                return null;
+            }
+            const chunks = chunkWaypoints(deduped);
             if (chunks.length === 0) return null;
             const geometries = await Promise.all(chunks.map(chunk => {
                 const coordsString = chunk.map(pt => `${pt[1]},${pt[0]}`).join(';');
@@ -2441,10 +2603,19 @@
 
             ensurePrelimFallbackIfNeeded(strId, fallbackWaypoints, color);
 
-            fetchChunkedOsrmGeometry(stopsWaypoints)
+            // 1. Try server-side cached and deduplicated road geometry first
+            fetch(`/api/route_geometry/${strId}?mode=active`)
+                .then(r => r.json())
+                .then(backendRes => {
+                    if (backendRes && backendRes.success && backendRes.geometry && backendRes.is_road_geometry) {
+                        return backendRes.geometry;
+                    }
+                    // 2. Fall back to client chunked OSRM with 15m coordinate deduplication
+                    return fetchChunkedOsrmGeometry(stopsWaypoints);
+                })
                 .then(geometry => {
                     if (!geometry || !geometry.coordinates || geometry.coordinates.length === 0) {
-                        throw new Error('Empty OSRM geometry');
+                        throw new Error('Empty road geometry');
                     }
                     setCachedStopsGeo(stopsSig, geometry);
                     const curState = activeRouteLayers[strId];
@@ -2673,7 +2844,10 @@
                 }
 
                 // Layer B: Approach leg (truck's live position -> next forward target stop)
-                if (truckCoords && nextTargetStop) {
+                // ONLY render live approach leg if the truck is actively ONLINE.
+                // Do NOT draw a confusing cross-city approach line for offline/stale trucks.
+                const isOnline = isTruckOnline(tData);
+                if (truckCoords && nextTargetStop && isOnline) {
                     const firstStopCoords = [parseFloat(nextTargetStop.lat), parseFloat(nextTargetStop.lng)];
                     const approachSig = `${truckCoords[0].toFixed(4)},${truckCoords[1].toFixed(4)}->${nextTargetStop.id}:${firstStopCoords[0].toFixed(5)},${firstStopCoords[1].toFixed(5)}`;
 
@@ -2715,6 +2889,11 @@
                             }
                         }
                     }
+                } else if (state.approachLine) {
+                    map.removeLayer(state.approachLine);
+                    state.approachLine = null;
+                    state.approachRoadCoords = [];
+                    syncTruckLayerArrays(state);
                 }
             });
         }

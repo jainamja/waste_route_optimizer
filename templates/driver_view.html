@@ -964,22 +964,73 @@
             });
             map.addLayer(markerCluster);
             if (latlngs.length > 0) {
-                let coordsString = latlngs.map(ll => `${ll[1]},${ll[0]}`).join(';');
-                let url = `https://router.project-osrm.org/route/v1/driving/${coordsString}?overview=full&geometries=geojson`;
-                
-                fetch(url).then(res => res.json()).then(routeData => {
-                    if (thisRenderId !== currentRenderId) return;
-                    if (routeData.routes && routeData.routes.length > 0) {
-                        let geojson = routeData.routes[0].geometry;
-                        routeLine = L.geoJSON(geojson, { style: { color: '#2F5FFF', weight: 5, opacity: 0.8 } }).addTo(map);
+                // Deduplicate consecutive identical/near-identical waypoints (< 15m)
+                function haversineDistM(c1, c2) {
+                    if (!c1 || !c2) return Infinity;
+                    const R = 6371000;
+                    const toRad = d => (d * Math.PI) / 180;
+                    const dLat = toRad(c2[0] - c1[0]);
+                    const dLng = toRad(c2[1] - c1[1]);
+                    const a = Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+                              Math.cos(toRad(c1[0])) * Math.cos(toRad(c2[0])) *
+                              Math.sin(dLng / 2) * Math.sin(dLng / 2);
+                    return 2 * R * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+                }
+
+                let routingWaypoints = [];
+                for (let pt of latlngs) {
+                    if (routingWaypoints.length === 0) {
+                        routingWaypoints.push(pt);
                     } else {
-                        routeLine = L.polyline(latlngs, {color: '#2F5FFF', weight: 4, dashArray: '8, 8', opacity: 0.6}).addTo(map);
+                        let prev = routingWaypoints[routingWaypoints.length - 1];
+                        if (haversineDistM(prev, pt) > 15) {
+                            routingWaypoints.push(pt);
+                        }
                     }
-                }).catch(e => {
-                    if (thisRenderId !== currentRenderId) return;
-                    console.error('OSRM fetch error:', e);
-                    routeLine = L.polyline(latlngs, {color: '#2F5FFF', weight: 4, dashArray: '8, 8', opacity: 0.6}).addTo(map);
-                });
+                }
+
+                const chunkSize = 25;
+                const chunks = [];
+                for (let i = 0; i < routingWaypoints.length - 1; i += (chunkSize - 1)) {
+                    let slice = routingWaypoints.slice(i, i + chunkSize);
+                    if (slice.length >= 2) chunks.push(slice);
+                    if (i + chunkSize >= routingWaypoints.length) break;
+                }
+
+                if (chunks.length === 0) {
+                    routeLine = L.polyline(routingWaypoints.length > 0 ? routingWaypoints : latlngs, {color: '#2F5FFF', weight: 4, dashArray: '8, 8', opacity: 0.6}).addTo(map);
+                } else {
+                    Promise.all(chunks.map(chunk => {
+                        let coordsString = chunk.map(ll => `${ll[1]},${ll[0]}`).join(';');
+                        let url = `https://router.project-osrm.org/route/v1/driving/${coordsString}?overview=full&geometries=geojson`;
+                        return fetch(url).then(r => r.json()).catch(() => null);
+                    })).then(results => {
+                        if (thisRenderId !== currentRenderId) return;
+                        let mergedCoords = [];
+                        let allOk = true;
+                        results.forEach((res, idx) => {
+                            if (res && res.routes && res.routes[0] && res.routes[0].geometry) {
+                                let coords = res.routes[0].geometry.coordinates;
+                                if (idx === 0 || mergedCoords.length === 0) {
+                                    mergedCoords.push(...coords);
+                                } else {
+                                    mergedCoords.push(...coords.slice(1));
+                                }
+                            } else {
+                                allOk = false;
+                            }
+                        });
+                        if (allOk && mergedCoords.length > 0) {
+                            routeLine = L.geoJSON({ type: 'LineString', coordinates: mergedCoords }, { style: { color: '#2F5FFF', weight: 5, opacity: 0.85 } }).addTo(map);
+                        } else {
+                            routeLine = L.polyline(routingWaypoints, {color: '#2F5FFF', weight: 4, dashArray: '8, 8', opacity: 0.6}).addTo(map);
+                        }
+                    }).catch(e => {
+                        if (thisRenderId !== currentRenderId) return;
+                        console.error('OSRM fetch error:', e);
+                        routeLine = L.polyline(routingWaypoints, {color: '#2F5FFF', weight: 4, dashArray: '8, 8', opacity: 0.6}).addTo(map);
+                    });
+                }
                 
                 // Center Map on Current Stop smoothly
                 if (currentIndex < stops.length) {
