@@ -1908,7 +1908,7 @@
                 }
                 
                 truckId = data.truck_id;
-                driverId = token;
+                driverId = (data.driver_id !== undefined && data.driver_id !== null) ? String(data.driver_id) : (token || '');
                 window.currentTruckId = truckId;
                 window.currentDriverId = driverId;
                 window.currentDriverToken = token;

@@ -468,7 +468,7 @@ public class LocationService extends Service {
 
                         patchToFirebase("https://wasteroutelive-default-rtdb.firebaseio.com/trucks/" + effectiveTruckId + ".json?auth=" + idToken, singlePayload);
 
-                        if (effectiveDriverId != null && !effectiveDriverId.isEmpty() && !effectiveDriverId.equals(effectiveTruckId)) {
+                        if (effectiveDriverId != null && !effectiveDriverId.isEmpty()) {
                             patchToFirebase("https://wasteroutelive-default-rtdb.firebaseio.com/driver_locations/" + effectiveDriverId + ".json?auth=" + idToken, singlePayload);
                         }
                     }
