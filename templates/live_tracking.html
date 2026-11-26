@@ -32,14 +32,16 @@
         }
 
         * { box-sizing: border-box; margin: 0; padding: 0; }
-        body { font-family: 'Inter', sans-serif; background: var(--bg); color: var(--text-main); height: 100vh; display: flex; flex-direction: column; }
+        html { height: 100vh; overflow: hidden; margin: 0; padding: 0; }
+        body { font-family: 'Inter', sans-serif; background: var(--bg); color: var(--text-main); height: 100vh; overflow: hidden; display: flex; flex-direction: column; margin: 0; padding: 0; }
         
         .header-bar {
             background: white; padding: 16px 32px; border-bottom: 1px solid var(--border);
             display: flex; justify-content: space-between; align-items: center; z-index: 10;
+            flex-shrink: 0;
         }
         
-        .title-area { display: flex; align-items: center; gap: 16px; }
+        .title-area { display: flex; align-items: center; gap: 16px; flex-shrink: 0; }
         .title-area h1 { font-family: 'Manrope', sans-serif; font-size: 24px; color: var(--text-main); margin:0; line-height:1;}
         
         .btn {
@@ -49,27 +51,29 @@
         .btn-primary { background: var(--primary); color: white; box-shadow: var(--shadow-glow); }
         .btn-outline { background: white; border: 1px solid var(--border); color: var(--text-main); }
         
-        #map { flex: 1; width: 100%; z-index: 1;}
+        #map { flex: 1; min-width: 0; min-height: 0; width: 100%; height: 100%; z-index: 1; position: relative; }
         
-        .pulse {
-            display: inline-block; width: 10px; height: 10px; border-radius: 50%; background: #ef4444; margin-right: 8px;
+        .pulse-dot {
+            width: 8px; height: 8px; border-radius: 50%; background: #94a3b8; display: inline-block; flex-shrink: 0;
+        }
+        .pulse-dot.pulse {
             animation: pulse-animation 2s infinite;
         }
         @keyframes pulse-animation {
-            0% { box-shadow: 0 0 0 0 rgba(239, 68, 68, 0.7); }
-            70% { box-shadow: 0 0 0 10px rgba(239, 68, 68, 0); }
-            100% { box-shadow: 0 0 0 0 rgba(239, 68, 68, 0); }
+            0% { box-shadow: 0 0 0 0 rgba(16, 185, 129, 0.7); }
+            70% { box-shadow: 0 0 0 8px rgba(16, 185, 129, 0); }
+            100% { box-shadow: 0 0 0 0 rgba(16, 185, 129, 0); }
         }
         
         .main-content {
-            display: flex; flex: 1; overflow: hidden; position: relative;
+            display: flex; flex: 1; min-width: 0; min-height: 0; overflow: hidden; position: relative; width: 100%; height: 100%;
         }
         
         .progress-panel {
-            width: 380px; background: var(--bg); border-left: 1px solid var(--border);
+            width: 380px; flex-shrink: 0; background: var(--bg); border-left: 1px solid var(--border);
             display: flex; flex-direction: column; z-index: 10;
-            box-shadow: -4px 0 20px rgba(0,0,0,0.05); overflow-y: auto;
-            transition: transform 0.3s ease;
+            box-shadow: -4px 0 20px rgba(0,0,0,0.05); overflow-y: auto; overflow-x: hidden;
+            height: 100%;
         }
         
         @media (max-width: 768px) {
@@ -154,10 +158,9 @@
             .stat-card { padding: 12px !important; }
         }
 
-        /* Smooth marker gliding and zero-flicker transitions */
+        /* Ensure Leaflet marker positioning is strictly uninhibited by CSS transitions */
         .leaflet-marker-icon {
-            transition: transform 0.4s cubic-bezier(0.25, 0.8, 0.25, 1);
-            will-change: transform;
+            transition: none !important;
         }
 
         .btn-route-toggle {
@@ -424,8 +427,8 @@
                 <h1>Live Fleet Tracking</h1>
                 <span style="font-size: 11px; color: var(--text-muted); font-weight: 600; letter-spacing: 0.5px; margin-top: 4px;">REAL-TIME GPS</span>
             </div>
-            <div id="global-live-indicator" style="margin-left:16px; display:flex; align-items:center; gap:8px; font-weight:700; font-size:12px; color:var(--text-color); background:var(--bg-card); padding:5px 12px; border-radius:20px; border:1px solid var(--border-color); box-shadow:0 1px 4px rgba(0,0,0,0.06);">
-                <span id="global-pulse-dot" style="width:8px; height:8px; border-radius:50%; background:#94a3b8; display:inline-block;"></span>
+            <div id="global-live-indicator" style="margin-left:16px; display:inline-flex; align-items:center; gap:8px; font-weight:700; font-size:12px; color:var(--text-color); background:var(--bg-card); padding:5px 14px; border-radius:20px; border:1px solid var(--border-color); box-shadow:0 1px 4px rgba(0,0,0,0.06); min-width:145px; justify-content:center; white-space:nowrap; flex-shrink:0;">
+                <span id="global-pulse-dot" class="pulse-dot" style="background:#94a3b8;"></span>
                 <span id="global-status-text">CONNECTING...</span>
             </div>
         </div>
@@ -478,14 +481,37 @@
                 </div>
             </div>
         </div>
-        <div id="progress-panel" class="progress-panel collapsed">
+        <div id="progress-panel" class="progress-panel">
             <div class="panel-header" onclick="this.parentElement.classList.toggle('collapsed')">
                 <div class="drag-handle"></div>
                 <h3 style="font-size: 16px; font-weight: 800;">Fleet Progress</h3>
                 <div class="fleet-summary" id="fleet-summary">
-                    <!-- Fleet summary injected here -->
+                    <div class="fleet-stat">
+                        <div class="fleet-stat-val" id="stat-comp" style="color:#10b981;">0</div>
+                        <div class="fleet-stat-label">Done</div>
+                    </div>
+                    <div class="fleet-stat">
+                        <div class="fleet-stat-val" id="stat-skip" style="color:#ef4444;">0</div>
+                        <div class="fleet-stat-label">Skip</div>
+                    </div>
+                    <div class="fleet-stat" title="Cancelled">
+                        <div class="fleet-stat-val" id="stat-canc" style="color:#f87171;">0</div>
+                        <div class="fleet-stat-label">Canc</div>
+                    </div>
+                    <div class="fleet-stat">
+                        <div class="fleet-stat-val" id="stat-left">0</div>
+                        <div class="fleet-stat-label">Left</div>
+                    </div>
+                    <div class="fleet-stat">
+                        <div class="fleet-stat-val" id="stat-pct" style="color:var(--primary);">0%</div>
+                        <div class="fleet-stat-label">Progress</div>
+                    </div>
                 </div>
-                <div class="prog-bar-wrap" id="fleet-prog-bar"></div>
+                <div class="prog-bar-wrap" id="fleet-prog-bar">
+                    <div id="prog-bar-comp" class="prog-bar-comp" style="width: 0%"></div>
+                    <div id="prog-bar-skip" class="prog-bar-skip" style="width: 0%"></div>
+                    <div id="prog-bar-canc" class="prog-bar-canc" style="width: 0%; background:#fca5a5;"></div>
+                </div>
             </div>
             <div class="truck-filter-bar" id="truck-filter-bar"></div>
             <div class="truck-list" id="truck-list">
@@ -602,8 +628,26 @@
                 console.warn("[FIREBASE] Admin custom token auth warning:", err);
             })
             .then(() => {
-            // 1. Listen to driver_locations node
-            db.ref('driver_locations').on('value', snap => {
+            // Centralized listener registry to prevent duplicate subscriptions
+            window.activeFirebaseListeners = window.activeFirebaseListeners || {};
+            function registerFirebaseListener(key, ref, eventType, callback, errCallback) {
+                if (window.activeFirebaseListeners[key]) return;
+                ref.on(eventType, callback, errCallback);
+                window.activeFirebaseListeners[key] = { ref: ref, eventType: eventType, callback: callback };
+            }
+            window.registerFirebaseListener = registerFirebaseListener;
+
+            function unregisterFirebaseListener(key) {
+                const entry = window.activeFirebaseListeners[key];
+                if (entry) {
+                    try { entry.ref.off(entry.eventType, entry.callback); } catch(e){}
+                    delete window.activeFirebaseListeners[key];
+                }
+            }
+            window.unregisterFirebaseListener = unregisterFirebaseListener;
+
+            // 1. Listen to driver_locations root node
+            registerFirebaseListener('driver_locations_root', db.ref('driver_locations'), 'value', snap => {
                 let locs = snap.val() || {};
                 for (let k in locs) {
                     if (locs[k]) {
@@ -620,8 +664,8 @@
                 fallbackToIndividualListeners();
             });
 
-            // 2. Listen to trucks node (legacy and fallback)
-            db.ref('trucks').on('value', snap => {
+            // 2. Listen to trucks root node
+            registerFirebaseListener('trucks_root', db.ref('trucks'), 'value', snap => {
                 let tData = snap.val() || {};
                 for (let tId in tData) {
                     if (tData[tId]) {
@@ -737,11 +781,12 @@
             routeListeners['route_' + strId] = true;
             
             // Direct listener to the truck's stops node for instant zero-delay updates
-            db.ref('routes/route_' + strId + '/stops').on('value', snap => {
+            registerFirebaseListener('route_stops_' + strId, db.ref('routes/route_' + strId + '/stops'), 'value', snap => {
                 let val = snap.val();
                 if (val) {
                     if (!routesData['route_' + strId]) routesData['route_' + strId] = {};
                     routesData['route_' + strId].stops = val;
+                    window._routesNeedRender = true;
                     scheduleRender();
                 }
             }, err => {
@@ -769,6 +814,7 @@
                             }
                         }
                         if (changed) {
+                            window._routesNeedRender = true;
                             scheduleRender();
                         }
                     }
@@ -810,12 +856,12 @@
 
             if (activeOnlineCount > 0) {
                 dot.style.background = '#10b981';
-                dot.className = 'pulse';
+                dot.className = 'pulse-dot pulse';
                 txt.textContent = `LIVE (${activeOnlineCount} ACTIVE)`;
                 txt.style.color = '#10b981';
             } else {
                 dot.style.background = '#94a3b8';
-                dot.className = '';
+                dot.className = 'pulse-dot';
                 txt.textContent = totalAssignedTrucks > 0 ? 'FLEET OFFLINE' : 'STANDBY';
                 txt.style.color = 'var(--text-muted, #64748b)';
             }
@@ -823,7 +869,7 @@
 
         function attachRoutesListener() {
             // Watchdog for connection status to auto-reconnect if socket was suspended/idle
-            db.ref('.info/connected').on('value', snap => {
+            registerFirebaseListener('info_connected', db.ref('.info/connected'), 'value', snap => {
                 isFirebaseConnected = (snap.val() === true);
                 if (isFirebaseConnected) {
                     console.log("[FIREBASE] Connected to Realtime Database");
@@ -836,7 +882,7 @@
                 updateGlobalLiveIndicator();
             });
 
-            db.ref('routes').on('value', snap => {
+            registerFirebaseListener('routes_root', db.ref('routes'), 'value', snap => {
                 let val = snap.val() || {};
                 routesData = Object.assign(routesData || {}, val);
                 for (let rk in val) {
@@ -844,6 +890,7 @@
                         ensureTruckRouteListener(rk.replace('route_', ''));
                     }
                 }
+                window._routesNeedRender = true;
                 scheduleRender();
             }, err => {
                 console.warn("Permission denied reading 'routes'. Falling back to individual trucks.", err);
@@ -853,6 +900,7 @@
         }
 
         function fallbackToIndividualListeners() {
+            if (!usingFallback) return;
             if (!window.liveTrucks) window.liveTrucks = {};
             if (!window.driverLocations) window.driverLocations = {};
             let keys = Object.keys(driverMap);
@@ -867,23 +915,18 @@
 
                 ensureTruckRouteListener(tId);
 
-                if (!routeListeners[tId]) {
-                    routeListeners[tId] = true;
-                    
-                    // Listen to individual trucks/{tId} directly!
-                    db.ref('trucks/' + tId).on('value', snap => {
-                        let tData = snap.val();
-                        if (tData) {
-                            mergeLocationData(window.liveTrucks, String(tId), tData);
-                            scheduleRender();
-                        }
-                    });
-                }
+                // Listen to individual trucks/{tId} directly!
+                registerFirebaseListener('ind_truck_' + tId, db.ref('trucks/' + tId), 'value', snap => {
+                    let tData = snap.val();
+                    if (tData) {
+                        mergeLocationData(window.liveTrucks, String(tId), tData);
+                        scheduleRender();
+                    }
+                });
 
                 // Listen to individual driver_locations/{driverId}
-                if (driverId && !routeListeners['drv_' + driverId]) {
-                    routeListeners['drv_' + driverId] = true;
-                    db.ref('driver_locations/' + driverId).on('value', snap => {
+                if (driverId) {
+                    registerFirebaseListener('ind_drv_' + driverId, db.ref('driver_locations/' + driverId), 'value', snap => {
                         let tData = snap.val();
                         if (tData) {
                             mergeLocationData(window.driverLocations, String(driverId), tData);
@@ -1248,10 +1291,15 @@
             const startLng = startLatLng.lng;
             
             const dist = haversineMeters([startLat, startLng], [targetLat, targetLng]);
-            if (dist < 0.3) {
-                if (targetHeading !== undefined && targetHeading !== null) {
-                    updateMarkerRotation(marker, targetHeading);
-                }
+            
+            let diffHeading = 0;
+            const startBearing = marker._currentBearing !== undefined ? marker._currentBearing : (targetHeading || 0);
+            if (targetHeading !== undefined && targetHeading !== null) {
+                diffHeading = ((targetHeading - startBearing + 540) % 360) - 180;
+            }
+            
+            // GPS deadband filter: ignore jitter under 1.0 meter and 5 degrees to eliminate idling vibration
+            if (dist < 1.0 && Math.abs(diffHeading) < 5) {
                 return;
             }
             
@@ -1269,13 +1317,6 @@
             }
             
             const startTime = performance.now();
-            const startBearing = marker._currentBearing !== undefined ? marker._currentBearing : (targetHeading || 0);
-            
-            let diffHeading = 0;
-            if (targetHeading !== undefined && targetHeading !== null) {
-                diffHeading = ((targetHeading - startBearing + 540) % 360) - 180;
-            }
-            
             const animDuration = Math.min(Math.max(durationMs || 1500, 800), 2500);
             
             function step(now) {
@@ -1333,7 +1374,7 @@
                         ${isOnline ? `<div class="live-pulse-ring" style="position:absolute; top:0; left:0; width:44px; height:44px; border-radius:50%; background:${iconBgColor}33; pointer-events:none;"></div>` : ''}
                         
                         <!-- Smooth Directional Rotator that turns with heading -->
-                        <div class="truck-rotator" style="position:absolute; top:0; left:0; width:44px; height:44px; display:flex; align-items:center; justify-content:center; transform:rotate(${Math.round(rot)}deg); transform-origin:50% 50%; transition:transform 0.25s cubic-bezier(0.4, 0, 0.2, 1); z-index:3;">
+                        <div class="truck-rotator" style="position:absolute; top:0; left:0; width:44px; height:44px; display:flex; align-items:center; justify-content:center; transform:rotate(${Math.round(rot)}deg); transform-origin:50% 50%; transition:none; z-index:3;">
                             <!-- Forward Direction Pointer Arrowhead -->
                             <div style="position:absolute; top:-5px; left:50%; transform:translateX(-50%); width:0; height:0; border-left:6px solid transparent; border-right:6px solid transparent; border-bottom:8px solid ${iconBgColor}; filter:drop-shadow(0 -1px 2px rgba(0,0,0,0.35));"></div>
                             
@@ -1561,7 +1602,11 @@
                 cardsHtml = `<div style="text-align:center; padding: 30px 20px; color:var(--text-muted); font-size:14px;"><i class="fa-solid fa-truck" style="font-size:24px; opacity:0.4; margin-bottom:10px; display:block;"></i>All trucks are currently offline.<br><span style="font-size:12px;">Waiting for active fleet...</span></div>`;
             }
             
-            document.getElementById('truck-list').innerHTML = cardsHtml;
+            // Update truck cards only when HTML structure actually changes (prevents DOM thrashing and scroll jumps)
+            if (window._lastCardsHtml !== cardsHtml) {
+                document.getElementById('truck-list').innerHTML = cardsHtml;
+                window._lastCardsHtml = cardsHtml;
+            }
             
             // Build Truck Filter Pills
             let filterBar = document.getElementById('truck-filter-bar');
@@ -1583,45 +1628,43 @@
                         </button>
                     `;
                 });
-                filterBar.innerHTML = filterHtml;
+                if (window._lastFilterHtml !== filterHtml) {
+                    filterBar.innerHTML = filterHtml;
+                    window._lastFilterHtml = filterHtml;
+                }
             }
             
             let fleetLeft = fleetTotal - fleetComp - fleetSkip - fleetCanc;
             let fleetPct = fleetTotal > 0 ? Math.round((fleetComp / fleetTotal) * 100) : 0;
             
-            document.getElementById('fleet-summary').innerHTML = `
-                <div class="fleet-stat">
-                    <div class="fleet-stat-val" style="color:#10b981;">${fleetComp}</div>
-                    <div class="fleet-stat-label">Done</div>
-                </div>
-                <div class="fleet-stat">
-                    <div class="fleet-stat-val" style="color:#ef4444;">${fleetSkip}</div>
-                    <div class="fleet-stat-label">Skip</div>
-                </div>
-                <div class="fleet-stat" title="Cancelled">
-                    <div class="fleet-stat-val" style="color:#f87171;">${fleetCanc}</div>
-                    <div class="fleet-stat-label">Canc</div>
-                </div>
-                <div class="fleet-stat">
-                    <div class="fleet-stat-val">${fleetLeft}</div>
-                    <div class="fleet-stat-label">Left</div>
-                </div>
-                <div class="fleet-stat">
-                    <div class="fleet-stat-val" style="color:var(--primary);">${fleetPct}%</div>
-                    <div class="fleet-stat-label">Progress</div>
-                </div>
-            `;
+            // Update summary stats in place without destroying DOM elements (Zero CLS)
+            let elComp = document.getElementById('stat-comp');
+            let elSkip = document.getElementById('stat-skip');
+            let elCanc = document.getElementById('stat-canc');
+            let elLeft = document.getElementById('stat-left');
+            let elPct = document.getElementById('stat-pct');
+            if (elComp && elSkip && elCanc && elLeft && elPct) {
+                elComp.textContent = fleetComp;
+                elSkip.textContent = fleetSkip;
+                elCanc.textContent = fleetCanc;
+                elLeft.textContent = fleetLeft;
+                elPct.textContent = fleetPct + '%';
+            }
             
-            document.getElementById('fleet-prog-bar').innerHTML = `
-                <div class="prog-bar-comp" style="width: ${fleetTotal > 0 ? (fleetComp/fleetTotal)*100 : 0}%"></div>
-                <div class="prog-bar-skip" style="width: ${fleetTotal > 0 ? (fleetSkip/fleetTotal)*100 : 0}%"></div>
-                <div class="prog-bar-canc" style="width: ${fleetTotal > 0 ? (fleetCanc/fleetTotal)*100 : 0}%; background:#fca5a5;"></div>
-            `;
+            let pComp = document.getElementById('prog-bar-comp');
+            let pSkip = document.getElementById('prog-bar-skip');
+            let pCanc = document.getElementById('prog-bar-canc');
+            if (pComp && pSkip && pCanc) {
+                pComp.style.width = (fleetTotal > 0 ? (fleetComp/fleetTotal)*100 : 0) + '%';
+                pSkip.style.width = (fleetTotal > 0 ? (fleetSkip/fleetTotal)*100 : 0) + '%';
+                pCanc.style.width = (fleetTotal > 0 ? (fleetCanc/fleetTotal)*100 : 0) + '%';
+            }
 
-            updateMapPopups();
+            updateLiveTruckMarkers();
         }
         
-        function updateMapPopups() {
+        // Authoritative live truck marker update - runs on incoming telemetry events
+        function updateLiveTruckMarkers() {
             let bounds = L.latLngBounds();
             let hasLive = false;
             
@@ -1646,15 +1689,12 @@
                 let coords = getTruckCoords(tData);
                 let isOnline = isTruckOnline(tData);
                 
-                // If truck is offline (logged out) or has no GPS, remove marker from live map
                 let strId = String(tId);
                 let hasAssigned = Boolean(driverAssignedRoutes[tId] || driverAssignedRoutes[strId]);
                 let st = truckStats[tId];
                 let isFinished = (hasAssigned && st && st.total > 0 && st.left === 0);
                 let gpsInfo = getGpsStatusInfo(tData, isFinished);
 
-                // Preserve marker at last known fix even if truck is offline!
-                // Only remove marker if: no coordinates ever received, no assigned route, or route finished & offline
                 if (!coords || !hasAssigned || (isFinished && !isOnline)) {
                     if (liveTruckMarkers[tId]) {
                         if (liveTruckMarkers[tId]._animFrameId) {
@@ -1671,12 +1711,10 @@
                 let dName = driverMap[tId] || driverMap[strId] || (tData && tData.driverName) || 'Unassigned';
                 let tColor = getTruckColor(tId);
 
-                // Smart Road-Snapping to keep vehicle on street and out of buildings (65m urban tolerance)
                 let snap = snapToRoad(lat, lng, strId, 65);
                 let finalLat = snap.lat;
                 let finalLng = snap.lng;
 
-                // Determine directional heading (GPS hardware -> road bearing -> motion vector)
                 let heading = (tData.heading !== undefined && tData.heading !== null && !isNaN(tData.heading) && Number(tData.heading) > 0) ? Number(tData.heading) : null;
                 if (heading === null) {
                     if (snap.snapped && snap.heading !== null) {
@@ -1691,12 +1729,10 @@
                 if (heading === null) heading = 0;
                 
                 if (liveTruckMarkers[tId]) {
-                    // Only re-create icon if GPS status state actually changed
                     if (liveTruckMarkers[tId]._lastGpsState !== gpsInfo.state) {
                         liveTruckMarkers[tId].setIcon(createMarkerIcon(tId, gpsInfo, heading, dName));
                         liveTruckMarkers[tId]._lastGpsState = gpsInfo.state;
                     }
-                    // 60 FPS Uber-style smooth glide animation
                     animateTruckMarker(liveTruckMarkers[tId], finalLat, finalLng, heading, 1500);
                 } else {
                     liveTruckMarkers[tId] = L.marker([finalLat, finalLng], { icon: createMarkerIcon(tId, gpsInfo, heading, dName) }).addTo(map);
@@ -1708,6 +1744,7 @@
                         if (!visibleRouteTrucks.has(String(tId)) || visibleRouteTrucks.size > 1) {
                             visibleRouteTrucks.clear();
                             visibleRouteTrucks.add(String(tId));
+                            window._routesNeedRender = true;
                             renderRoutesOnMap();
                             renderProgress();
                             updateToggleAllButton();
@@ -1716,28 +1753,7 @@
                 }
                 
                 let countsStr = (st && hasAssigned) ? `<br><span style="font-size:12px; color:#64748b;">${st.comp} done &middot; ${st.left} left</span>` : `<br><span style="font-size:12px; color:#64748b;">Standby / No Route Assigned</span>`;
-                let timeStr = '<span style="color:#64748b; font-weight:600;">⚪ Offline (Last Known Fix)</span>';
-                let latestTime = tData.lastUpdated || tData.timestamp;
-                if (latestTime) {
-                    let diffSeconds = Math.max(0, Math.floor((Date.now() - latestTime) / 1000));
-                    if (tData.status === 'gps_disabled') {
-                        timeStr = `<span style="color:#ef4444; font-weight:700;">🔴 GPS PERMISSION DISABLED</span>`;
-                    } else if (diffSeconds < 20) {
-                        timeStr = `<span style="color:#10b981; font-weight:700;">🟢 LIVE</span>`;
-                    } else if (diffSeconds < 60) {
-                        timeStr = `<span style="color:#10b981; font-weight:700;">🟢 LIVE (${diffSeconds}s ago)</span>`;
-                    } else if (diffSeconds < 180) {
-                        timeStr = `<span style="color:#f59e0b; font-weight:700;">🟡 RECENT (${Math.floor(diffSeconds/60)}m ago)</span>`;
-                    } else if (diffSeconds < 3600) {
-                        timeStr = `<span style="color:#f59e0b; font-weight:700;">🟡 STALE (${Math.floor(diffSeconds/60)}m ago)</span>`;
-                    } else {
-                        let hrs = Math.floor(diffSeconds / 3600);
-                        let mins = Math.floor((diffSeconds % 3600) / 60);
-                        timeStr = `<span style="color:#64748b; font-weight:700;">⚪ OFFLINE (${hrs > 0 ? hrs + 'h ' : ''}${mins}m ago)</span>`;
-                    }
-                } else if (isOnline) {
-                    timeStr = '<span style="color:#10b981; font-weight:700;">🟢 LIVE</span>';
-                }
+                let timeStr = getRelativeTimeString(tData, isOnline);
                 
                 let isRouteActive = visibleRouteTrucks.has(String(tId));
                 let isOnlyThis = (visibleRouteTrucks.size === 1 && visibleRouteTrucks.has(String(tId)));
@@ -1784,7 +1800,6 @@
                 bounds.extend([lat, lng]);
             });
             
-            // Remove markers for trucks that are no longer in active fleet
             for (let tId in liveTruckMarkers) {
                 if (!allTrackableTruckIds.has(String(tId))) {
                     if (liveTruckMarkers[tId]._animFrameId) {
@@ -1796,17 +1811,71 @@
                 }
             }
             
+            // Only perform initial bounding box fit once per page lifecycle
             if (hasLive && !window.hasFitBounds) {
                 map.fitBounds(bounds, { padding: [50, 50], maxZoom: 15 });
                 window.hasFitBounds = true;
             }
 
-            renderRoutesOnMap();
+            // Route lines only re-render if route data changed
+            if (window._routesNeedRender) {
+                renderRoutesOnMap();
+            }
             updateGlobalLiveIndicator();
         }
+
+        function getRelativeTimeString(tData, isOnline) {
+            let latestTime = tData ? (tData.lastUpdated || tData.timestamp) : null;
+            if (latestTime) {
+                let diffSeconds = Math.max(0, Math.floor((Date.now() - latestTime) / 1000));
+                if (tData.status === 'gps_disabled') {
+                    return `<span style="color:#ef4444; font-weight:700;">🔴 GPS PERMISSION DISABLED</span>`;
+                } else if (diffSeconds < 20) {
+                    return `<span style="color:#10b981; font-weight:700;">🟢 LIVE</span>`;
+                } else if (diffSeconds < 60) {
+                    return `<span style="color:#10b981; font-weight:700;">🟢 LIVE (${diffSeconds}s ago)</span>`;
+                } else if (diffSeconds < 180) {
+                    return `<span style="color:#f59e0b; font-weight:700;">🟡 RECENT (${Math.floor(diffSeconds/60)}m ago)</span>`;
+                } else if (diffSeconds < 3600) {
+                    return `<span style="color:#f59e0b; font-weight:700;">🟡 STALE (${Math.floor(diffSeconds/60)}m ago)</span>`;
+                } else {
+                    let hrs = Math.floor(diffSeconds / 3600);
+                    let mins = Math.floor((diffSeconds % 3600) / 60);
+                    return `<span style="color:#64748b; font-weight:700;">⚪ OFFLINE (${hrs > 0 ? hrs + 'h ' : ''}${mins}m ago)</span>`;
+                }
+            } else if (isOnline) {
+                return '<span style="color:#10b981; font-weight:700;">🟢 LIVE</span>';
+            }
+            return '<span style="color:#64748b; font-weight:600;">⚪ Offline (Last Known Fix)</span>';
+        }
         
-        // Refresh popup time counters every second so the display never stays frozen
-        setInterval(updateMapPopups, 1000);
+        // Refresh popup time counters every second without triggering marker animations or route redrawing
+        function updateTimeCounters() {
+            for (let tId in liveTruckMarkers) {
+                let marker = liveTruckMarkers[tId];
+                if (marker && marker.isPopupOpen()) {
+                    let tData = getTruckData(tId);
+                    let isOnline = isTruckOnline(tData);
+                    let timeStr = getRelativeTimeString(tData, isOnline);
+                    let popup = marker.getPopup();
+                    if (popup) {
+                        let content = popup.getContent();
+                        if (typeof content === 'string') {
+                            let updated = content.replace(/(<div style="font-size:12px;">)(.*?)(<\/div>)/, (m, p1, p2, p3) => {
+                                let parts = p2.split('&bull;');
+                                let accAndSpeed = parts.length > 1 ? '&bull;' + parts.slice(1).join('&bull;') : '';
+                                return p1 + timeStr + accAndSpeed + p3;
+                            });
+                            if (updated !== content) {
+                                popup.setContent(updated);
+                            }
+                        }
+                    }
+                }
+            }
+            updateGlobalLiveIndicator();
+        }
+        setInterval(updateTimeCounters, 1000);
 
         function getAllTrackableTruckIds() {
             let ids = new Set();
@@ -1833,6 +1902,7 @@
                 visibleRouteTrucks.add(strId);
             }
             
+            window._routesNeedRender = true;
             renderRoutesOnMap();
             renderProgress();
             updateToggleAllButton();
@@ -1861,6 +1931,7 @@
                     visibleRouteTrucks.delete(strId);
                 }
             }
+            window._routesNeedRender = true;
             renderRoutesOnMap();
             renderProgress();
             updateToggleAllButton();
@@ -1881,6 +1952,7 @@
             } else {
                 visibleRouteTrucks.clear();
             }
+            window._routesNeedRender = true;
             renderRoutesOnMap();
             renderProgress();
             updateToggleAllButton();
@@ -2473,20 +2545,6 @@
                         else existing.marker.bindPopup(popupHtml, { autoPan: true, closeButton: true });
                         existing.popupHtml = popupHtml;
                     }
-                    // Safely detach previous clickHandler reference without destroying Leaflet internal popup handlers
-                    if (existing.clickHandler) {
-                        existing.marker.off('click', existing.clickHandler);
-                    }
-                    existing.clickHandler = (e) => {
-                        if (e && e.originalEvent) {
-                            L.DomEvent.stopPropagation(e);
-                        }
-                        existing.marker.openPopup();
-                        if (cl.customers.length > 1) {
-                            spiderfyCluster(cl, strId, color);
-                        }
-                    };
-                    existing.marker.on('click', existing.clickHandler);
                 }
 
                 cl.customers.forEach(c => {
@@ -2724,7 +2782,10 @@
                 });
         }
 
-        function renderRoutesOnMap() {
+        window._routesNeedRender = true;
+        function renderRoutesOnMap(force) {
+            if (!force && !window._routesNeedRender) return;
+            window._routesNeedRender = false;
             // Remove layers for trucks that are no longer visible or no longer have an assigned route
             for (let tId in activeRouteLayers) {
                 const strId = String(tId);
@@ -3470,6 +3531,37 @@
         setInterval(() => {
             getAllTruckIdsForChat().forEach(id => ensureAdminTruckMessageListener(id));
         }, 15000);
+
+        // Page lifecycle cleanup for listeners, animation frames, and route retry timers
+        window.cleanupLiveTracking = function() {
+            if (window.activeFirebaseListeners) {
+                for (let k in window.activeFirebaseListeners) {
+                    if (typeof unregisterFirebaseListener === 'function') {
+                        unregisterFirebaseListener(k);
+                    }
+                }
+            }
+            if (typeof liveTruckMarkers !== 'undefined') {
+                for (let tId in liveTruckMarkers) {
+                    if (liveTruckMarkers[tId] && liveTruckMarkers[tId]._animFrameId) {
+                        cancelAnimationFrame(liveTruckMarkers[tId]._animFrameId);
+                        liveTruckMarkers[tId]._animFrameId = null;
+                    }
+                }
+            }
+            if (typeof activeRouteLayers !== 'undefined') {
+                for (let tId in activeRouteLayers) {
+                    let state = activeRouteLayers[tId];
+                    if (state) {
+                        if (state.retryTimer) clearTimeout(state.retryTimer);
+                        if (state.approachRetryTimer) clearTimeout(state.approachRetryTimer);
+                        if (state.approachCooldownTimer) clearTimeout(state.approachCooldownTimer);
+                        if (state.staggerTimer) clearTimeout(state.staggerTimer);
+                    }
+                }
+            }
+        };
+        window.addEventListener('beforeunload', window.cleanupLiveTracking);
     </script>
 </body>
 </html>
