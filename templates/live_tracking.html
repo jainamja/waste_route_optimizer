@@ -503,6 +503,7 @@
         const firebaseConfig = {
             apiKey: "AIzaSyAhLnjh0gRa2pf29G90zr-6AMcjLjbQpPg",
             authDomain: "wasteroutelive.firebaseapp.com",
+            databaseURL: "https://wasteroutelive-default-rtdb.firebaseio.com",
             projectId: "wasteroutelive",
             storageBucket: "wasteroutelive.firebasestorage.app",
             messagingSenderId: "141692937729",
@@ -549,6 +550,47 @@
         window.routesData = window.routesData || {};
         var routesData = window.routesData;
 
+        window.liveTrucks = window.liveTrucks || {};
+        window.driverLocations = window.driverLocations || {};
+
+        function parseTimestamp(val) {
+            if (!val) return 0;
+            if (typeof val === 'number') return val;
+            let n = Number(val);
+            if (!isNaN(n) && n > 0) return n;
+            let p = Date.parse(val);
+            return isNaN(p) ? 0 : p;
+        }
+        window.parseTimestamp = parseTimestamp;
+
+        function mergeLocationData(targetDict, key, data) {
+            if (!data || !key) return;
+            let strKey = String(key);
+            let existing = targetDict[strKey] || targetDict[key] || {};
+            let merged = Object.assign({}, existing);
+            for (let prop in data) {
+                if (data[prop] !== undefined && data[prop] !== null) {
+                    merged[prop] = data[prop];
+                }
+            }
+            // Never lose existing valid coordinates if incoming status patch lacks them
+            if (data.currentLat === undefined && data.lat === undefined && data.latitude === undefined) {
+                if (existing.currentLat !== undefined) merged.currentLat = existing.currentLat;
+                if (existing.currentLng !== undefined) merged.currentLng = existing.currentLng;
+                if (existing.lat !== undefined) merged.lat = existing.lat;
+                if (existing.lng !== undefined) merged.lng = existing.lng;
+                if (existing.latitude !== undefined) merged.latitude = existing.latitude;
+                if (existing.longitude !== undefined) merged.longitude = existing.longitude;
+            }
+            targetDict[strKey] = merged;
+            targetDict[key] = merged;
+        }
+        window.mergeLocationData = mergeLocationData;
+        window.mergeTruckData = function(key, data) {
+            mergeLocationData(window.liveTrucks, key, data);
+        };
+        var mergeTruckData = window.mergeTruckData;
+
         fetch('/api/firebase_custom_token')
             .then(r => r.json())
             .then(d => {
@@ -560,46 +602,14 @@
                 console.warn("[FIREBASE] Admin custom token auth warning:", err);
             })
             .then(() => {
-            if (!window.liveTrucks) window.liveTrucks = {};
-
-            function parseTimestamp(val) {
-                if (!val) return 0;
-                if (typeof val === 'number') return val;
-                let n = Number(val);
-                if (!isNaN(n) && n > 0) return n;
-                let p = Date.parse(val);
-                return isNaN(p) ? 0 : p;
-            }
-
-            function mergeTruckData(key, data) {
-                if (!data || !key) return;
-                let existing = window.liveTrucks[key] || {};
-                let merged = Object.assign({}, existing);
-                for (let prop in data) {
-                    if (data[prop] !== undefined && data[prop] !== null) {
-                        merged[prop] = data[prop];
-                    }
-                }
-                // Never lose existing valid coordinates if incoming status patch lacks them
-                if (data.currentLat === undefined && data.lat === undefined && data.latitude === undefined) {
-                    if (existing.currentLat !== undefined) merged.currentLat = existing.currentLat;
-                    if (existing.currentLng !== undefined) merged.currentLng = existing.currentLng;
-                    if (existing.lat !== undefined) merged.lat = existing.lat;
-                    if (existing.lng !== undefined) merged.lng = existing.lng;
-                    if (existing.latitude !== undefined) merged.latitude = existing.latitude;
-                    if (existing.longitude !== undefined) merged.longitude = existing.longitude;
-                }
-                window.liveTrucks[key] = merged;
-            }
-
             // 1. Listen to driver_locations node
             db.ref('driver_locations').on('value', snap => {
                 let locs = snap.val() || {};
                 for (let k in locs) {
                     if (locs[k]) {
-                        mergeTruckData(k, locs[k]);
+                        mergeLocationData(window.driverLocations, k, locs[k]);
                         if (locs[k].truckId) {
-                            mergeTruckData(String(locs[k].truckId), locs[k]);
+                            mergeLocationData(window.liveTrucks, String(locs[k].truckId), locs[k]);
                         }
                     }
                 }
@@ -615,11 +625,7 @@
                 let tData = snap.val() || {};
                 for (let tId in tData) {
                     if (tData[tId]) {
-                        mergeTruckData(String(tId), tData[tId]);
-                        let dId = truckToDriver[tId];
-                        if (dId) {
-                            mergeTruckData(String(dId), tData[tId]);
-                        }
+                        mergeLocationData(window.liveTrucks, String(tId), tData[tId]);
                     }
                 }
                 scheduleRender();
@@ -848,6 +854,7 @@
 
         function fallbackToIndividualListeners() {
             if (!window.liveTrucks) window.liveTrucks = {};
+            if (!window.driverLocations) window.driverLocations = {};
             let keys = Object.keys(driverMap);
             for (let rk in routesData) {
                 if (rk.startsWith('route_')) keys.push(rk.replace('route_', ''));
@@ -867,11 +874,7 @@
                     db.ref('trucks/' + tId).on('value', snap => {
                         let tData = snap.val();
                         if (tData) {
-                            window.liveTrucks[tId] = Object.assign(window.liveTrucks[tId] || {}, tData);
-                            let dId = truckToDriver[tId] || driverId;
-                            if (dId) {
-                                window.liveTrucks[dId] = Object.assign(window.liveTrucks[dId] || {}, tData);
-                            }
+                            mergeLocationData(window.liveTrucks, String(tId), tData);
                             scheduleRender();
                         }
                     });
@@ -883,8 +886,8 @@
                     db.ref('driver_locations/' + driverId).on('value', snap => {
                         let tData = snap.val();
                         if (tData) {
-                            window.liveTrucks[driverId] = Object.assign(window.liveTrucks[driverId] || {}, tData);
-                            window.liveTrucks[tId] = Object.assign(window.liveTrucks[tId] || {}, tData);
+                            mergeLocationData(window.driverLocations, String(driverId), tData);
+                            mergeLocationData(window.liveTrucks, String(tId), tData);
                             scheduleRender();
                         }
                     });
@@ -906,19 +909,35 @@
         function getTruckData(tId) {
             if (!tId) return null;
             let trucks = window.liveTrucks || {};
+            let drivers = window.driverLocations || {};
             let strTId = String(tId);
             let dId = truckToDriver[tId] || truckToDriver[strTId];
             let strDId = dId ? String(dId) : null;
             
             let nodes = [];
-            [trucks[tId], trucks[strTId], dId ? trucks[dId] : null, strDId ? trucks[strDId] : null].forEach(n => {
+            [trucks[tId], trucks[strTId]].forEach(n => {
                 if (n && !nodes.includes(n)) nodes.push(n);
             });
+            if (dId && drivers[dId] && !nodes.includes(drivers[dId])) {
+                nodes.push(drivers[dId]);
+            }
+            if (strDId && drivers[strDId] && !nodes.includes(drivers[strDId])) {
+                nodes.push(drivers[strDId]);
+            }
             
             for (let k in trucks) {
                 let node = trucks[k];
                 if (!node) continue;
-                if (String(node.truckId) === strTId || String(node.truck_id) === strTId || (strDId && String(node.driverId) === strDId)) {
+                if (String(node.truckId) === strTId || String(node.truck_id) === strTId) {
+                    if (!nodes.includes(node)) nodes.push(node);
+                }
+            }
+            for (let k in drivers) {
+                let node = drivers[k];
+                if (!node) continue;
+                if (strDId && String(node.driverId) === strDId) {
+                    if (!nodes.includes(node)) nodes.push(node);
+                } else if (String(node.truckId) === strTId || String(node.truck_id) === strTId) {
                     if (!nodes.includes(node)) nodes.push(node);
                 }
             }
