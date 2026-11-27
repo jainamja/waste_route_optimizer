@@ -449,38 +449,6 @@
     
     <div class="main-content">
         <div id="map"></div>
-        <!-- Floating On-Map Map Legend -->
-        <div class="map-legend-card" id="map-legend" style="position: absolute; bottom: 24px; left: 24px; z-index: 999; background: var(--bg-card, rgba(255,255,255,0.96)); backdrop-filter: blur(8px); padding: 10px 14px; border-radius: 10px; border: 1px solid var(--border-color, #cbd5e1); box-shadow: 0 4px 16px rgba(0,0,0,0.12); font-family: inherit; font-size: 11px; pointer-events: auto; max-width: 260px;">
-            <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:6px;">
-                <span style="font-weight: 800; text-transform: uppercase; color: var(--text-muted, #64748b); letter-spacing: 0.5px; font-size: 10px;">Map Legend</span>
-            </div>
-            <div class="legend-items" style="display: flex; flex-direction: column; gap: 5px;">
-                <div style="display: flex; align-items: center; gap: 8px;">
-                    <span style="width: 18px; height: 4px; background: #2563eb; border-radius: 2px; display: inline-block;"></span>
-                    <span style="font-weight: 600; color: var(--text-color, #1e293b);">Planned Road Route</span>
-                </div>
-                <div style="display: flex; align-items: center; gap: 8px;">
-                    <span style="width: 18px; height: 0px; border-top: 2px dashed #10b981; display: inline-block;"></span>
-                    <span style="font-weight: 600; color: var(--text-color, #1e293b);">GPS Trail (Breadcrumbs)</span>
-                </div>
-                <div style="display: flex; align-items: center; gap: 8px;">
-                    <span style="width: 10px; height: 10px; border-radius: 50%; background: #2563eb; border: 2px solid #10b981; display: inline-block;"></span>
-                    <span style="font-weight: 600; color: var(--text-color, #1e293b);">Live Truck (Online)</span>
-                </div>
-                <div style="display: flex; align-items: center; gap: 8px;">
-                    <span style="width: 10px; height: 10px; border-radius: 50%; background: #64748b; border: 2px solid #cbd5e1; display: inline-block;"></span>
-                    <span style="font-weight: 600; color: var(--text-color, #1e293b);">Last Known Fix (Offline/Stale)</span>
-                </div>
-                <div style="display: flex; align-items: center; gap: 8px;">
-                    <span style="width: 14px; height: 14px; border-radius: 50%; background: #2563eb; color: white; font-size: 8px; font-weight: 800; display: inline-flex; align-items: center; justify-content: center;">#1</span>
-                    <span style="font-weight: 600; color: var(--text-color, #1e293b);">Customer Stop Pin</span>
-                </div>
-                <div style="display: flex; align-items: center; gap: 8px;">
-                    <span style="width: 14px; height: 14px; border-radius: 4px; background: #0f172a; color: white; font-size: 8px; display: inline-flex; align-items: center; justify-content: center;"><i class="fa-solid fa-warehouse"></i></span>
-                    <span style="font-weight: 600; color: var(--text-color, #1e293b);">Depot (Return Location)</span>
-                </div>
-            </div>
-        </div>
         <div id="progress-panel" class="progress-panel">
             <div class="panel-header" onclick="this.parentElement.classList.toggle('collapsed')">
                 <div class="drag-handle"></div>
